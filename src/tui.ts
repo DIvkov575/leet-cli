@@ -13,14 +13,13 @@ import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 
 /**
- * Interactive full-screen browser for the bundled lists. This is a complete
- * front-end for the other subcommands: filter (done/todo, difficulty, search),
- * sort, switch lists, jump to a random problem, refresh metadata from LeetCode,
- * import completions from an external source, toggle done, open in the browser,
- * and Tab into a preview pane that lazily fetches the live problem statement.
+ * Interactive full-screen browser for the bundled lists — the primary way to
+ * use the tool and a front-end for every subcommand. Actions live in a Tab-able
+ * menu bar (Filter/Sort/Search/List/Refresh/Import/…) so nothing needs to be
+ * memorized; the list stays navigable with the arrow keys throughout.
  *
- * All layout math is in pure exported helpers so it can be unit-tested without
- * a real terminal; the runtime section wires them to raw-mode stdin.
+ * All layout/logic math is in pure exported helpers so it can be unit-tested
+ * without a real terminal; the runtime section wires them to raw-mode stdin.
  */
 
 // ─── pure layout / logic helpers (tested) ─────────────────────────────────
@@ -38,10 +37,15 @@ export function cycleDifficulty(cur: Difficulty | undefined): Difficulty | undef
   return order[(order.indexOf(cur) + 1) % order.length];
 }
 
-/** Cycle sort key: id → acc → difficulty → title → id. */
-export function cycleSort(cur: SortKey): SortKey {
-  const order: SortKey[] = ["id", "acc", "difficulty", "title"];
-  return order[(order.indexOf(cur) + 1) % order.length]!;
+/**
+ * Cycle sort key + direction together, so a single action steps through every
+ * ordering: id↑ → id↓ → acc↑ → acc↓ → difficulty↑ → … → title↓ → id↑.
+ */
+export function cycleSortState(key: SortKey, desc: boolean): { key: SortKey; desc: boolean } {
+  const keys: SortKey[] = ["id", "acc", "difficulty", "title"];
+  const seq = keys.indexOf(key) * 2 + (desc ? 1 : 0);
+  const next = (seq + 1) % (keys.length * 2);
+  return { key: keys[Math.floor(next / 2)]!, desc: next % 2 === 1 };
 }
 
 /** Truncate to `width` display columns, marking cuts with a trailing "…". */
@@ -125,6 +129,37 @@ export function wrapText(text: string, width: number): string[] {
   return out;
 }
 
+// ─── menu bar ───────────────────────────────────────────────────────────────
+
+export type MenuAction =
+  | "filter"
+  | "diff"
+  | "sort"
+  | "search"
+  | "list"
+  | "open"
+  | "refresh"
+  | "import"
+  | "help";
+
+export interface MenuItem {
+  label: string;
+  action: MenuAction;
+}
+
+/** The Tab-able menu bar, left to right. */
+export const MENU_ITEMS: readonly MenuItem[] = [
+  { label: "Filter", action: "filter" },
+  { label: "Difficulty", action: "diff" },
+  { label: "Sort", action: "sort" },
+  { label: "Search", action: "search" },
+  { label: "List", action: "list" },
+  { label: "Open", action: "open" },
+  { label: "Refresh", action: "refresh" },
+  { label: "Import", action: "import" },
+  { label: "Help", action: "help" },
+];
+
 // ─── ANSI ──────────────────────────────────────────────────────────────────
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -168,6 +203,8 @@ interface PickerState {
   index: number;
 }
 
+type Focus = "list" | "menu" | "preview";
+
 interface State {
   list: ProblemList;
   listNames: string[];
@@ -180,7 +217,8 @@ interface State {
   filtered: Problem[];
   cursor: number;
   top: number;
-  focus: "list" | "preview";
+  focus: Focus;
+  menuIndex: number;
   preview: PreviewState;
   maxId: number;
   /** Transient message shown in the footer (cleared on next navigation). */
@@ -223,30 +261,25 @@ async function switchList(s: State, name: string): Promise<void> {
 // ─── rendering (pure: state + dims -> lines) ───────────────────────────────
 
 const HELP_LINES = [
-  "  leet tui — key bindings",
+  "  leet — key bindings",
+  "",
+  "  The menu bar (second line) holds every action. Tab / Shift-Tab move",
+  "  between items, Enter fires the highlighted one. The arrow keys keep",
+  "  scrolling the list even while the menu is focused.",
   "",
   "  Navigation",
   "    ↑ ↓ / j k     move cursor (scroll preview when focused)",
   "    g / G         jump to top / bottom",
   "    PgUp / PgDn   page up / down",
-  "    r             jump to a random problem in the view",
-  "",
-  "  Filter & sort",
-  "    f             done filter: all → todo → done",
-  "    d             difficulty: any → Easy → Medium → Hard",
-  "    s             sort: id → acc → difficulty → title",
-  "    S             toggle ascending / descending",
-  "    /             search by title",
-  "",
-  "  Actions",
+  "    Enter         preview the selected problem",
   "    Space         toggle done (saved immediately)",
-  "    Enter / Tab   open / focus the preview pane",
-  "    o             open the problem in the browser",
-  "    L             switch to another list",
-  "    R             refresh this list's metadata from LeetCode",
-  "    i             import completions from a path / GitHub repo",
+  "    Tab / S-Tab   focus / cycle the menu bar",
+  "    Esc           leave menu / preview, clear messages",
+  "    q             quit",
   "",
-  "  ? toggle this help    Esc close    q quit",
+  "  Direct shortcuts (same as the menu items)",
+  "    f filter   d difficulty   s sort   / search   r random",
+  "    L list     o open         R refresh   i import   ? help",
 ];
 
 /** Build the full frame: exactly `rows` lines, each padded to `cols` columns. */
@@ -256,7 +289,7 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
     const lines = s.picker.items.map((name, i) => {
       const marker = i === s.picker!.index ? "▸ " : "  ";
       const row = `  ${marker}${name}`;
-      return i === s.picker!.index ? paint(row, "rev") : row;
+      return i === s.picker!.index ? paint(fit(row, cols), "rev") : row;
     });
     return renderOverlay(
       ["  Choose a list:", "", ...lines],
@@ -270,23 +303,28 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   const listW = showPreview ? Math.max(40, Math.floor(cols * 0.5)) : cols;
   const previewW = showPreview ? cols - listW - 1 : 0;
 
-  const bodyH = rows - 2; // header + footer
+  if (s.focus === "preview" && !showPreview) return renderPreviewFull(s, rows, cols);
+
+  const bodyH = rows - 3; // status + menu + footer
   const cols5 = layoutColumns(listW, s.maxId);
 
-  // Header.
-  const sortBits = `sort:${s.sortKey}${s.sortDesc ? "↓" : "↑"}`;
-  const filterBits = [
-    `filter:${s.doneFilter}`,
-    `diff:${s.diff ?? "any"}`,
-    sortBits,
-    s.search ? `search:"${s.search}"` : "",
+  // Line 0 — status: list name, match count, active view settings.
+  const settings = [
+    `${s.doneFilter}`,
+    s.diff ?? "any",
+    `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`,
+    s.search ? `"${s.search}"` : "",
   ]
     .filter(Boolean)
-    .join("  ");
-  const header = fit(
-    ` ${s.list.name}  ${s.filtered.length}/${s.list.problems.length}  ${filterBits}`,
-    cols,
+    .join(" · ");
+  const status = paint(
+    fit(` ${s.list.name}   ${s.filtered.length}/${s.list.problems.length}   ${settings}`, cols),
+    "bold",
+    "cyan",
   );
+
+  // Line 1 — menu bar.
+  const menuBar = renderMenuBar(s, cols);
 
   // List body.
   s.top = computeTop(s.cursor, s.filtered.length, bodyH, s.top);
@@ -298,24 +336,10 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
       listLines.push(" ".repeat(listW));
       continue;
     }
-    const isDone = s.completed.has(p.id);
-    const selected = idx === s.cursor;
-    const status = isDone ? "✓" : " ";
-    const accStr = p.acceptance === null ? "—" : `${p.acceptance.toFixed(1)}%`;
-    const raw =
-      `${status} ` +
-      `${String(p.id).padStart(cols5.idW)} ` +
-      `${fit(p.title, cols5.titleW)} ` +
-      `${accStr.padStart(cols5.accW)} ` +
-      `${fit(p.difficulty, cols5.diffW)}`;
-    const line = fit(raw, listW);
-    if (selected && s.focus === "list") listLines.push(paint(line, "rev"));
-    else if (selected) listLines.push(paint(line, "bold"));
-    else if (isDone) listLines.push(paint(line, "dim"));
-    else listLines.push(line);
+    listLines.push(styleListRow(s, p, idx === s.cursor, cols5, listW));
   }
 
-  // Footer: input prompt > transient status > key hint.
+  // Footer — prompt > transient status > minimal hint.
   let footer: string;
   if (s.input) {
     const label = s.input.kind === "search" ? "/" : "import: ";
@@ -324,30 +348,65 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
     footer = paint(fit(` ${s.status}`, cols), "cyan");
   } else {
     footer = paint(
-      fit(
-        " jk move · Space done · f filter · d diff · s sort · / search · Tab preview · L list · R refresh · i import · ? help · q quit",
-        cols,
-      ),
+      fit(" Tab menu · ↑↓ move · Enter preview · Space done · q quit · ? help", cols),
       "dim",
     );
   }
 
-  if (!showPreview) {
-    if (s.focus === "preview") return renderPreviewFull(s, rows, cols);
-    return [paint(header, "bold", "cyan"), ...listLines, footer];
-  }
+  if (!showPreview) return [status, menuBar, ...listLines, footer];
 
-  // Side-by-side: compose list | preview per row.
+  // Side-by-side: compose list │ preview per row.
   const previewLines = renderPreviewPane(s, bodyH, previewW);
-  const bodyRows: string[] = [];
   const sep = paint("│", "dim");
+  const bodyRows: string[] = [];
   for (let i = 0; i < bodyH; i++) {
     bodyRows.push(`${listLines[i]}${sep}${previewLines[i] ?? " ".repeat(previewW)}`);
   }
-  return [paint(header, "bold", "cyan"), ...bodyRows, footer];
+  return [status, menuBar, ...bodyRows, footer];
 }
 
-/** Render a centered-ish full-screen overlay from content lines. */
+/**
+ * Style one list row to exactly `listW` visible columns. Difficulty is colored
+ * per level; selection (reverse) and done (dim) states wrap the whole row while
+ * keeping the difficulty color where they coexist.
+ */
+function styleListRow(s: State, p: Problem, selected: boolean, cols5: Columns, listW: number): string {
+  const done = s.completed.has(p.id);
+  const statusCell = done ? "✓" : " ";
+  const idCell = String(p.id).padStart(cols5.idW);
+  const titleCell = fit(p.title, cols5.titleW);
+  const accCell = (p.acceptance === null ? "—" : `${p.acceptance.toFixed(1)}%`).padStart(cols5.accW);
+  const diffCell = fit(p.difficulty, cols5.diffW);
+
+  const plain = `${statusCell} ${idCell} ${titleCell} ${accCell} ${diffCell}`;
+  const pad = " ".repeat(Math.max(0, listW - plain.length));
+
+  if (selected && s.focus === "list") return paint(plain + pad, "rev");
+  if (selected) return paint(plain + pad, "bold");
+
+  const prefix = `${statusCell} ${idCell} ${titleCell} ${accCell}`;
+  if (done) {
+    return paint(prefix, "dim") + " " + paint(diffCell, "dim", diffColor(p.difficulty)) + pad;
+  }
+  return prefix + " " + paint(diffCell, diffColor(p.difficulty)) + pad;
+}
+
+/** Render the menu bar to exactly `cols`, highlighting the focused item. */
+function renderMenuBar(s: State, cols: number): string {
+  const cells = MENU_ITEMS.map((it) => ` ${it.label} `);
+  const plainLen = cells.reduce((n, c) => n + c.length, 0) + (cells.length - 1);
+
+  if (s.focus === "menu" && plainLen <= cols) {
+    const styled = cells
+      .map((c, i) => (i === s.menuIndex ? paint(c, "rev", "bold") : c))
+      .join(" ");
+    return styled + " ".repeat(cols - plainLen);
+  }
+  const plain = cells.join(" ");
+  return paint(fit(plain, cols), s.focus === "menu" ? "bold" : "dim");
+}
+
+/** Render a full-screen overlay from content lines. */
 function renderOverlay(content: string[], rows: number, cols: number, title: string): string[] {
   const bodyH = rows - 2;
   const header = paint(fit(title, cols), "bold", "cyan");
@@ -392,9 +451,9 @@ function renderPreviewPane(s: State, height: number, width: number): string[] {
 
 function renderPreviewFull(s: State, rows: number, cols: number): string[] {
   const bodyH = rows - 2;
-  const header = paint(fit(" preview  (Tab/Esc back · ↑↓ scroll)", cols), "bold", "cyan");
+  const header = paint(fit(" preview  (Esc back · ↑↓ scroll)", cols), "bold", "cyan");
   const pane = renderPreviewPane(s, bodyH, cols);
-  const footer = paint(fit(" Enter load · Space done · o open · q quit", cols), "dim");
+  const footer = paint(fit(" Space done · o open · q quit", cols), "dim");
   return [header, ...pane, footer];
 }
 
@@ -411,8 +470,8 @@ async function openUrl(url: string): Promise<void> {
 }
 
 /**
- * Run the interactive TUI. If `list` is omitted the first available list loads;
- * the user can switch with the list picker (`L`). Resolves when the user quits.
+ * Run the interactive TUI. If `list` is omitted, the list picker opens first so
+ * the user chooses which list to browse. Resolves when the user quits.
  */
 export async function runTui(list?: ProblemList): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -420,6 +479,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   }
 
   const listNames = await availableLists();
+  // With no explicit list we still need something loaded behind the picker.
   const initial = list ?? (await loadList(listNames[0]!));
 
   const state: State = {
@@ -435,11 +495,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
     cursor: 0,
     top: 0,
     focus: "list",
+    menuIndex: 0,
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
     status: "",
     input: null,
-    picker: null,
+    // No explicit list → open the picker so nothing is silently "the default".
+    picker: list ? null : { items: listNames, index: 0 },
     help: false,
   };
   recompute(state);
@@ -532,6 +594,47 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
+  const activateMenu = (action: MenuAction): void => {
+    switch (action) {
+      case "filter":
+        state.doneFilter = cycleDoneFilter(state.doneFilter);
+        recompute(state);
+        break;
+      case "diff":
+        state.diff = cycleDifficulty(state.diff);
+        recompute(state);
+        break;
+      case "sort": {
+        const next = cycleSortState(state.sortKey, state.sortDesc);
+        state.sortKey = next.key;
+        state.sortDesc = next.desc;
+        recompute(state);
+        break;
+      }
+      case "search":
+        state.input = { kind: "search", value: state.search };
+        break;
+      case "list":
+        state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
+        break;
+      case "open": {
+        const p = current(state);
+        if (p) void openUrl(p.url);
+        break;
+      }
+      case "refresh":
+        void refreshList();
+        return;
+      case "import":
+        state.input = { kind: "import", value: "" };
+        break;
+      case "help":
+        state.help = true;
+        break;
+    }
+    render();
+  };
+
   // ─── terminal setup ───
   out.write("\x1b[?1049h\x1b[?25l"); // alt screen + hide cursor
   process.stdin.setRawMode(true);
@@ -552,6 +655,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
     };
 
     const previewBodyLen = (): number => previewBody(state, out.columns ?? 80).length;
+    const pageStep = (): number => Math.max(1, (out.rows ?? 24) - 4);
+    const invalidateStalePreview = (): void => {
+      const p = current(state);
+      if (p && state.preview.slug !== p.slug && state.focus !== "preview") {
+        state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+      }
+    };
 
     const onData = (buf: Buffer): void => {
       const key = buf.toString("utf8");
@@ -592,6 +702,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
       if (state.picker) {
         switch (key) {
           case "\x03":
+            finish();
+            return;
           case "q":
           case "\x1b":
             state.picker = null;
@@ -623,27 +735,109 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
+      // ── Tab / Shift-Tab: focus & move through the menu bar ──
+      if (key === "\t" || key === "\x1b[Z") {
+        if (state.focus !== "menu") {
+          state.focus = "menu";
+        } else {
+          const dir = key === "\t" ? 1 : -1;
+          state.menuIndex = (state.menuIndex + dir + MENU_ITEMS.length) % MENU_ITEMS.length;
+        }
+        render();
+        return;
+      }
+
+      // ── menu focus ──
+      if (state.focus === "menu") {
+        switch (key) {
+          case "\x03":
+          case "q":
+            finish();
+            return;
+          case "\x1b": // Esc back to the list
+            state.focus = "list";
+            break;
+          case "h":
+          case "\x1b[D": // left
+            state.menuIndex = (state.menuIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
+            break;
+          case "l":
+          case "\x1b[C": // right
+            state.menuIndex = (state.menuIndex + 1) % MENU_ITEMS.length;
+            break;
+          case "k":
+          case "\x1b[A": // arrows still scroll the list underneath
+            state.cursor = Math.max(0, state.cursor - 1);
+            invalidateStalePreview();
+            break;
+          case "j":
+          case "\x1b[B":
+            state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
+            invalidateStalePreview();
+            break;
+          case "\r":
+          case "\n":
+            activateMenu(MENU_ITEMS[state.menuIndex]!.action);
+            return;
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── preview focus ──
+      if (state.focus === "preview") {
+        switch (key) {
+          case "\x03":
+          case "q":
+            finish();
+            return;
+          case "\x1b": // Esc back to list
+            state.focus = "list";
+            break;
+          case "k":
+          case "\x1b[A":
+            state.preview.scroll = Math.max(0, state.preview.scroll - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            state.preview.scroll = Math.min(Math.max(0, previewBodyLen() - 1), state.preview.scroll + 1);
+            break;
+          case " ":
+            void toggleDone();
+            return;
+          case "o": {
+            const p = current(state);
+            if (p) void openUrl(p.url);
+            break;
+          }
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── list focus ──
       switch (key) {
-        case "\x03": // Ctrl-C
+        case "\x03":
         case "q":
           finish();
           return;
         case "k":
-        case "\x1b[A": // up
-          if (state.focus === "preview") state.preview.scroll = Math.max(0, state.preview.scroll - 1);
-          else state.cursor = Math.max(0, state.cursor - 1);
+        case "\x1b[A":
+          state.cursor = Math.max(0, state.cursor - 1);
           break;
         case "j":
-        case "\x1b[B": // down
-          if (state.focus === "preview")
-            state.preview.scroll = Math.min(Math.max(0, previewBodyLen() - 1), state.preview.scroll + 1);
-          else state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
+        case "\x1b[B":
+          state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
           break;
         case "\x1b[5~": // PageUp
-          state.cursor = Math.max(0, state.cursor - ((out.rows ?? 24) - 3));
+          state.cursor = Math.max(0, state.cursor - pageStep());
           break;
         case "\x1b[6~": // PageDown
-          state.cursor = Math.min(state.filtered.length - 1, state.cursor + ((out.rows ?? 24) - 3));
+          state.cursor = Math.min(state.filtered.length - 1, state.cursor + pageStep());
           break;
         case "g":
           state.cursor = 0;
@@ -651,72 +845,51 @@ export async function runTui(list?: ProblemList): Promise<void> {
         case "G":
           state.cursor = Math.max(0, state.filtered.length - 1);
           break;
-        case "r": // random within the current filtered view
+        case "\r": // Enter: preview the selected problem
+        case "\n":
+          state.focus = "preview";
+          void loadPreview();
+          return;
+        case " ":
+          void toggleDone();
+          return;
+        case "\x1b": // Esc: clear any transient message
+          state.status = "";
+          break;
+        // Direct accelerators mirroring the menu items.
+        case "r":
           state.cursor =
             state.filtered.length > 0 ? Math.floor(pseudoRandom() * state.filtered.length) : 0;
           state.status = "";
           break;
         case "f":
-          state.doneFilter = cycleDoneFilter(state.doneFilter);
-          recompute(state);
-          break;
         case "d":
-          state.diff = cycleDifficulty(state.diff);
-          recompute(state);
-          break;
         case "s":
-          state.sortKey = cycleSort(state.sortKey);
-          recompute(state);
-          break;
-        case "S":
-          state.sortDesc = !state.sortDesc;
-          recompute(state);
-          break;
         case "/":
-          state.input = { kind: "search", value: state.search };
-          break;
-        case "i":
-          state.input = { kind: "import", value: "" };
-          break;
         case "L":
-          state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
-          break;
+        case "o":
         case "R":
-          void refreshList();
+        case "i":
+        case "?": {
+          const map: Record<string, MenuAction> = {
+            f: "filter",
+            d: "diff",
+            s: "sort",
+            "/": "search",
+            L: "list",
+            o: "open",
+            R: "refresh",
+            i: "import",
+            "?": "help",
+          };
+          activateMenu(map[key]!);
+          invalidateStalePreview();
           return;
-        case "?":
-          state.help = true;
-          break;
-        case " ":
-          void toggleDone();
-          return;
-        case "\t": // Tab: toggle focus into/out of preview
-        case "\x1b[Z":
-          state.focus = state.focus === "list" ? "preview" : "list";
-          if (state.focus === "preview" && state.preview.status === "idle") void loadPreview();
-          break;
-        case "\r": // Enter: load preview + focus it
-        case "\n":
-          state.focus = "preview";
-          void loadPreview();
-          return;
-        case "\x1b": // Esc: leave preview focus / clear status
-          state.focus = "list";
-          state.status = "";
-          break;
-        case "o": {
-          const p = current(state);
-          if (p) void openUrl(p.url);
-          break;
         }
         default:
           return; // ignore unknown keys without redraw
       }
-      // Changing the selected row invalidates a stale preview.
-      const p = current(state);
-      if (p && state.preview.slug !== p.slug && state.focus === "list") {
-        state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
-      }
+      invalidateStalePreview();
       render();
     };
 
@@ -726,8 +899,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
   });
 }
 
-// A tiny non-crypto PRNG. Date/Math.random restrictions don't apply at runtime
-// here, but keeping randomness self-contained avoids surprising the test env.
+// A tiny non-crypto PRNG for the "random" jump; kept self-contained so the
+// test environment's Date/Math.random restrictions never come into play.
 let prngState = 0x2545f491;
 function pseudoRandom(): number {
   prngState ^= prngState << 13;

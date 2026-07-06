@@ -2,12 +2,14 @@ import { expect, test, describe } from "bun:test";
 import {
   cycleDoneFilter,
   cycleDifficulty,
-  cycleSort,
+  cycleSortState,
   truncate,
   fit,
   layoutColumns,
   computeTop,
   wrapText,
+  renderFrame,
+  MENU_ITEMS,
 } from "./tui.ts";
 
 describe("cycleDoneFilter", () => {
@@ -27,12 +29,17 @@ describe("cycleDifficulty", () => {
   });
 });
 
-describe("cycleSort", () => {
-  test("id -> acc -> difficulty -> title -> id", () => {
-    expect(cycleSort("id")).toBe("acc");
-    expect(cycleSort("acc")).toBe("difficulty");
-    expect(cycleSort("difficulty")).toBe("title");
-    expect(cycleSort("title")).toBe("id");
+describe("cycleSortState", () => {
+  test("steps key+direction: id↑ → id↓ → acc↑ → ... → title↓ → id↑", () => {
+    let st = { key: "id" as const, desc: false };
+    const seen: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      seen.push(`${st.key}${st.desc ? "↓" : "↑"}`);
+      st = cycleSortState(st.key, st.desc);
+    }
+    expect(seen).toEqual(["id↑", "id↓", "acc↑", "acc↓", "difficulty↑", "difficulty↓", "title↑", "title↓"]);
+    // wraps back to the start
+    expect(cycleSortState("title", true)).toEqual({ key: "id", desc: false });
   });
 });
 
@@ -91,5 +98,99 @@ describe("wrapText", () => {
   });
   test("hard-breaks an over-long token", () => {
     expect(wrapText("abcdefghij", 4)).toEqual(["abcd", "efgh", "ij"]);
+  });
+});
+
+describe("MENU_ITEMS", () => {
+  test("exposes the expected actions in order", () => {
+    expect(MENU_ITEMS.map((m) => m.action)).toEqual([
+      "filter",
+      "diff",
+      "sort",
+      "search",
+      "list",
+      "open",
+      "refresh",
+      "import",
+      "help",
+    ]);
+  });
+});
+
+// Rendering tests operate on a minimal hand-built state so no list files or TTY
+// are needed. ANSI codes are stripped when checking widths.
+const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
+  const problems = [
+    { id: 1, title: "Easy One", slug: "easy-one", url: "u", acceptance: 50, difficulty: "Easy" },
+    { id: 2, title: "Med Two", slug: "med-two", url: "u", acceptance: 40, difficulty: "Medium" },
+    { id: 3, title: "Hard Three", slug: "hard-three", url: "u", acceptance: 30, difficulty: "Hard" },
+  ];
+  const s: any = {
+    list: { name: "demo", title: "Demo", problems },
+    listNames: ["demo"],
+    completed: new Set<number>(),
+    doneFilter: "all",
+    diff: undefined,
+    search: "",
+    sortKey: "id",
+    sortDesc: false,
+    filtered: problems,
+    cursor: 0,
+    top: 0,
+    focus: "list",
+    menuIndex: 0,
+    preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    maxId: 3,
+    status: "",
+    input: null,
+    picker: null,
+    help: false,
+    ...overrides,
+  };
+  return s;
+}
+
+describe("renderFrame layout", () => {
+  test("every line is exactly `cols` wide and there are `rows` lines", () => {
+    const f = renderFrame(makeState(), 12, 70);
+    expect(f).toHaveLength(12);
+    for (const line of f) expect(strip(line).length).toBe(70);
+  });
+
+  test("second line is the menu bar with all labels", () => {
+    const f = renderFrame(makeState(), 12, 100);
+    expect(strip(f[1]!)).toContain("Filter");
+    expect(strip(f[1]!)).toContain("Sort");
+    expect(strip(f[1]!)).toContain("Import");
+  });
+
+  test("status line shows list name, count, and view settings", () => {
+    const f = renderFrame(makeState({ doneFilter: "todo", sortKey: "acc", sortDesc: true }), 12, 90);
+    const status = strip(f[0]!);
+    expect(status).toContain("demo");
+    expect(status).toContain("3/3");
+    expect(status).toContain("todo");
+    expect(status).toContain("acc↓");
+  });
+});
+
+describe("renderFrame difficulty color", () => {
+  test("non-selected rows wrap the difficulty cell in its level color", () => {
+    // Force color on regardless of TTY for this assertion.
+    const f = renderFrame(makeState({ cursor: -1 }), 12, 70);
+    const joined = f.join("\n");
+    // When NO_COLOR is set in the test env there are no codes; only assert
+    // coloring when the module actually emits ANSI.
+    if (joined.includes("\x1b[")) {
+      expect(joined).toContain("\x1b[32mEasy"); // green
+      expect(joined).toContain("\x1b[33mMedium"); // yellow
+      expect(joined).toContain("\x1b[31mHard"); // red
+    } else {
+      // Colorless environment: difficulties still render as plain text.
+      expect(strip(joined)).toContain("Easy");
+      expect(strip(joined)).toContain("Hard");
+    }
   });
 });

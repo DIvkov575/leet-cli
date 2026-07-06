@@ -75,39 +75,39 @@ leet refresh nvidia
 
 ## Interactive mode
 
-Just run **`leet`** (or `leet tui [list]`) to open a full-screen browser — this
-is the primary way to use the tool, and a front-end for everything the
-subcommands do: pick and switch lists, filter, sort, preview problem
-statements, mark problems done, refresh metadata, and import completions,
-all without leaving the UI. It redraws on every keystroke and adapts to the
-terminal size — columns are computed to fit the width (long titles truncate
-with `…` rather than wrapping), and on terminals ≥ 90 columns a live
-problem-preview pane appears beside the list. Press `?` in-app for the full key
-list.
+Just run **`leet`** to open the full-screen browser — this is the primary way
+to use the tool, and a front-end for everything the subcommands do. Running it
+bare opens a **list picker** first (no list is silently assumed); pass
+`leet tui <list>` to jump straight into one.
 
-| Key             | Action                                            |
-|-----------------|---------------------------------------------------|
-| `↑`/`↓`, `j`/`k` | move the cursor (or scroll the preview when focused) |
-| `g` / `G`       | jump to top / bottom                              |
-| PgUp / PgDn     | page up / down                                    |
-| `r`             | jump to a random problem in the current view      |
-| `Space`         | toggle done for the selected problem (saved immediately) |
-| `f`             | cycle the done filter: all → todo → done          |
-| `d`             | cycle difficulty: any → Easy → Medium → Hard      |
-| `s` / `S`       | cycle sort key / toggle ascending–descending      |
-| `/`             | search by title (Enter to apply, Esc to clear)    |
-| `Tab`           | move focus between the list and the preview pane  |
-| `Enter`         | load the live problem statement into the preview  |
-| `o`             | open the selected problem in the browser          |
-| `L`             | switch to another bundled list (picker overlay)   |
-| `R`             | refresh this list's acceptance/difficulty from LeetCode |
-| `i`             | import completions from a path / GitHub repo      |
-| `?`             | toggle the key-bindings help overlay              |
-| `q` / Ctrl-C    | quit (restores the terminal)                      |
+Every action lives in a **menu bar** across the top, so nothing has to be
+memorized: **Tab** / **Shift-Tab** move between menu items and **Enter** fires
+the highlighted one (Filter · Difficulty · Sort · Search · List · Open ·
+Refresh · Import · Help). The arrow keys keep scrolling the list even while the
+menu is focused. The view adapts to the terminal size — columns are computed to
+fit the width (long titles truncate with `…` rather than wrapping), difficulty
+is color-coded (green/yellow/red), and on terminals ≥ 90 columns a live
+problem-preview pane appears beside the list.
+
+Core keys:
+
+| Key              | Action                                            |
+|------------------|---------------------------------------------------|
+| `↑`/`↓`, `j`/`k` | move the cursor (scroll the preview when focused) |
+| `g` / `G`        | jump to top / bottom · PgUp/PgDn page             |
+| `Enter`          | preview the selected problem                      |
+| `Space`          | toggle done (saved immediately)                   |
+| `Tab` / Shift-Tab | focus / move through the menu bar                |
+| `Esc`            | leave the menu / preview, clear messages          |
+| `q` / Ctrl-C     | quit (restores the terminal)                      |
+
+Each menu item also has a direct shortcut for muscle memory: `f` filter, `d`
+difficulty, `s` sort, `/` search, `r` random, `L` list, `o` open, `R` refresh,
+`i` import, `?` help. Press `?` in-app for the full reference.
 
 The preview fetches the statement lazily from LeetCode's public GraphQL API the
-first time you `Enter`/`Tab` into it, so browsing stays offline until you ask.
-The one-shot subcommands below remain available for scripting and piping.
+first time you open it, so browsing stays offline until you ask. The one-shot
+subcommands below remain available for scripting and piping.
 
 ## Tracking completed problems
 
