@@ -3,6 +3,13 @@ import { normalizeDifficulty, parseAcceptance } from "./parse.ts";
 
 const GRAPHQL_ENDPOINT = "https://leetcode.com/graphql";
 
+/** Starter code snippet for one language, as returned by LeetCode. */
+export interface CodeSnippet {
+  lang: string;
+  langSlug: string;
+  code: string;
+}
+
 export interface LiveProblem {
   id: number;
   title: string;
@@ -11,6 +18,8 @@ export interface LiveProblem {
   acceptance: number | null;
   /** Problem description as HTML (only populated when requested). */
   contentHtml?: string;
+  /** Starter code snippets per language (only populated when requested). */
+  snippets?: CodeSnippet[];
 }
 
 interface QuestionData {
@@ -20,6 +29,7 @@ interface QuestionData {
   difficulty: string;
   stats: string;
   content: string | null;
+  codeSnippets: CodeSnippet[] | null;
 }
 
 const QUESTION_QUERY = `query questionData($titleSlug: String!) {
@@ -30,6 +40,11 @@ const QUESTION_QUERY = `query questionData($titleSlug: String!) {
     difficulty
     stats
     content
+    codeSnippets {
+      lang
+      langSlug
+      code
+    }
   }
 }`;
 
@@ -64,10 +79,10 @@ function acRateFromStats(stats: string): number | null {
   }
 }
 
-/** Fetch a single problem's live metadata (and optionally its description). */
+/** Fetch a single problem's live metadata (and optionally its description/snippets). */
 export async function fetchProblem(
   slug: string,
-  opts: { withContent?: boolean } = {},
+  opts: { withContent?: boolean; withSnippets?: boolean } = {},
 ): Promise<LiveProblem> {
   const { question } = await graphql<{ question: QuestionData | null }>(QUESTION_QUERY, {
     titleSlug: slug,
@@ -80,6 +95,7 @@ export async function fetchProblem(
     difficulty: normalizeDifficulty(question.difficulty),
     acceptance: acRateFromStats(question.stats),
     contentHtml: opts.withContent ? question.content ?? undefined : undefined,
+    snippets: opts.withSnippets ? question.codeSnippets ?? [] : undefined,
   };
 }
 
