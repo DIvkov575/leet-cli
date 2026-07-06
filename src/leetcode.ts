@@ -20,6 +20,10 @@ export interface LiveProblem {
   contentHtml?: string;
   /** Starter code snippets per language (only populated when requested). */
   snippets?: CodeSnippet[];
+  /** Raw LeetCode metaData JSON (method name, param/return types); populated with snippets. */
+  metaData?: string;
+  /** Newline-separated example inputs; populated with snippets. */
+  exampleTestcases?: string;
 }
 
 interface QuestionData {
@@ -30,6 +34,8 @@ interface QuestionData {
   stats: string;
   content: string | null;
   codeSnippets: CodeSnippet[] | null;
+  metaData: string | null;
+  exampleTestcases: string | null;
 }
 
 const QUESTION_QUERY = `query questionData($titleSlug: String!) {
@@ -45,6 +51,8 @@ const QUESTION_QUERY = `query questionData($titleSlug: String!) {
       langSlug
       code
     }
+    metaData
+    exampleTestcases
   }
 }`;
 
@@ -96,6 +104,8 @@ export async function fetchProblem(
     acceptance: acRateFromStats(question.stats),
     contentHtml: opts.withContent ? question.content ?? undefined : undefined,
     snippets: opts.withSnippets ? question.codeSnippets ?? [] : undefined,
+    metaData: opts.withSnippets ? question.metaData ?? undefined : undefined,
+    exampleTestcases: opts.withSnippets ? question.exampleTestcases ?? undefined : undefined,
   };
 }
 
