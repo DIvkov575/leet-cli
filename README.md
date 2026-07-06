@@ -34,6 +34,7 @@ Each problem carries its number, title, slug, URL, acceptance rate, and difficul
 
 ```sh
 leet lists                       # list the bundled problem lists
+leet tui <list>                  # browse a list interactively (see below)
 leet ls <list> [filters]         # print a list as a table
 leet show <id|slug> [--live]     # show one problem (--live fetches the statement)
 leet open <id|slug> [list]       # open a problem in the browser
@@ -70,6 +71,30 @@ leet random uber -d medium --todo
 leet show 42 --live
 leet refresh nvidia
 ```
+
+## Interactive mode (`leet tui`)
+
+`leet tui <list>` opens a full-screen browser that redraws on every keystroke.
+The layout adapts to the terminal size — columns are computed to fit the width
+(long titles truncate with `…` rather than wrapping), and on terminals ≥ 90
+columns a live problem-preview pane appears beside the list.
+
+| Key            | Action                                            |
+|----------------|---------------------------------------------------|
+| `↑`/`↓`, `j`/`k` | move the cursor (or scroll the preview when focused) |
+| `g` / `G`      | jump to top / bottom                              |
+| PgUp / PgDn    | page up / down                                    |
+| `Space`        | toggle done for the selected problem (saved immediately) |
+| `f`            | cycle the done filter: all → todo → done          |
+| `d`            | cycle difficulty: any → Easy → Medium → Hard      |
+| `/`            | search by title (Enter to apply, Esc to clear)    |
+| `Tab`          | move focus between the list and the preview pane  |
+| `Enter`        | load the live problem statement into the preview  |
+| `o`            | open the selected problem in the browser          |
+| `q` / Ctrl-C   | quit (restores the terminal)                      |
+
+The preview fetches the statement lazily from LeetCode's public GraphQL API the
+first time you `Enter`/`Tab` into it, so browsing stays offline until you ask.
 
 ## Tracking completed problems
 
@@ -126,6 +151,7 @@ src/
   adapters.ts   import adapters (NeetCode sync layout + slug alias maps)
   import.ts     source acquisition (local path / GitHub via gh) + slug resolution
   render.ts     table + single-problem terminal rendering, minimal HTML->text
+  tui.ts        interactive full-screen browser (raw-mode input, live preview)
   cli.ts        argument parsing and command dispatch
 scripts/
   build-data.ts parse data/raw/*.txt into data/*.json

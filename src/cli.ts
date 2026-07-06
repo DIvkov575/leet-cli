@@ -19,11 +19,13 @@ import { renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
+import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
 
 Usage:
   leet lists                       List the bundled problem lists
+  leet tui <list>                  Browse a list interactively (filter, preview, mark done)
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet open <id|slug> [list]       Open a problem in the browser
@@ -175,6 +177,12 @@ async function cmdLs(p: Parsed): Promise<void> {
   const list = await loadList(name);
   const completed = await loadCompleted();
   output(applyView(list.problems, p.values, completed), p.values, completed);
+}
+
+async function cmdTui(p: Parsed): Promise<void> {
+  const name = p.positionals[0];
+  if (!name) throw new UserError("usage: leet tui <list>");
+  await runTui(await loadList(name));
 }
 
 async function cmdRandom(p: Parsed): Promise<void> {
@@ -394,6 +402,9 @@ async function main(): Promise<number> {
       return 0;
     case "ls":
       await cmdLs(parse(rest));
+      return 0;
+    case "tui":
+      await cmdTui(parse(rest));
       return 0;
     case "random":
       await cmdRandom(parse(rest));
