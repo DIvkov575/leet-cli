@@ -16,6 +16,10 @@ export interface FilterOptions {
   maxAcceptance?: number;
   /** Case-insensitive substring match against the title. */
   search?: string;
+  /** Set of completed problem ids; required for `done` filtering to apply. */
+  completed?: Set<number>;
+  /** true -> only completed, false -> only not-completed, undefined -> all. */
+  done?: boolean;
 }
 
 export type SortKey = "id" | "acc" | "difficulty" | "title";
@@ -59,6 +63,10 @@ export function filterProblems(problems: Problem[], opts: FilterOptions = {}): P
       if (p.acceptance === null || p.acceptance > opts.maxAcceptance) return false;
     }
     if (search && !p.title.toLowerCase().includes(search)) return false;
+    if (opts.done !== undefined) {
+      const isDone = opts.completed?.has(p.id) ?? false;
+      if (isDone !== opts.done) return false;
+    }
     return true;
   });
 }

@@ -25,11 +25,16 @@ function acc(p: Problem): string {
   return p.acceptance === null ? "—" : `${p.acceptance.toFixed(1)}%`;
 }
 
-/** Render problems as an aligned table. `plain` drops color for piping. */
-export function renderTable(problems: Problem[]): string {
+/**
+ * Render problems as an aligned table. When `completed` is given, a leading
+ * status column shows `✓` for done problems (green) and a blank otherwise.
+ */
+export function renderTable(problems: Problem[], completed?: Set<number>): string {
   if (problems.length === 0) return paint("(no matching problems)", "dim");
 
+  const showStatus = completed !== undefined;
   const rows = problems.map((p) => ({
+    done: completed?.has(p.id) ?? false,
     id: String(p.id),
     title: p.title,
     acc: acc(p),
@@ -43,7 +48,9 @@ export function renderTable(problems: Problem[]): string {
   const titleW = w((r) => r.title);
   const accW = Math.max(w((r) => r.acc), 4);
 
+  const statusHead = showStatus ? " " + "  " : "";
   const header =
+    statusHead +
     paint("#".padStart(idW), "bold", "dim") +
     "  " +
     paint("Problem".padEnd(titleW), "bold", "dim") +
@@ -52,24 +59,28 @@ export function renderTable(problems: Problem[]): string {
     "  " +
     paint("Difficulty", "bold", "dim");
 
-  const lines = rows.map(
-    (r) =>
+  const lines = rows.map((r) => {
+    const status = showStatus ? (r.done ? paint("✓", "green") : " ") + "  " : "";
+    return (
+      status +
       paint(r.id.padStart(idW), "dim") +
       "  " +
       r.title.padEnd(titleW) +
       "  " +
       r.acc.padStart(accW) +
       "  " +
-      paint(r.diff, difficultyColor(r.p.difficulty)),
-  );
+      paint(r.diff, difficultyColor(r.p.difficulty))
+    );
+  });
 
   return [header, ...lines].join("\n");
 }
 
-/** Detailed single-problem view. */
-export function renderProblem(p: Problem, contentHtml?: string): string {
+/** Detailed single-problem view. When `done` is true, tag it as completed. */
+export function renderProblem(p: Problem, contentHtml?: string, done?: boolean): string {
+  const status = done ? "   " + paint("✓ done", "green") : "";
   const lines = [
-    paint(`${p.id}. ${p.title}`, "bold", "cyan"),
+    paint(`${p.id}. ${p.title}`, "bold", "cyan") + status,
     `${paint(p.difficulty, difficultyColor(p.difficulty))}   ${paint("Acceptance:", "dim")} ${acc(p)}`,
     paint(p.url, "dim"),
   ];

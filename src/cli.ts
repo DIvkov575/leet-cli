@@ -16,6 +16,9 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { renderProblem, renderTable } from "./render.ts";
+import { loadCompleted, saveCompleted } from "./progress.ts";
+import { importSource } from "./import.ts";
+import { adapterNames } from "./adapters.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
 
@@ -25,12 +28,16 @@ Usage:
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
+  leet done [id|slug ...]          Mark problems done, or list what's done
+  leet undone <id|slug ...>        Unmark problems as done
+  leet import <path|owner/repo>    Mark done from an external source (e.g. NeetCode sync)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
 
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
   --min-acc <n>     minimum acceptance %        --max-acc <n>  maximum acceptance %
   --search, -s <q>  title substring match
+  --done            only completed problems     --todo         only not-completed
   --sort <key>      id|acc|difficulty|title (default id)   --desc  reverse order
   --limit, -n <n>   cap the number of rows
   --json            emit JSON instead of a table
@@ -38,9 +45,18 @@ Filters (for ls / random):
 Examples:
   leet ls nvidia -d hard --sort acc
   leet ls uber --search tree --limit 20
+  leet ls uber --todo              # what's left to do in the uber list
+  leet done 42 two-sum             # mark problems as completed
+  leet import DIvkov575/neetcode-submissions-zkag82uy   # mark done from a GitHub sync
+  leet import ~/code/neetcode --dry-run                 # preview from a local clone
   leet random uber -d medium
   leet show 42 --live
-  leet refresh nvidia`;
+  leet refresh nvidia
+
+import options:
+  --adapter <name>  source format (default neetcode)
+  --ref <ref>       git ref/branch/sha for a GitHub source (default: default branch)
+  --dry-run         report what would be marked without saving`;
 
 const DIFFICULTY_ALIASES: Record<string, Difficulty> = {
   easy: "Easy",
@@ -75,6 +91,8 @@ const FILTER_OPTIONS = {
   "min-acc": { type: "string" },
   "max-acc": { type: "string" },
   search: { type: "string", short: "s" },
+  done: { type: "boolean" },
+  todo: { type: "boolean" },
   sort: { type: "string" },
   desc: { type: "boolean" },
   limit: { type: "string", short: "n" },
@@ -102,28 +120,34 @@ function num(v: string | boolean | undefined, flag: string): number | undefined 
   return n;
 }
 
-function filtersFrom(values: Parsed["values"]): FilterOptions {
+function filtersFrom(values: Parsed["values"], completed?: Set<number>): FilterOptions {
+  if (values.done && values.todo) {
+    throw new UserError("--done and --todo are mutually exclusive");
+  }
+  const done = values.done ? true : values.todo ? false : undefined;
   return {
     difficulty: parseDifficulty(values.difficulty as string | undefined),
     minAcceptance: num(values["min-acc"], "--min-acc"),
     maxAcceptance: num(values["max-acc"], "--max-acc"),
     search: values.search as string | undefined,
+    completed,
+    done,
   };
 }
 
-function applyView(problems: Problem[], values: Parsed["values"]): Problem[] {
-  let out = filterProblems(problems, filtersFrom(values));
+function applyView(problems: Problem[], values: Parsed["values"], completed: Set<number>): Problem[] {
+  let out = filterProblems(problems, filtersFrom(values, completed));
   out = sortProblems(out, parseSort(values.sort as string | undefined), Boolean(values.desc));
   const limit = num(values.limit, "--limit");
   if (limit !== undefined) out = out.slice(0, limit);
   return out;
 }
 
-function output(problems: Problem[], values: Parsed["values"]): void {
+function output(problems: Problem[], values: Parsed["values"], completed: Set<number>): void {
   if (values.json) {
     console.log(JSON.stringify(problems, null, 2));
   } else {
-    console.log(renderTable(problems));
+    console.log(renderTable(problems, completed));
   }
 }
 
@@ -149,7 +173,8 @@ async function cmdLs(p: Parsed): Promise<void> {
   const name = p.positionals[0];
   if (!name) throw new UserError("usage: leet ls <list> [filters]");
   const list = await loadList(name);
-  output(applyView(list.problems, p.values), p.values);
+  const completed = await loadCompleted();
+  output(applyView(list.problems, p.values, completed), p.values, completed);
 }
 
 async function cmdRandom(p: Parsed): Promise<void> {
@@ -161,16 +186,18 @@ async function cmdRandom(p: Parsed): Promise<void> {
     pool = [];
     for (const n of await availableLists()) pool.push(...(await loadList(n)).problems);
   }
-  const chosen = pickRandom(filterProblems(pool, filtersFrom(p.values)));
+  const completed = await loadCompleted();
+  const chosen = pickRandom(filterProblems(pool, filtersFrom(p.values, completed)));
   if (!chosen) throw new UserError("no problems match those filters");
   if (p.values.json) console.log(JSON.stringify(chosen, null, 2));
-  else console.log(renderProblem(chosen));
+  else console.log(renderProblem(chosen, undefined, completed.has(chosen.id)));
 }
 
 async function cmdShow(p: Parsed, live: boolean): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet show <id|slug> [--live]");
   const local = await findProblemAnywhere(key);
+  const completed = await loadCompleted();
   if (live) {
     const slug = local?.slug ?? key;
     const remote = await fetchProblem(slug, { withContent: true });
@@ -182,12 +209,18 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
       acceptance: remote.acceptance,
       difficulty: remote.difficulty,
     };
-    console.log(renderProblem({ ...merged, acceptance: remote.acceptance, difficulty: remote.difficulty }, remote.contentHtml));
+    console.log(
+      renderProblem(
+        { ...merged, acceptance: remote.acceptance, difficulty: remote.difficulty },
+        remote.contentHtml,
+        completed.has(merged.id),
+      ),
+    );
     return;
   }
   if (!local) throw new UserError(`"${key}" not found in bundled lists (try --live)`);
   if (p.values.json) console.log(JSON.stringify(local, null, 2));
-  else console.log(renderProblem(local));
+  else console.log(renderProblem(local, undefined, completed.has(local.id)));
 }
 
 async function cmdOpen(p: Parsed): Promise<void> {
@@ -200,6 +233,125 @@ async function cmdOpen(p: Parsed): Promise<void> {
   if (!found) throw new UserError(`"${key}" not found`);
   console.log(`opening ${found.url}`);
   await openUrl(found.url);
+}
+
+/** `leet done` with no args lists completed problems; with keys, marks them. */
+async function cmdDone(p: Parsed): Promise<void> {
+  const completed = await loadCompleted();
+
+  if (p.positionals.length === 0) {
+    // List everything marked done, resolving ids back to problems for display.
+    const byId = new Map<number, Problem>();
+    for (const name of await availableLists()) {
+      for (const pr of (await loadList(name)).problems) {
+        if (completed.has(pr.id) && !byId.has(pr.id)) byId.set(pr.id, pr);
+      }
+    }
+    const known = [...byId.values()].sort((a, b) => a.id - b.id);
+    const orphans = [...completed].filter((id) => !byId.has(id)).sort((a, b) => a - b);
+    if (p.values.json) {
+      console.log(JSON.stringify({ completed: known, orphanIds: orphans }, null, 2));
+      return;
+    }
+    if (completed.size === 0) {
+      console.log("no problems marked done yet — try `leet done <id|slug>`");
+      return;
+    }
+    console.log(renderTable(known, completed));
+    if (orphans.length > 0) {
+      console.error(`(${orphans.length} completed id(s) not in any bundled list: ${orphans.join(", ")})`);
+    }
+    return;
+  }
+
+  await setDone(p.positionals, completed, true);
+}
+
+async function cmdUndone(p: Parsed): Promise<void> {
+  if (p.positionals.length === 0) throw new UserError("usage: leet undone <id|slug ...>");
+  await setDone(p.positionals, await loadCompleted(), false);
+}
+
+/** Resolve keys to problem ids and flip their completion state. */
+async function setDone(keys: string[], completed: Set<number>, done: boolean): Promise<void> {
+  let changed = 0;
+  for (const key of keys) {
+    const found = await findProblemAnywhere(key);
+    if (!found) {
+      console.error(`  skipped "${key}": not found in bundled lists`);
+      continue;
+    }
+    const already = completed.has(found.id);
+    if (done && !already) {
+      completed.add(found.id);
+      changed++;
+      console.log(`  ✓ ${found.id}. ${found.title}`);
+    } else if (!done && already) {
+      completed.delete(found.id);
+      changed++;
+      console.log(`  ✗ ${found.id}. ${found.title}`);
+    } else {
+      console.log(`  · ${found.id}. ${found.title} (already ${done ? "done" : "not done"})`);
+    }
+  }
+  if (changed > 0) await saveCompleted(completed);
+  console.error(`${changed} problem(s) ${done ? "marked done" : "unmarked"}, ${completed.size} done total.`);
+}
+
+async function cmdImport(p: Parsed): Promise<void> {
+  const source = p.positionals[0];
+  if (!source) {
+    throw new UserError(
+      `usage: leet import <path|owner/repo|url> [--adapter <${adapterNames().join("|")}>] [--ref <ref>] [--dry-run]`,
+    );
+  }
+  const adapter = (p.values.adapter as string | undefined) ?? "neetcode";
+  const dryRun = Boolean(p.values["dry-run"]);
+
+  const result = await importSource(source, {
+    adapter,
+    ref: p.values.ref as string | undefined,
+  });
+
+  const completed = await loadCompleted();
+  const newIds = [...result.matchedIds].filter((id) => !completed.has(id));
+
+  if (p.values.json) {
+    console.log(
+      JSON.stringify(
+        {
+          source,
+          adapter,
+          dryRun,
+          totalSolved: result.totalSolved,
+          matched: result.matched.length,
+          newlyMarked: newIds.length,
+          alreadyDone: result.matched.length - newIds.length,
+          unmatched: result.unmatched,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  // Show the problems that would be newly marked.
+  const newProblems = result.matched.filter((pr) => newIds.includes(pr.id));
+  if (newProblems.length > 0) console.log(renderTable(newProblems, result.matchedIds));
+
+  if (!dryRun && newIds.length > 0) {
+    for (const id of newIds) completed.add(id);
+    await saveCompleted(completed);
+  }
+
+  const verb = dryRun ? "would mark" : "marked";
+  console.error(
+    `\n${result.matched.length} of ${result.totalSolved} solved problems are in bundled lists; ` +
+      `${verb} ${newIds.length} new, ${result.matched.length - newIds.length} already done. ` +
+      `${result.unmatched.length} not in any bundled list.` +
+      (dryRun ? "\n(dry run — nothing saved; re-run without --dry-run to apply)" : ` ${completed.size} done total.`),
+  );
 }
 
 async function cmdRefresh(p: Parsed): Promise<void> {
@@ -253,6 +405,21 @@ async function main(): Promise<number> {
     }
     case "open":
       await cmdOpen(parse(rest, { live: { type: "boolean" } }));
+      return 0;
+    case "done":
+      await cmdDone(parse(rest));
+      return 0;
+    case "undone":
+      await cmdUndone(parse(rest));
+      return 0;
+    case "import":
+      await cmdImport(
+        parse(rest, {
+          adapter: { type: "string" },
+          ref: { type: "string" },
+          "dry-run": { type: "boolean" },
+        }),
+      );
       return 0;
     case "refresh":
       await cmdRefresh(parse(rest, { all: { type: "boolean" } }));

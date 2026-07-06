@@ -38,6 +38,9 @@ leet ls <list> [filters]         # print a list as a table
 leet show <id|slug> [--live]     # show one problem (--live fetches the statement)
 leet open <id|slug> [list]       # open a problem in the browser
 leet random [list] [filters]     # print one random problem
+leet done [id|slug ...]          # mark problems done, or list what's done
+leet undone <id|slug ...>        # unmark problems as done
+leet import <path|owner/repo>    # mark done from an external source (e.g. NeetCode)
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 ```
 
@@ -49,6 +52,8 @@ leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 | `--min-acc <n>`     | minimum acceptance %                      |
 | `--max-acc <n>`     | maximum acceptance %                      |
 | `--search, -s <q>`  | title substring match                     |
+| `--done`            | only completed problems                   |
+| `--todo`            | only problems not yet completed           |
 | `--sort <key>`      | `id` \| `acc` \| `difficulty` \| `title`  |
 | `--desc`            | reverse sort order                        |
 | `--limit, -n <n>`   | cap the number of rows                    |
@@ -59,10 +64,48 @@ leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 ```sh
 leet ls nvidia -d hard --sort acc
 leet ls uber --search tree --limit 20
-leet random uber -d medium
+leet done 42 two-sum             # tick off problems you've solved
+leet ls uber --todo              # what's left in the uber list
+leet random uber -d medium --todo
 leet show 42 --live
 leet refresh nvidia
 ```
+
+## Tracking completed problems
+
+`leet done <id|slug ...>` marks problems as completed and `leet undone ...`
+unmarks them; `leet done` with no arguments lists everything you've finished.
+Completed problems show a green `✓` in tables and single-problem views, and the
+`--done` / `--todo` filters narrow any `ls` or `random` to solved vs. unsolved.
+
+Completion is tracked by the global LeetCode problem number, so ticking off a
+problem in one list marks it everywhere it appears. State lives in a single
+`completed.json` outside the repo — `$XDG_DATA_HOME/leet-cli/` (default
+`~/.local/share/leet-cli/`), overridable with `LEET_DATA_DIR` — so it survives
+`refresh` and package updates.
+
+## Importing completed problems
+
+If you already track solved problems elsewhere, `leet import` bulk-marks them
+done. Sources are handled by pluggable **adapters** (`src/adapters.ts`); the
+built-in `neetcode` adapter understands [NeetCode.io](https://neetcode.io)'s
+GitHub sync repos (`neetcode-submissions-*`), which store one
+`.../<slug>/submission-N.<ext>` folder per solved problem.
+
+```sh
+leet import DIvkov575/neetcode-submissions-xxxx        # from a GitHub repo (uses gh auth)
+leet import ~/code/neetcode-submissions                # from a local clone or path
+leet import <repo> --dry-run                           # preview without saving
+leet import <repo> --ref main                          # pin a branch/tag/sha
+leet import <repo> --adapter neetcode                  # choose the source format
+```
+
+A GitHub source is fetched through the authenticated `gh` CLI (so private repos
+work); a local path is walked directly. Imported problems are matched to the
+bundled lists by slug, then by an adapter alias map (NeetCode renames many
+problems, e.g. `anagram-groups` → `group-anagrams`), then by normalized title.
+Anything solved that is not in any bundled list is reported and skipped, and the
+import is idempotable — re-running only marks what is new.
 
 ## Live data
 
@@ -79,6 +122,9 @@ src/
   parse.ts      slugify + raw-list parser (LeetCode's slug scheme)
   lib.ts        load / filter / sort / find — the reusable library surface
   leetcode.ts   public GraphQL client (fetch one / many with bounded concurrency)
+  progress.ts   completion tracking (completed.json outside the repo)
+  adapters.ts   import adapters (NeetCode sync layout + slug alias maps)
+  import.ts     source acquisition (local path / GitHub via gh) + slug resolution
   render.ts     table + single-problem terminal rendering, minimal HTML->text
   cli.ts        argument parsing and command dispatch
 scripts/

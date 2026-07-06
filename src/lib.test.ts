@@ -80,6 +80,21 @@ describe("filterProblems", () => {
   test("search is case-insensitive", () => {
     expect(filterProblems(sample, { search: "sum" }).map((p) => p.id)).toEqual([1]);
   });
+  test("done: true keeps only completed", () => {
+    const completed = new Set([1, 42]);
+    expect(filterProblems(sample, { completed, done: true }).map((p) => p.id)).toEqual([1, 42]);
+  });
+  test("done: false keeps only not-completed (todo)", () => {
+    const completed = new Set([1, 42]);
+    expect(filterProblems(sample, { completed, done: false }).map((p) => p.id)).toEqual([3, 9]);
+  });
+  test("done undefined ignores completion", () => {
+    expect(filterProblems(sample, { completed: new Set([1]) }).map((p) => p.id)).toEqual([1, 42, 3, 9]);
+  });
+  test("done with no completed set treats all as not-done", () => {
+    expect(filterProblems(sample, { done: true }).map((p) => p.id)).toEqual([]);
+    expect(filterProblems(sample, { done: false }).map((p) => p.id)).toEqual([1, 42, 3, 9]);
+  });
 });
 
 describe("sortProblems", () => {
