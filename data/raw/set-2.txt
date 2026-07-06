@@ -1,0 +1,355 @@
+23. Merge k Sorted Lists
+59.9%
+Hard
+
+37. Sudoku Solver
+65.6%
+Hard
+
+39. Combination Sum
+76.8%
+Med.
+
+46. Permutations
+82.1%
+Med.
+
+1048. Longest String Chain
+63.2%
+Med.
+
+121. Best Time to Buy and Sell Stock
+57.0%
+Easy
+
+123. Best Time to Buy and Sell Stock III
+54.1%
+Hard
+
+124. Binary Tree Maximum Path Sum
+42.5%
+Hard
+
+146. LRU Cache
+47.6%
+Med.
+
+150. Evaluate Reverse Polish Notation
+58.1%
+Med.
+
+200. Number of Islands
+64.7%
+Med.
+
+207. Course Schedule
+51.7%
+Med.
+
+221. Maximal Square
+50.5%
+Med.
+
+239. Sliding Window Maximum
+48.9%
+Hard
+
+279. Perfect Squares
+56.7%
+Med.
+
+287. Find the Duplicate Number
+64.6%
+Med.
+
+295. Find Median from Data Stream
+54.7%
+Hard
+
+297. Serialize and Deserialize Binary Tree
+61.0%
+Hard
+
+3186. Maximum Total Damage With Spell Casting
+45.1%
+Med.
+
+1268. Search Suggestions System
+65.2%
+Med.
+
+380. Insert Delete GetRandom O(1)
+55.4%
+Med.
+
+399. Evaluate Division
+64.4%
+Med.
+
+2361. Minimum Costs Using the Train Line
+77.9%
+Hard
+
+460. LFU Cache
+49.7%
+Hard
+
+1515. Best Position for a Service Centre
+35.4%
+Hard
+
+2661. First Completely Painted Row or Column
+63.9%
+Med.
+
+647. Palindromic Substrings
+73.0%
+Med.
+
+2702. Minimum Operations to Make Numbers Non-positive
+44.1%
+Hard
+
+718. Maximum Length of Repeated Subarray
+51.5%
+Med.
+
+49. Group Anagrams
+72.9%
+Med.
+
+2958. Length of Longest Subarray With at Most K Frequency
+56.7%
+Med.
+
+622. Design Circular Queue
+54.9%
+Med.
+
+79. Word Search
+47.7%
+Med.
+
+412. Fizz Buzz
+75.7%
+Easy
+
+765. Couples Holding Hands
+59.5%
+Hard
+
+208. Implement Trie (Prefix Tree)
+69.7%
+Med.
+
+631. Design Excel Sum Formula
+39.6%
+Hard
+
+2050. Parallel Courses III
+66.8%
+Hard
+
+210. Course Schedule II
+55.8%
+Med.
+
+1670. Design Front Middle Back Queue
+58.2%
+Med.
+
+767. Reorganize String
+57.3%
+Med.
+
+1203. Sort Items by Groups Respecting Dependencies
+66.0%
+Hard
+
+346. Moving Average from Data Stream
+80.2%
+Easy
+
+69. Sqrt(x)
+42.0%
+Easy
+
+2044. Count Number of Maximum Bitwise-OR Subsets
+89.5%
+Med.
+
+126. Word Ladder II
+27.8%
+Hard
+
+17. Letter Combinations of a Phone Number
+66.3%
+Med.
+
+70. Climbing Stairs
+54.2%
+Easy
+
+256. Paint House
+64.5%
+Med.
+
+1632. Rank Transform of a Matrix
+42.3%
+Hard
+
+56. Merge Intervals
+52.2%
+Med.
+
+103. Binary Tree Zigzag Level Order Traversal
+64.0%
+Med.
+
+50. Pow(x, n)
+38.9%
+Med.
+
+2484. Count Palindromic Subsequences
+41.4%
+Hard
+
+759. Employee Free Time
+72.9%
+Hard
+
+875. Koko Eating Bananas
+50.2%
+Med.
+
+149. Max Points on a Line
+31.0%
+Hard
+
+1229. Meeting Scheduler
+55.2%
+Med.
+
+1606. Find Servers That Handled Most Number of Requests
+45.5%
+Hard
+
+1801. Number of Orders in the Backlog
+54.1%
+Med.
+
+332. Reconstruct Itinerary
+44.7%
+Hard
+
+5. Longest Palindromic Substring
+38.1%
+Med.
+
+1010. Pairs of Songs With Total Durations Divisible by 60
+53.5%
+Med.
+
+1004. Max Consecutive Ones III
+68.0%
+Med.
+
+204. Count Primes
+36.2%
+Med.
+
+253. Meeting Rooms II
+52.7%
+Med.
+
+34. Find First and Last Position of Element in Sorted Array
+49.2%
+Med.
+
+2598. Smallest Missing Non-negative Integer After Operations
+55.9%
+Med.
+
+31. Next Permutation
+45.6%
+Med.
+
+98. Validate Binary Search Tree
+36.0%
+Med.
+
+151. Reverse Words in a String
+57.0%
+Med.
+
+1155. Number of Dice Rolls With Target Sum
+62.4%
+Med.
+
+127. Word Ladder
+45.9%
+Hard
+
+465. Optimal Account Balancing
+50.5%
+Hard
+
+348. Design Tic-Tac-Toe
+58.8%
+Med.
+
+188. Best Time to Buy and Sell Stock IV
+50.6%
+Hard
+
+155. Min Stack
+58.4%
+Med.
+
+53. Maximum Subarray
+53.5%
+Med.
+
+1. Two Sum
+57.7%
+Easy
+
+782. Transform to Chessboard
+51.5%
+Hard
+
+981. Time Based Key-Value Store
+50.0%
+Med.
+
+1244. Design A Leaderboard
+68.1%
+Med.
+
+3484. Design Spreadsheet
+74.0%
+Med.
+
+588. Design In-Memory File System
+48.3%
+Hard
+
+714. Best Time to Buy and Sell Stock with Transaction Fee
+72.2%
+Med.
+
+688. Knight Probability in Chessboard
+57.1%
+Med.
+
+8. String to Integer (atoi)
+21.3%
+Med.
+
+1411. Number of Ways to Paint N × 3 Grid
+80.6%
+Hard
+
+42. Trapping Rain Water
+67.7%
+Hard

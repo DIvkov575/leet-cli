@@ -1,0 +1,718 @@
+{
+  "name": "set-2",
+  "title": "Set 2",
+  "problems": [
+    {
+      "id": 23,
+      "title": "Merge k Sorted Lists",
+      "slug": "merge-k-sorted-lists",
+      "url": "https://leetcode.com/problems/merge-k-sorted-lists/",
+      "acceptance": 59.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 37,
+      "title": "Sudoku Solver",
+      "slug": "sudoku-solver",
+      "url": "https://leetcode.com/problems/sudoku-solver/",
+      "acceptance": 65.6,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 39,
+      "title": "Combination Sum",
+      "slug": "combination-sum",
+      "url": "https://leetcode.com/problems/combination-sum/",
+      "acceptance": 76.8,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 46,
+      "title": "Permutations",
+      "slug": "permutations",
+      "url": "https://leetcode.com/problems/permutations/",
+      "acceptance": 82.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1048,
+      "title": "Longest String Chain",
+      "slug": "longest-string-chain",
+      "url": "https://leetcode.com/problems/longest-string-chain/",
+      "acceptance": 63.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 121,
+      "title": "Best Time to Buy and Sell Stock",
+      "slug": "best-time-to-buy-and-sell-stock",
+      "url": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock/",
+      "acceptance": 57,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 123,
+      "title": "Best Time to Buy and Sell Stock III",
+      "slug": "best-time-to-buy-and-sell-stock-iii",
+      "url": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock-iii/",
+      "acceptance": 54.1,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 124,
+      "title": "Binary Tree Maximum Path Sum",
+      "slug": "binary-tree-maximum-path-sum",
+      "url": "https://leetcode.com/problems/binary-tree-maximum-path-sum/",
+      "acceptance": 42.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 146,
+      "title": "LRU Cache",
+      "slug": "lru-cache",
+      "url": "https://leetcode.com/problems/lru-cache/",
+      "acceptance": 47.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 150,
+      "title": "Evaluate Reverse Polish Notation",
+      "slug": "evaluate-reverse-polish-notation",
+      "url": "https://leetcode.com/problems/evaluate-reverse-polish-notation/",
+      "acceptance": 58.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 200,
+      "title": "Number of Islands",
+      "slug": "number-of-islands",
+      "url": "https://leetcode.com/problems/number-of-islands/",
+      "acceptance": 64.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 207,
+      "title": "Course Schedule",
+      "slug": "course-schedule",
+      "url": "https://leetcode.com/problems/course-schedule/",
+      "acceptance": 51.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 221,
+      "title": "Maximal Square",
+      "slug": "maximal-square",
+      "url": "https://leetcode.com/problems/maximal-square/",
+      "acceptance": 50.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 239,
+      "title": "Sliding Window Maximum",
+      "slug": "sliding-window-maximum",
+      "url": "https://leetcode.com/problems/sliding-window-maximum/",
+      "acceptance": 48.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 279,
+      "title": "Perfect Squares",
+      "slug": "perfect-squares",
+      "url": "https://leetcode.com/problems/perfect-squares/",
+      "acceptance": 56.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 287,
+      "title": "Find the Duplicate Number",
+      "slug": "find-the-duplicate-number",
+      "url": "https://leetcode.com/problems/find-the-duplicate-number/",
+      "acceptance": 64.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 295,
+      "title": "Find Median from Data Stream",
+      "slug": "find-median-from-data-stream",
+      "url": "https://leetcode.com/problems/find-median-from-data-stream/",
+      "acceptance": 54.7,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 297,
+      "title": "Serialize and Deserialize Binary Tree",
+      "slug": "serialize-and-deserialize-binary-tree",
+      "url": "https://leetcode.com/problems/serialize-and-deserialize-binary-tree/",
+      "acceptance": 61,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 3186,
+      "title": "Maximum Total Damage With Spell Casting",
+      "slug": "maximum-total-damage-with-spell-casting",
+      "url": "https://leetcode.com/problems/maximum-total-damage-with-spell-casting/",
+      "acceptance": 45.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1268,
+      "title": "Search Suggestions System",
+      "slug": "search-suggestions-system",
+      "url": "https://leetcode.com/problems/search-suggestions-system/",
+      "acceptance": 65.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 380,
+      "title": "Insert Delete GetRandom O(1)",
+      "slug": "insert-delete-getrandom-o1",
+      "url": "https://leetcode.com/problems/insert-delete-getrandom-o1/",
+      "acceptance": 55.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 399,
+      "title": "Evaluate Division",
+      "slug": "evaluate-division",
+      "url": "https://leetcode.com/problems/evaluate-division/",
+      "acceptance": 64.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2361,
+      "title": "Minimum Costs Using the Train Line",
+      "slug": "minimum-costs-using-the-train-line",
+      "url": "https://leetcode.com/problems/minimum-costs-using-the-train-line/",
+      "acceptance": 77.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 460,
+      "title": "LFU Cache",
+      "slug": "lfu-cache",
+      "url": "https://leetcode.com/problems/lfu-cache/",
+      "acceptance": 49.7,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 1515,
+      "title": "Best Position for a Service Centre",
+      "slug": "best-position-for-a-service-centre",
+      "url": "https://leetcode.com/problems/best-position-for-a-service-centre/",
+      "acceptance": 35.4,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 2661,
+      "title": "First Completely Painted Row or Column",
+      "slug": "first-completely-painted-row-or-column",
+      "url": "https://leetcode.com/problems/first-completely-painted-row-or-column/",
+      "acceptance": 63.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 647,
+      "title": "Palindromic Substrings",
+      "slug": "palindromic-substrings",
+      "url": "https://leetcode.com/problems/palindromic-substrings/",
+      "acceptance": 73,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2702,
+      "title": "Minimum Operations to Make Numbers Non-positive",
+      "slug": "minimum-operations-to-make-numbers-non-positive",
+      "url": "https://leetcode.com/problems/minimum-operations-to-make-numbers-non-positive/",
+      "acceptance": 44.1,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 718,
+      "title": "Maximum Length of Repeated Subarray",
+      "slug": "maximum-length-of-repeated-subarray",
+      "url": "https://leetcode.com/problems/maximum-length-of-repeated-subarray/",
+      "acceptance": 51.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 49,
+      "title": "Group Anagrams",
+      "slug": "group-anagrams",
+      "url": "https://leetcode.com/problems/group-anagrams/",
+      "acceptance": 72.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2958,
+      "title": "Length of Longest Subarray With at Most K Frequency",
+      "slug": "length-of-longest-subarray-with-at-most-k-frequency",
+      "url": "https://leetcode.com/problems/length-of-longest-subarray-with-at-most-k-frequency/",
+      "acceptance": 56.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 622,
+      "title": "Design Circular Queue",
+      "slug": "design-circular-queue",
+      "url": "https://leetcode.com/problems/design-circular-queue/",
+      "acceptance": 54.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 79,
+      "title": "Word Search",
+      "slug": "word-search",
+      "url": "https://leetcode.com/problems/word-search/",
+      "acceptance": 47.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 412,
+      "title": "Fizz Buzz",
+      "slug": "fizz-buzz",
+      "url": "https://leetcode.com/problems/fizz-buzz/",
+      "acceptance": 75.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 765,
+      "title": "Couples Holding Hands",
+      "slug": "couples-holding-hands",
+      "url": "https://leetcode.com/problems/couples-holding-hands/",
+      "acceptance": 59.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 208,
+      "title": "Implement Trie (Prefix Tree)",
+      "slug": "implement-trie-prefix-tree",
+      "url": "https://leetcode.com/problems/implement-trie-prefix-tree/",
+      "acceptance": 69.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 631,
+      "title": "Design Excel Sum Formula",
+      "slug": "design-excel-sum-formula",
+      "url": "https://leetcode.com/problems/design-excel-sum-formula/",
+      "acceptance": 39.6,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 2050,
+      "title": "Parallel Courses III",
+      "slug": "parallel-courses-iii",
+      "url": "https://leetcode.com/problems/parallel-courses-iii/",
+      "acceptance": 66.8,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 210,
+      "title": "Course Schedule II",
+      "slug": "course-schedule-ii",
+      "url": "https://leetcode.com/problems/course-schedule-ii/",
+      "acceptance": 55.8,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1670,
+      "title": "Design Front Middle Back Queue",
+      "slug": "design-front-middle-back-queue",
+      "url": "https://leetcode.com/problems/design-front-middle-back-queue/",
+      "acceptance": 58.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 767,
+      "title": "Reorganize String",
+      "slug": "reorganize-string",
+      "url": "https://leetcode.com/problems/reorganize-string/",
+      "acceptance": 57.3,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1203,
+      "title": "Sort Items by Groups Respecting Dependencies",
+      "slug": "sort-items-by-groups-respecting-dependencies",
+      "url": "https://leetcode.com/problems/sort-items-by-groups-respecting-dependencies/",
+      "acceptance": 66,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 346,
+      "title": "Moving Average from Data Stream",
+      "slug": "moving-average-from-data-stream",
+      "url": "https://leetcode.com/problems/moving-average-from-data-stream/",
+      "acceptance": 80.2,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 69,
+      "title": "Sqrt(x)",
+      "slug": "sqrtx",
+      "url": "https://leetcode.com/problems/sqrtx/",
+      "acceptance": 42,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 2044,
+      "title": "Count Number of Maximum Bitwise-OR Subsets",
+      "slug": "count-number-of-maximum-bitwise-or-subsets",
+      "url": "https://leetcode.com/problems/count-number-of-maximum-bitwise-or-subsets/",
+      "acceptance": 89.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 126,
+      "title": "Word Ladder II",
+      "slug": "word-ladder-ii",
+      "url": "https://leetcode.com/problems/word-ladder-ii/",
+      "acceptance": 27.8,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 17,
+      "title": "Letter Combinations of a Phone Number",
+      "slug": "letter-combinations-of-a-phone-number",
+      "url": "https://leetcode.com/problems/letter-combinations-of-a-phone-number/",
+      "acceptance": 66.3,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 70,
+      "title": "Climbing Stairs",
+      "slug": "climbing-stairs",
+      "url": "https://leetcode.com/problems/climbing-stairs/",
+      "acceptance": 54.2,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 256,
+      "title": "Paint House",
+      "slug": "paint-house",
+      "url": "https://leetcode.com/problems/paint-house/",
+      "acceptance": 64.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1632,
+      "title": "Rank Transform of a Matrix",
+      "slug": "rank-transform-of-a-matrix",
+      "url": "https://leetcode.com/problems/rank-transform-of-a-matrix/",
+      "acceptance": 42.3,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 56,
+      "title": "Merge Intervals",
+      "slug": "merge-intervals",
+      "url": "https://leetcode.com/problems/merge-intervals/",
+      "acceptance": 52.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 103,
+      "title": "Binary Tree Zigzag Level Order Traversal",
+      "slug": "binary-tree-zigzag-level-order-traversal",
+      "url": "https://leetcode.com/problems/binary-tree-zigzag-level-order-traversal/",
+      "acceptance": 64,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 50,
+      "title": "Pow(x, n)",
+      "slug": "powx-n",
+      "url": "https://leetcode.com/problems/powx-n/",
+      "acceptance": 38.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2484,
+      "title": "Count Palindromic Subsequences",
+      "slug": "count-palindromic-subsequences",
+      "url": "https://leetcode.com/problems/count-palindromic-subsequences/",
+      "acceptance": 41.4,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 759,
+      "title": "Employee Free Time",
+      "slug": "employee-free-time",
+      "url": "https://leetcode.com/problems/employee-free-time/",
+      "acceptance": 72.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 875,
+      "title": "Koko Eating Bananas",
+      "slug": "koko-eating-bananas",
+      "url": "https://leetcode.com/problems/koko-eating-bananas/",
+      "acceptance": 50.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 149,
+      "title": "Max Points on a Line",
+      "slug": "max-points-on-a-line",
+      "url": "https://leetcode.com/problems/max-points-on-a-line/",
+      "acceptance": 31,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 1229,
+      "title": "Meeting Scheduler",
+      "slug": "meeting-scheduler",
+      "url": "https://leetcode.com/problems/meeting-scheduler/",
+      "acceptance": 55.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1606,
+      "title": "Find Servers That Handled Most Number of Requests",
+      "slug": "find-servers-that-handled-most-number-of-requests",
+      "url": "https://leetcode.com/problems/find-servers-that-handled-most-number-of-requests/",
+      "acceptance": 45.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 1801,
+      "title": "Number of Orders in the Backlog",
+      "slug": "number-of-orders-in-the-backlog",
+      "url": "https://leetcode.com/problems/number-of-orders-in-the-backlog/",
+      "acceptance": 54.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 332,
+      "title": "Reconstruct Itinerary",
+      "slug": "reconstruct-itinerary",
+      "url": "https://leetcode.com/problems/reconstruct-itinerary/",
+      "acceptance": 44.7,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 5,
+      "title": "Longest Palindromic Substring",
+      "slug": "longest-palindromic-substring",
+      "url": "https://leetcode.com/problems/longest-palindromic-substring/",
+      "acceptance": 38.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1010,
+      "title": "Pairs of Songs With Total Durations Divisible by 60",
+      "slug": "pairs-of-songs-with-total-durations-divisible-by-60",
+      "url": "https://leetcode.com/problems/pairs-of-songs-with-total-durations-divisible-by-60/",
+      "acceptance": 53.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1004,
+      "title": "Max Consecutive Ones III",
+      "slug": "max-consecutive-ones-iii",
+      "url": "https://leetcode.com/problems/max-consecutive-ones-iii/",
+      "acceptance": 68,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 204,
+      "title": "Count Primes",
+      "slug": "count-primes",
+      "url": "https://leetcode.com/problems/count-primes/",
+      "acceptance": 36.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 253,
+      "title": "Meeting Rooms II",
+      "slug": "meeting-rooms-ii",
+      "url": "https://leetcode.com/problems/meeting-rooms-ii/",
+      "acceptance": 52.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 34,
+      "title": "Find First and Last Position of Element in Sorted Array",
+      "slug": "find-first-and-last-position-of-element-in-sorted-array",
+      "url": "https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/",
+      "acceptance": 49.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2598,
+      "title": "Smallest Missing Non-negative Integer After Operations",
+      "slug": "smallest-missing-non-negative-integer-after-operations",
+      "url": "https://leetcode.com/problems/smallest-missing-non-negative-integer-after-operations/",
+      "acceptance": 55.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 31,
+      "title": "Next Permutation",
+      "slug": "next-permutation",
+      "url": "https://leetcode.com/problems/next-permutation/",
+      "acceptance": 45.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 98,
+      "title": "Validate Binary Search Tree",
+      "slug": "validate-binary-search-tree",
+      "url": "https://leetcode.com/problems/validate-binary-search-tree/",
+      "acceptance": 36,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 151,
+      "title": "Reverse Words in a String",
+      "slug": "reverse-words-in-a-string",
+      "url": "https://leetcode.com/problems/reverse-words-in-a-string/",
+      "acceptance": 57,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1155,
+      "title": "Number of Dice Rolls With Target Sum",
+      "slug": "number-of-dice-rolls-with-target-sum",
+      "url": "https://leetcode.com/problems/number-of-dice-rolls-with-target-sum/",
+      "acceptance": 62.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 127,
+      "title": "Word Ladder",
+      "slug": "word-ladder",
+      "url": "https://leetcode.com/problems/word-ladder/",
+      "acceptance": 45.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 465,
+      "title": "Optimal Account Balancing",
+      "slug": "optimal-account-balancing",
+      "url": "https://leetcode.com/problems/optimal-account-balancing/",
+      "acceptance": 50.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 348,
+      "title": "Design Tic-Tac-Toe",
+      "slug": "design-tic-tac-toe",
+      "url": "https://leetcode.com/problems/design-tic-tac-toe/",
+      "acceptance": 58.8,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 188,
+      "title": "Best Time to Buy and Sell Stock IV",
+      "slug": "best-time-to-buy-and-sell-stock-iv",
+      "url": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock-iv/",
+      "acceptance": 50.6,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 155,
+      "title": "Min Stack",
+      "slug": "min-stack",
+      "url": "https://leetcode.com/problems/min-stack/",
+      "acceptance": 58.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 53,
+      "title": "Maximum Subarray",
+      "slug": "maximum-subarray",
+      "url": "https://leetcode.com/problems/maximum-subarray/",
+      "acceptance": 53.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1,
+      "title": "Two Sum",
+      "slug": "two-sum",
+      "url": "https://leetcode.com/problems/two-sum/",
+      "acceptance": 57.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 782,
+      "title": "Transform to Chessboard",
+      "slug": "transform-to-chessboard",
+      "url": "https://leetcode.com/problems/transform-to-chessboard/",
+      "acceptance": 51.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 981,
+      "title": "Time Based Key-Value Store",
+      "slug": "time-based-key-value-store",
+      "url": "https://leetcode.com/problems/time-based-key-value-store/",
+      "acceptance": 50,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1244,
+      "title": "Design A Leaderboard",
+      "slug": "design-a-leaderboard",
+      "url": "https://leetcode.com/problems/design-a-leaderboard/",
+      "acceptance": 68.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 3484,
+      "title": "Design Spreadsheet",
+      "slug": "design-spreadsheet",
+      "url": "https://leetcode.com/problems/design-spreadsheet/",
+      "acceptance": 74,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 588,
+      "title": "Design In-Memory File System",
+      "slug": "design-in-memory-file-system",
+      "url": "https://leetcode.com/problems/design-in-memory-file-system/",
+      "acceptance": 48.3,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 714,
+      "title": "Best Time to Buy and Sell Stock with Transaction Fee",
+      "slug": "best-time-to-buy-and-sell-stock-with-transaction-fee",
+      "url": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock-with-transaction-fee/",
+      "acceptance": 72.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 688,
+      "title": "Knight Probability in Chessboard",
+      "slug": "knight-probability-in-chessboard",
+      "url": "https://leetcode.com/problems/knight-probability-in-chessboard/",
+      "acceptance": 57.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 8,
+      "title": "String to Integer (atoi)",
+      "slug": "string-to-integer-atoi",
+      "url": "https://leetcode.com/problems/string-to-integer-atoi/",
+      "acceptance": 21.3,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1411,
+      "title": "Number of Ways to Paint N × 3 Grid",
+      "slug": "number-of-ways-to-paint-n-3-grid",
+      "url": "https://leetcode.com/problems/number-of-ways-to-paint-n-3-grid/",
+      "acceptance": 80.6,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 42,
+      "title": "Trapping Rain Water",
+      "slug": "trapping-rain-water",
+      "url": "https://leetcode.com/problems/trapping-rain-water/",
+      "acceptance": 67.7,
+      "difficulty": "Hard"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "leet-cli",
+  "version": "0.1.0",
+  "description": "Browse bundled LeetCode company lists (uber, nvidia, ...) from the terminal, with optional live refresh from LeetCode's public GraphQL.",
+  "type": "module",
+  "bin": {
+    "leet": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "build:data": "bun run scripts/build-data.ts",
+    "test": "bun test",
+    "compile": "bun build src/cli.ts --compile --outfile leet"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "license": "MIT"
+}

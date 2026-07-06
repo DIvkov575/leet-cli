@@ -1,0 +1,374 @@
+{
+  "name": "set-1",
+  "title": "Set 1",
+  "problems": [
+    {
+      "id": 1,
+      "title": "Two Sum",
+      "slug": "two-sum",
+      "url": "https://leetcode.com/problems/two-sum/",
+      "acceptance": 57.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 55,
+      "title": "Jump Game",
+      "slug": "jump-game",
+      "url": "https://leetcode.com/problems/jump-game/",
+      "acceptance": 41.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 53,
+      "title": "Maximum Subarray",
+      "slug": "maximum-subarray",
+      "url": "https://leetcode.com/problems/maximum-subarray/",
+      "acceptance": 53.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 4,
+      "title": "Median of Two Sorted Arrays",
+      "slug": "median-of-two-sorted-arrays",
+      "url": "https://leetcode.com/problems/median-of-two-sorted-arrays/",
+      "acceptance": 46.9,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 560,
+      "title": "Subarray Sum Equals K",
+      "slug": "subarray-sum-equals-k",
+      "url": "https://leetcode.com/problems/subarray-sum-equals-k/",
+      "acceptance": 47.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 9,
+      "title": "Palindrome Number",
+      "slug": "palindrome-number",
+      "url": "https://leetcode.com/problems/palindrome-number/",
+      "acceptance": 60.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 42,
+      "title": "Trapping Rain Water",
+      "slug": "trapping-rain-water",
+      "url": "https://leetcode.com/problems/trapping-rain-water/",
+      "acceptance": 67.7,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 209,
+      "title": "Minimum Size Subarray Sum",
+      "slug": "minimum-size-subarray-sum",
+      "url": "https://leetcode.com/problems/minimum-size-subarray-sum/",
+      "acceptance": 52.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 169,
+      "title": "Majority Element",
+      "slug": "majority-element",
+      "url": "https://leetcode.com/problems/majority-element/",
+      "acceptance": 66.4,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 121,
+      "title": "Best Time to Buy and Sell Stock",
+      "slug": "best-time-to-buy-and-sell-stock",
+      "url": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock/",
+      "acceptance": 57,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 162,
+      "title": "Find Peak Element",
+      "slug": "find-peak-element",
+      "url": "https://leetcode.com/problems/find-peak-element/",
+      "acceptance": 47,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 69,
+      "title": "Sqrt(x)",
+      "slug": "sqrtx",
+      "url": "https://leetcode.com/problems/sqrtx/",
+      "acceptance": 42,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 3,
+      "title": "Longest Substring Without Repeating Characters",
+      "slug": "longest-substring-without-repeating-characters",
+      "url": "https://leetcode.com/problems/longest-substring-without-repeating-characters/",
+      "acceptance": 39.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 977,
+      "title": "Squares of a Sorted Array",
+      "slug": "squares-of-a-sorted-array",
+      "url": "https://leetcode.com/problems/squares-of-a-sorted-array/",
+      "acceptance": 73.9,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 73,
+      "title": "Set Matrix Zeroes",
+      "slug": "set-matrix-zeroes",
+      "url": "https://leetcode.com/problems/set-matrix-zeroes/",
+      "acceptance": 63.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 62,
+      "title": "Unique Paths",
+      "slug": "unique-paths",
+      "url": "https://leetcode.com/problems/unique-paths/",
+      "acceptance": 67,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1732,
+      "title": "Find the Highest Altitude",
+      "slug": "find-the-highest-altitude",
+      "url": "https://leetcode.com/problems/find-the-highest-altitude/",
+      "acceptance": 84.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 242,
+      "title": "Valid Anagram",
+      "slug": "valid-anagram",
+      "url": "https://leetcode.com/problems/valid-anagram/",
+      "acceptance": 68.3,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 49,
+      "title": "Group Anagrams",
+      "slug": "group-anagrams",
+      "url": "https://leetcode.com/problems/group-anagrams/",
+      "acceptance": 72.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 322,
+      "title": "Coin Change",
+      "slug": "coin-change",
+      "url": "https://leetcode.com/problems/coin-change/",
+      "acceptance": 48.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 451,
+      "title": "Sort Characters By Frequency",
+      "slug": "sort-characters-by-frequency",
+      "url": "https://leetcode.com/problems/sort-characters-by-frequency/",
+      "acceptance": 75.5,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 876,
+      "title": "Middle of the Linked List",
+      "slug": "middle-of-the-linked-list",
+      "url": "https://leetcode.com/problems/middle-of-the-linked-list/",
+      "acceptance": 82.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 20,
+      "title": "Valid Parentheses",
+      "slug": "valid-parentheses",
+      "url": "https://leetcode.com/problems/valid-parentheses/",
+      "acceptance": 44.4,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 75,
+      "title": "Sort Colors",
+      "slug": "sort-colors",
+      "url": "https://leetcode.com/problems/sort-colors/",
+      "acceptance": 69.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1148,
+      "title": "Article Views I",
+      "slug": "article-views-i",
+      "url": "https://leetcode.com/problems/article-views-i/",
+      "acceptance": 76.7,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 3020,
+      "title": "Find the Maximum Number of Elements in Subset",
+      "slug": "find-the-maximum-number-of-elements-in-subset",
+      "url": "https://leetcode.com/problems/find-the-maximum-number-of-elements-in-subset/",
+      "acceptance": 42.3,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 56,
+      "title": "Merge Intervals",
+      "slug": "merge-intervals",
+      "url": "https://leetcode.com/problems/merge-intervals/",
+      "acceptance": 52.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 27,
+      "title": "Remove Element",
+      "slug": "remove-element",
+      "url": "https://leetcode.com/problems/remove-element/",
+      "acceptance": 62,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1967,
+      "title": "Number of Strings That Appear as Substrings in Word",
+      "slug": "number-of-strings-that-appear-as-substrings-in-word",
+      "url": "https://leetcode.com/problems/number-of-strings-that-appear-as-substrings-in-word/",
+      "acceptance": 86.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 34,
+      "title": "Find First and Last Position of Element in Sorted Array",
+      "slug": "find-first-and-last-position-of-element-in-sorted-array",
+      "url": "https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/",
+      "acceptance": 49.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1768,
+      "title": "Merge Strings Alternately",
+      "slug": "merge-strings-alternately",
+      "url": "https://leetcode.com/problems/merge-strings-alternately/",
+      "acceptance": 82.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 74,
+      "title": "Search a 2D Matrix",
+      "slug": "search-a-2d-matrix",
+      "url": "https://leetcode.com/problems/search-a-2d-matrix/",
+      "acceptance": 54.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1358,
+      "title": "Number of Substrings Containing All Three Characters",
+      "slug": "number-of-substrings-containing-all-three-characters",
+      "url": "https://leetcode.com/problems/number-of-substrings-containing-all-three-characters/",
+      "acceptance": 74.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 31,
+      "title": "Next Permutation",
+      "slug": "next-permutation",
+      "url": "https://leetcode.com/problems/next-permutation/",
+      "acceptance": 45.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 875,
+      "title": "Koko Eating Bananas",
+      "slug": "koko-eating-bananas",
+      "url": "https://leetcode.com/problems/koko-eating-bananas/",
+      "acceptance": 50.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 19,
+      "title": "Remove Nth Node From End of List",
+      "slug": "remove-nth-node-from-end-of-list",
+      "url": "https://leetcode.com/problems/remove-nth-node-from-end-of-list/",
+      "acceptance": 52,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 215,
+      "title": "Kth Largest Element in an Array",
+      "slug": "kth-largest-element-in-an-array",
+      "url": "https://leetcode.com/problems/kth-largest-element-in-an-array/",
+      "acceptance": 69.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 88,
+      "title": "Merge Sorted Array",
+      "slug": "merge-sorted-array",
+      "url": "https://leetcode.com/problems/merge-sorted-array/",
+      "acceptance": 55.2,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 26,
+      "title": "Remove Duplicates from Sorted Array",
+      "slug": "remove-duplicates-from-sorted-array",
+      "url": "https://leetcode.com/problems/remove-duplicates-from-sorted-array/",
+      "acceptance": 63.2,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 704,
+      "title": "Binary Search",
+      "slug": "binary-search",
+      "url": "https://leetcode.com/problems/binary-search/",
+      "acceptance": 61.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 394,
+      "title": "Decode String",
+      "slug": "decode-string",
+      "url": "https://leetcode.com/problems/decode-string/",
+      "acceptance": 62.8,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 912,
+      "title": "Sort an Array",
+      "slug": "sort-an-array",
+      "url": "https://leetcode.com/problems/sort-an-array/",
+      "acceptance": 55.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 152,
+      "title": "Maximum Product Subarray",
+      "slug": "maximum-product-subarray",
+      "url": "https://leetcode.com/problems/maximum-product-subarray/",
+      "acceptance": 36.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 33,
+      "title": "Search in Rotated Sorted Array",
+      "slug": "search-in-rotated-sorted-array",
+      "url": "https://leetcode.com/problems/search-in-rotated-sorted-array/",
+      "acceptance": 45.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 312,
+      "title": "Burst Balloons",
+      "slug": "burst-balloons",
+      "url": "https://leetcode.com/problems/burst-balloons/",
+      "acceptance": 63.8,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 51,
+      "title": "N-Queens",
+      "slug": "n-queens",
+      "url": "https://leetcode.com/problems/n-queens/",
+      "acceptance": 75.9,
+      "difficulty": "Hard"
+    }
+  ]
+}
