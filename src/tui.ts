@@ -1,15 +1,26 @@
 import type { Difficulty, Problem, ProblemList } from "./types.ts";
-import { filterProblems } from "./lib.ts";
-import { fetchProblem } from "./leetcode.ts";
+import {
+  availableLists,
+  filterProblems,
+  loadList,
+  saveList,
+  sortProblems,
+  type SortKey,
+} from "./lib.ts";
+import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
+import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 
 /**
- * Interactive full-screen browser for a bundled list. Unlike the one-shot
- * `ls` command this redraws on every keystroke: filter by done/todo, navigate,
- * toggle completion, and Tab into a preview pane that lazily fetches the live
- * problem statement. All layout math is in pure exported helpers so it can be
- * unit-tested without a real terminal.
+ * Interactive full-screen browser for the bundled lists. This is a complete
+ * front-end for the other subcommands: filter (done/todo, difficulty, search),
+ * sort, switch lists, jump to a random problem, refresh metadata from LeetCode,
+ * import completions from an external source, toggle done, open in the browser,
+ * and Tab into a preview pane that lazily fetches the live problem statement.
+ *
+ * All layout math is in pure exported helpers so it can be unit-tested without
+ * a real terminal; the runtime section wires them to raw-mode stdin.
  */
 
 // ─── pure layout / logic helpers (tested) ─────────────────────────────────
@@ -25,6 +36,12 @@ export function cycleDoneFilter(cur: DoneFilter): DoneFilter {
 export function cycleDifficulty(cur: Difficulty | undefined): Difficulty | undefined {
   const order: (Difficulty | undefined)[] = [undefined, "Easy", "Medium", "Hard"];
   return order[(order.indexOf(cur) + 1) % order.length];
+}
+
+/** Cycle sort key: id → acc → difficulty → title → id. */
+export function cycleSort(cur: SortKey): SortKey {
+  const order: SortKey[] = ["id", "acc", "difficulty", "title"];
+  return order[(order.indexOf(cur) + 1) % order.length]!;
 }
 
 /** Truncate to `width` display columns, marking cuts with a trailing "…". */
@@ -139,29 +156,52 @@ interface PreviewState {
   error?: string;
 }
 
+/** A single-line text prompt (search / import). */
+interface InputState {
+  kind: "search" | "import";
+  value: string;
+}
+
+/** Full-screen overlay showing a chooseable list of items. */
+interface PickerState {
+  items: string[];
+  index: number;
+}
+
 interface State {
   list: ProblemList;
+  listNames: string[];
   completed: Set<number>;
   doneFilter: DoneFilter;
   diff: Difficulty | undefined;
   search: string;
-  searching: boolean;
+  sortKey: SortKey;
+  sortDesc: boolean;
   filtered: Problem[];
   cursor: number;
   top: number;
   focus: "list" | "preview";
   preview: PreviewState;
   maxId: number;
+  /** Transient message shown in the footer (cleared on next navigation). */
+  status: string;
+  /** Active text prompt, or null. */
+  input: InputState | null;
+  /** Active list picker overlay, or null. */
+  picker: PickerState | null;
+  /** Whether the help overlay is showing. */
+  help: boolean;
 }
 
 function recompute(s: State): void {
   const done = s.doneFilter === "all" ? undefined : s.doneFilter === "done";
-  s.filtered = filterProblems(s.list.problems, {
+  const out = filterProblems(s.list.problems, {
     difficulty: s.diff,
     search: s.search || undefined,
     completed: s.completed,
     done,
   });
+  s.filtered = sortProblems(out, s.sortKey, s.sortDesc);
   if (s.cursor >= s.filtered.length) s.cursor = Math.max(0, s.filtered.length - 1);
 }
 
@@ -169,10 +209,63 @@ function current(s: State): Problem | undefined {
   return s.filtered[s.cursor];
 }
 
+/** Load a different bundled list into the state and reset the view. */
+async function switchList(s: State, name: string): Promise<void> {
+  s.list = await loadList(name);
+  s.maxId = s.list.problems.reduce((m, p) => Math.max(m, p.id), 0);
+  s.cursor = 0;
+  s.top = 0;
+  s.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+  s.focus = "list";
+  recompute(s);
+}
+
 // ─── rendering (pure: state + dims -> lines) ───────────────────────────────
+
+const HELP_LINES = [
+  "  leet tui — key bindings",
+  "",
+  "  Navigation",
+  "    ↑ ↓ / j k     move cursor (scroll preview when focused)",
+  "    g / G         jump to top / bottom",
+  "    PgUp / PgDn   page up / down",
+  "    r             jump to a random problem in the view",
+  "",
+  "  Filter & sort",
+  "    f             done filter: all → todo → done",
+  "    d             difficulty: any → Easy → Medium → Hard",
+  "    s             sort: id → acc → difficulty → title",
+  "    S             toggle ascending / descending",
+  "    /             search by title",
+  "",
+  "  Actions",
+  "    Space         toggle done (saved immediately)",
+  "    Enter / Tab   open / focus the preview pane",
+  "    o             open the problem in the browser",
+  "    L             switch to another list",
+  "    R             refresh this list's metadata from LeetCode",
+  "    i             import completions from a path / GitHub repo",
+  "",
+  "  ? toggle this help    Esc close    q quit",
+];
 
 /** Build the full frame: exactly `rows` lines, each padded to `cols` columns. */
 export function renderFrame(s: State, rows: number, cols: number): string[] {
+  if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
+  if (s.picker) {
+    const lines = s.picker.items.map((name, i) => {
+      const marker = i === s.picker!.index ? "▸ " : "  ";
+      const row = `  ${marker}${name}`;
+      return i === s.picker!.index ? paint(row, "rev") : row;
+    });
+    return renderOverlay(
+      ["  Choose a list:", "", ...lines],
+      rows,
+      cols,
+      " lists  (↑↓ move · Enter open · Esc cancel)",
+    );
+  }
+
   const showPreview = cols >= 90;
   const listW = showPreview ? Math.max(40, Math.floor(cols * 0.5)) : cols;
   const previewW = showPreview ? cols - listW - 1 : 0;
@@ -181,15 +274,17 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   const cols5 = layoutColumns(listW, s.maxId);
 
   // Header.
+  const sortBits = `sort:${s.sortKey}${s.sortDesc ? "↓" : "↑"}`;
   const filterBits = [
     `filter:${s.doneFilter}`,
     `diff:${s.diff ?? "any"}`,
+    sortBits,
     s.search ? `search:"${s.search}"` : "",
   ]
     .filter(Boolean)
     .join("  ");
   const header = fit(
-    ` ${s.list.title}  ${s.filtered.length}/${s.list.problems.length}  ${filterBits}`,
+    ` ${s.list.name}  ${s.filtered.length}/${s.list.problems.length}  ${filterBits}`,
     cols,
   );
 
@@ -220,15 +315,17 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
     else listLines.push(line);
   }
 
-  // Footer / hint or search prompt.
+  // Footer: input prompt > transient status > key hint.
   let footer: string;
-  if (s.searching) {
-    footer = fit(` /${s.search}▏  (Enter apply · Esc cancel)`, cols);
-    footer = paint(footer, "yellow");
+  if (s.input) {
+    const label = s.input.kind === "search" ? "/" : "import: ";
+    footer = paint(fit(` ${label}${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
+  } else if (s.status) {
+    footer = paint(fit(` ${s.status}`, cols), "cyan");
   } else {
     footer = paint(
       fit(
-        " ↑↓/jk move · Space done · f filter · d diff · / search · Tab preview · o open · q quit",
+        " jk move · Space done · f filter · d diff · s sort · / search · Tab preview · L list · R refresh · i import · ? help · q quit",
         cols,
       ),
       "dim",
@@ -236,10 +333,7 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   }
 
   if (!showPreview) {
-    // Preview as full-screen overlay when focused and there's content/loading.
-    if (s.focus === "preview") {
-      return renderPreviewFull(s, rows, cols);
-    }
+    if (s.focus === "preview") return renderPreviewFull(s, rows, cols);
     return [paint(header, "bold", "cyan"), ...listLines, footer];
   }
 
@@ -250,20 +344,31 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   for (let i = 0; i < bodyH; i++) {
     bodyRows.push(`${listLines[i]}${sep}${previewLines[i] ?? " ".repeat(previewW)}`);
   }
-  const headerFull = paint(header, "bold", "cyan");
-  return [headerFull, ...bodyRows, footer];
+  return [paint(header, "bold", "cyan"), ...bodyRows, footer];
+}
+
+/** Render a centered-ish full-screen overlay from content lines. */
+function renderOverlay(content: string[], rows: number, cols: number, title: string): string[] {
+  const bodyH = rows - 2;
+  const header = paint(fit(title, cols), "bold", "cyan");
+  const lines: string[] = [];
+  for (let i = 0; i < bodyH; i++) lines.push(fit(content[i] ?? "", cols));
+  const footer = paint(fit(" Esc close · q quit", cols), "dim");
+  return [header, ...lines, footer];
 }
 
 function previewHeaderLines(s: State, width: number): string[] {
   const p = current(s);
   if (!p) return [fit("(no problem selected)", width)];
-  const head = [
+  return [
     paint(fit(`${p.id}. ${p.title}`, width), "bold", "cyan"),
-    fit(`${paint(p.difficulty, diffColor(p.difficulty))}  ${s.completed.has(p.id) ? paint("✓ done", "green") : ""}`, width),
+    fit(
+      `${paint(p.difficulty, diffColor(p.difficulty))}  ${s.completed.has(p.id) ? paint("✓ done", "green") : ""}`,
+      width,
+    ),
     paint(fit(p.url, width), "dim"),
     "",
   ];
-  return head;
 }
 
 function previewBody(s: State, width: number): string[] {
@@ -305,25 +410,37 @@ async function openUrl(url: string): Promise<void> {
   await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited;
 }
 
-/** Run the interactive TUI for a loaded list. Resolves when the user quits. */
-export async function runTui(list: ProblemList): Promise<void> {
+/**
+ * Run the interactive TUI. If `list` is omitted the first available list loads;
+ * the user can switch with the list picker (`L`). Resolves when the user quits.
+ */
+export async function runTui(list?: ProblemList): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("`leet tui` needs an interactive terminal (stdin/stdout must be a TTY)");
   }
 
+  const listNames = await availableLists();
+  const initial = list ?? (await loadList(listNames[0]!));
+
   const state: State = {
-    list,
+    list: initial,
+    listNames,
     completed: await loadCompleted(),
     doneFilter: "all",
     diff: undefined,
     search: "",
-    searching: false,
+    sortKey: "id",
+    sortDesc: false,
     filtered: [],
     cursor: 0,
     top: 0,
     focus: "list",
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
-    maxId: list.problems.reduce((m, p) => Math.max(m, p.id), 0),
+    maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
+    status: "",
+    input: null,
+    picker: null,
+    help: false,
   };
   recompute(state);
 
@@ -331,11 +448,12 @@ export async function runTui(list: ProblemList): Promise<void> {
   const render = (): void => {
     const rows = out.rows ?? 24;
     const cols = out.columns ?? 80;
-    const frame = renderFrame(state, rows, cols);
-    out.write("\x1b[H" + frame.join("\r\n") + "\x1b[J");
+    out.write("\x1b[H" + renderFrame(state, rows, cols).join("\r\n") + "\x1b[J");
   };
 
-  // Preview width depends on layout; recompute wrap on load using current cols.
+  const previewWidthForCols = (cols: number): number =>
+    cols >= 90 ? cols - Math.max(40, Math.floor(cols * 0.5)) - 1 : cols;
+
   const loadPreview = async (): Promise<void> => {
     const p = current(state);
     if (!p) return;
@@ -344,11 +462,10 @@ export async function runTui(list: ProblemList): Promise<void> {
     render();
     try {
       const remote = await fetchProblem(p.slug, { withContent: true });
-      const cols = out.columns ?? 80;
-      const w = cols >= 90 ? cols - Math.max(40, Math.floor(cols * 0.5)) - 1 : cols;
+      const w = Math.max(10, previewWidthForCols(out.columns ?? 80));
       const text = remote.contentHtml ? htmlToText(remote.contentHtml) : "(no statement available)";
       if (state.preview.slug === p.slug) {
-        state.preview = { slug: p.slug, status: "loaded", lines: wrapText(text, Math.max(10, w)), scroll: 0 };
+        state.preview = { slug: p.slug, status: "loaded", lines: wrapText(text, w), scroll: 0 };
       }
     } catch (err) {
       if (state.preview.slug === p.slug) {
@@ -371,6 +488,47 @@ export async function runTui(list: ProblemList): Promise<void> {
     else state.completed.add(p.id);
     await saveCompleted(state.completed);
     recompute(state);
+    render();
+  };
+
+  const refreshList = async (): Promise<void> => {
+    state.status = `refreshing ${state.list.name} (${state.list.problems.length}) from LeetCode…`;
+    render();
+    let failed = 0;
+    const live = await fetchProblems(
+      state.list.problems.map((p) => p.slug),
+      { onError: () => failed++ },
+    );
+    let updated = 0;
+    for (const p of state.list.problems) {
+      const l = live.get(p.slug);
+      if (!l) continue;
+      if (p.acceptance !== l.acceptance || p.difficulty !== l.difficulty) updated++;
+      p.acceptance = l.acceptance;
+      p.difficulty = l.difficulty;
+    }
+    await saveList(state.list);
+    recompute(state);
+    state.status = `refreshed ${state.list.name}: ${updated} updated, ${failed} failed.`;
+    render();
+  };
+
+  const runImport = async (source: string): Promise<void> => {
+    state.status = `importing from ${source}…`;
+    render();
+    try {
+      const result = await importSource(source);
+      const before = state.completed.size;
+      for (const id of result.matchedIds) state.completed.add(id);
+      const added = state.completed.size - before;
+      await saveCompleted(state.completed);
+      recompute(state);
+      state.status =
+        `imported ${source}: ${result.matched.length} matched, ${added} newly marked, ` +
+        `${result.unmatched.length} not in any bundled list.`;
+    } catch (err) {
+      state.status = `import failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
     render();
   };
 
@@ -398,24 +556,69 @@ export async function runTui(list: ProblemList): Promise<void> {
     const onData = (buf: Buffer): void => {
       const key = buf.toString("utf8");
 
-      // ── search input mode ──
-      if (state.searching) {
+      // ── text prompt mode (search / import) ──
+      if (state.input) {
         if (key === "\r" || key === "\n") {
-          state.searching = false;
+          const { kind, value } = state.input;
+          state.input = null;
+          if (kind === "import" && value.trim()) void runImport(value.trim());
         } else if (key === "\x1b") {
-          state.searching = false;
-          state.search = "";
-          recompute(state);
+          if (state.input.kind === "search") {
+            state.search = "";
+            recompute(state);
+          }
+          state.input = null;
         } else if (key === "\x7f" || key === "\b") {
-          state.search = state.search.slice(0, -1);
-          recompute(state);
+          state.input.value = state.input.value.slice(0, -1);
+          if (state.input.kind === "search") {
+            state.search = state.input.value;
+            recompute(state);
+          }
         } else if (key === "\x03") {
           finish();
           return;
         } else if (key >= " " && !key.startsWith("\x1b")) {
-          state.search += key;
-          recompute(state);
+          state.input.value += key;
+          if (state.input.kind === "search") {
+            state.search = state.input.value;
+            recompute(state);
+          }
         }
+        render();
+        return;
+      }
+
+      // ── list picker overlay ──
+      if (state.picker) {
+        switch (key) {
+          case "\x03":
+          case "q":
+          case "\x1b":
+            state.picker = null;
+            break;
+          case "k":
+          case "\x1b[A":
+            state.picker.index = Math.max(0, state.picker.index - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            state.picker.index = Math.min(state.picker.items.length - 1, state.picker.index + 1);
+            break;
+          case "\r":
+          case "\n": {
+            const name = state.picker.items[state.picker.index]!;
+            state.picker = null;
+            void switchList(state, name).then(render);
+            return;
+          }
+        }
+        render();
+        return;
+      }
+
+      // ── help overlay ──
+      if (state.help) {
+        if (key === "?" || key === "\x1b" || key === "q") state.help = false;
         render();
         return;
       }
@@ -448,6 +651,11 @@ export async function runTui(list: ProblemList): Promise<void> {
         case "G":
           state.cursor = Math.max(0, state.filtered.length - 1);
           break;
+        case "r": // random within the current filtered view
+          state.cursor =
+            state.filtered.length > 0 ? Math.floor(pseudoRandom() * state.filtered.length) : 0;
+          state.status = "";
+          break;
         case "f":
           state.doneFilter = cycleDoneFilter(state.doneFilter);
           recompute(state);
@@ -456,8 +664,28 @@ export async function runTui(list: ProblemList): Promise<void> {
           state.diff = cycleDifficulty(state.diff);
           recompute(state);
           break;
+        case "s":
+          state.sortKey = cycleSort(state.sortKey);
+          recompute(state);
+          break;
+        case "S":
+          state.sortDesc = !state.sortDesc;
+          recompute(state);
+          break;
         case "/":
-          state.searching = true;
+          state.input = { kind: "search", value: state.search };
+          break;
+        case "i":
+          state.input = { kind: "import", value: "" };
+          break;
+        case "L":
+          state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
+          break;
+        case "R":
+          void refreshList();
+          return;
+        case "?":
+          state.help = true;
           break;
         case " ":
           void toggleDone();
@@ -472,8 +700,9 @@ export async function runTui(list: ProblemList): Promise<void> {
           state.focus = "preview";
           void loadPreview();
           return;
-        case "\x1b": // Esc: leave preview focus
+        case "\x1b": // Esc: leave preview focus / clear status
           state.focus = "list";
+          state.status = "";
           break;
         case "o": {
           const p = current(state);
@@ -483,7 +712,7 @@ export async function runTui(list: ProblemList): Promise<void> {
         default:
           return; // ignore unknown keys without redraw
       }
-      // Changing the selected row invalidates the preview if not loaded for it.
+      // Changing the selected row invalidates a stale preview.
       const p = current(state);
       if (p && state.preview.slug !== p.slug && state.focus === "list") {
         state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
@@ -495,4 +724,14 @@ export async function runTui(list: ProblemList): Promise<void> {
     process.stdin.on("data", onData);
     render();
   });
+}
+
+// A tiny non-crypto PRNG. Date/Math.random restrictions don't apply at runtime
+// here, but keeping randomness self-contained avoids surprising the test env.
+let prngState = 0x2545f491;
+function pseudoRandom(): number {
+  prngState ^= prngState << 13;
+  prngState ^= prngState >>> 17;
+  prngState ^= prngState << 5;
+  return ((prngState >>> 0) % 1_000_000) / 1_000_000;
 }

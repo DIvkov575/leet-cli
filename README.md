@@ -33,8 +33,9 @@ Each problem carries its number, title, slug, URL, acceptance rate, and difficul
 ## Usage
 
 ```sh
+leet                             # open the interactive browser (see below)
+leet tui [list]                  # same, optionally starting on a specific list
 leet lists                       # list the bundled problem lists
-leet tui <list>                  # browse a list interactively (see below)
 leet ls <list> [filters]         # print a list as a table
 leet show <id|slug> [--live]     # show one problem (--live fetches the statement)
 leet open <id|slug> [list]       # open a problem in the browser
@@ -72,29 +73,41 @@ leet show 42 --live
 leet refresh nvidia
 ```
 
-## Interactive mode (`leet tui`)
+## Interactive mode
 
-`leet tui <list>` opens a full-screen browser that redraws on every keystroke.
-The layout adapts to the terminal size — columns are computed to fit the width
-(long titles truncate with `…` rather than wrapping), and on terminals ≥ 90
-columns a live problem-preview pane appears beside the list.
+Just run **`leet`** (or `leet tui [list]`) to open a full-screen browser — this
+is the primary way to use the tool, and a front-end for everything the
+subcommands do: pick and switch lists, filter, sort, preview problem
+statements, mark problems done, refresh metadata, and import completions,
+all without leaving the UI. It redraws on every keystroke and adapts to the
+terminal size — columns are computed to fit the width (long titles truncate
+with `…` rather than wrapping), and on terminals ≥ 90 columns a live
+problem-preview pane appears beside the list. Press `?` in-app for the full key
+list.
 
-| Key            | Action                                            |
-|----------------|---------------------------------------------------|
+| Key             | Action                                            |
+|-----------------|---------------------------------------------------|
 | `↑`/`↓`, `j`/`k` | move the cursor (or scroll the preview when focused) |
-| `g` / `G`      | jump to top / bottom                              |
-| PgUp / PgDn    | page up / down                                    |
-| `Space`        | toggle done for the selected problem (saved immediately) |
-| `f`            | cycle the done filter: all → todo → done          |
-| `d`            | cycle difficulty: any → Easy → Medium → Hard      |
-| `/`            | search by title (Enter to apply, Esc to clear)    |
-| `Tab`          | move focus between the list and the preview pane  |
-| `Enter`        | load the live problem statement into the preview  |
-| `o`            | open the selected problem in the browser          |
-| `q` / Ctrl-C   | quit (restores the terminal)                      |
+| `g` / `G`       | jump to top / bottom                              |
+| PgUp / PgDn     | page up / down                                    |
+| `r`             | jump to a random problem in the current view      |
+| `Space`         | toggle done for the selected problem (saved immediately) |
+| `f`             | cycle the done filter: all → todo → done          |
+| `d`             | cycle difficulty: any → Easy → Medium → Hard      |
+| `s` / `S`       | cycle sort key / toggle ascending–descending      |
+| `/`             | search by title (Enter to apply, Esc to clear)    |
+| `Tab`           | move focus between the list and the preview pane  |
+| `Enter`         | load the live problem statement into the preview  |
+| `o`             | open the selected problem in the browser          |
+| `L`             | switch to another bundled list (picker overlay)   |
+| `R`             | refresh this list's acceptance/difficulty from LeetCode |
+| `i`             | import completions from a path / GitHub repo      |
+| `?`             | toggle the key-bindings help overlay              |
+| `q` / Ctrl-C    | quit (restores the terminal)                      |
 
 The preview fetches the statement lazily from LeetCode's public GraphQL API the
 first time you `Enter`/`Tab` into it, so browsing stays offline until you ask.
+The one-shot subcommands below remain available for scripting and piping.
 
 ## Tracking completed problems
 

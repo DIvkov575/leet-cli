@@ -2,6 +2,7 @@ import { expect, test, describe } from "bun:test";
 import {
   cycleDoneFilter,
   cycleDifficulty,
+  cycleSort,
   truncate,
   fit,
   layoutColumns,
@@ -23,6 +24,15 @@ describe("cycleDifficulty", () => {
     expect(cycleDifficulty("Easy")).toBe("Medium");
     expect(cycleDifficulty("Medium")).toBe("Hard");
     expect(cycleDifficulty("Hard")).toBeUndefined();
+  });
+});
+
+describe("cycleSort", () => {
+  test("id -> acc -> difficulty -> title -> id", () => {
+    expect(cycleSort("id")).toBe("acc");
+    expect(cycleSort("acc")).toBe("difficulty");
+    expect(cycleSort("difficulty")).toBe("title");
+    expect(cycleSort("title")).toBe("id");
   });
 });
 
