@@ -16,7 +16,7 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
-import { renderProblem, renderTable } from "./render.ts";
+import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
@@ -30,7 +30,7 @@ Usage:
   leet lists                       List the bundled problem lists
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
-  leet solve <id|slug> [--force]   Scaffold a C++ solution file from LeetCode's starter code
+  leet solve <id|slug> [--force]   Scaffold a runnable C++ file (stub + test harness) and print the statement
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
@@ -235,14 +235,18 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
   else console.log(renderProblem(local, undefined, completed.has(local.id)));
 }
 
-/** `leet solve <id|slug>` — scaffold a C++ solution file from LeetCode's starter code. */
+/**
+ * `leet solve <id|slug>` — scaffold a C++ solution file from LeetCode's starter
+ * code, print the problem statement, and embed a runnable test harness built
+ * from the example cases. `--quiet` skips printing the statement.
+ */
 async function cmdSolve(p: Parsed): Promise<void> {
   const key = p.positionals[0];
-  if (!key) throw new UserError("usage: leet solve <id|slug> [--force]");
+  if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet]");
   const local = await findProblemAnywhere(key);
   const slug = local?.slug ?? key;
 
-  const remote = await fetchProblem(slug, { withSnippets: true });
+  const remote = await fetchProblem(slug, { withSnippets: true, withContent: true });
   const dir = (p.values.dir as string | undefined) ?? "solutions";
   const path = `${dir}/${scaffoldFilename(remote.id, remote.slug)}`;
 
@@ -250,16 +254,29 @@ async function cmdSolve(p: Parsed): Promise<void> {
     throw new UserError(`${path} already exists (pass --force to overwrite)`);
   }
 
+  const url = `https://leetcode.com/problems/${remote.slug}/`;
   const content = scaffoldContent({
     id: remote.id,
     title: remote.title,
     slug: remote.slug,
     difficulty: remote.difficulty,
-    url: `https://leetcode.com/problems/${remote.slug}/`,
+    url,
     snippets: remote.snippets ?? [],
+    metaData: remote.metaData,
+    exampleTestcases: remote.exampleTestcases,
+    contentHtml: remote.contentHtml,
   });
   await Bun.write(path, content);
-  console.log(`wrote ${path}`);
+
+  if (!p.values.quiet && remote.contentHtml) {
+    console.log(`\n${remote.id}. ${remote.title} [${remote.difficulty}]`);
+    console.log(url);
+    console.log("");
+    console.log(htmlToText(remote.contentHtml));
+    console.log("");
+  }
+  const hasHarness = content.includes("int main()");
+  console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""}`);
 }
 
 async function cmdOpen(p: Parsed): Promise<void> {
@@ -454,7 +471,13 @@ async function main(): Promise<number> {
       return 0;
     }
     case "solve":
-      await cmdSolve(parse(rest, { force: { type: "boolean" }, dir: { type: "string" } }));
+      await cmdSolve(
+        parse(rest, {
+          force: { type: "boolean" },
+          dir: { type: "string" },
+          quiet: { type: "boolean" },
+        }),
+      );
       return 0;
     case "open":
       await cmdOpen(parse(rest, { live: { type: "boolean" } }));
