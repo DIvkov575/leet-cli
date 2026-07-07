@@ -9,6 +9,7 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
+import { scaffoldFilename } from "./scaffold.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { prefetchProblems } from "./prefetch.ts";
@@ -421,6 +422,15 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
   return [header, ...lines, footer];
 }
 
+/**
+ * Copy-pasteable shell command that scaffolds the problem's C++ file
+ * (cache-first, so it's instant once cached/prefetched) and opens it in $EDITOR.
+ */
+export function solveCommand(id: number, slug: string): string {
+  const file = `solutions/${scaffoldFilename(id, slug)}`;
+  return `leet solve ${slug} && \${EDITOR:-vi} ${file}`;
+}
+
 function previewHeaderLines(s: State, width: number): string[] {
   const p = current(s);
   if (!p) return [fit("(no problem selected)", width)];
@@ -431,6 +441,7 @@ function previewHeaderLines(s: State, width: number): string[] {
       width,
     ),
     paint(fit(p.url, width), "dim"),
+    paint(fit(`$ ${solveCommand(p.id, p.slug)}`, width), "green"),
     "",
   ];
 }

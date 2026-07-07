@@ -9,8 +9,17 @@ import {
   computeTop,
   wrapText,
   renderFrame,
+  solveCommand,
   MENU_ITEMS,
 } from "./tui.ts";
+
+describe("solveCommand", () => {
+  test("scaffolds cache-first and opens the solution file", () => {
+    expect(solveCommand(1, "two-sum")).toBe(
+      "leet solve two-sum && ${EDITOR:-vi} solutions/1-two-sum.cpp",
+    );
+  });
+});
 
 describe("cycleDoneFilter", () => {
   test("all -> todo -> done -> all", () => {
