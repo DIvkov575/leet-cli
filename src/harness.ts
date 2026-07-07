@@ -207,7 +207,8 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
   });
 
   lines.push(`  cout << __pass << "/" << __total << " passed\\n";`);
-  lines.push("  return 0;");
+  // Non-zero exit when a checked case failed, so `leet test` / CI can detect it.
+  lines.push("  return __pass == __total ? 0 : 1;");
   lines.push("}");
   return { supported: true, code: lines.join("\n") };
 }

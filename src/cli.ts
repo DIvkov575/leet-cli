@@ -33,6 +33,7 @@ Usage:
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it in $EDITOR
+  leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
@@ -99,10 +100,12 @@ instead of PASS/FAIL, so you can still eyeball the result. Problems whose
 signatures the generator can't yet emit (linked lists, trees) contain the
 example cases as a comment instead of a runnable harness.
 
-## Shortcut
+## Shortcuts
 
-\`leet solve <slug> -o\` scaffolds a problem locally (cache-first) and opens it
-in your editor.
+- \`leet solve <slug> -o\` scaffolds a problem locally (cache-first) and opens
+  it in your editor.
+- \`leet test <slug>\` compiles the scaffolded solution and runs its harness
+  (exits non-zero if any case fails).
 `;
 
 const DIFFICULTY_ALIASES: Record<string, Difficulty> = {
@@ -352,6 +355,76 @@ async function cmdSolve(p: Parsed): Promise<void> {
   console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
 
   if (p.values.open) await openInEditor(path);
+}
+
+/**
+ * `leet test <id|slug>` — compile a scaffolded solution and run its embedded
+ * harness. Resolves the file in <dir> (default ./solutions); if it isn't there,
+ * scaffolds it first (cache-first, like `solve`). The C++ compiler is $CXX or
+ * `c++`; the binary's output (the harness pass/fail) is streamed through.
+ */
+async function cmdTest(p: Parsed): Promise<void> {
+  const key = p.positionals[0];
+  if (!key) throw new UserError("usage: leet test <id|slug> [--dir <dir>]");
+  const local = await findProblemAnywhere(key);
+  const slug = local?.slug ?? key;
+  const dir = (p.values.dir as string | undefined) ?? "solutions";
+
+  // Locate the scaffolded .cpp; scaffold it (from cache, else live) if missing.
+  let path: string | null = null;
+  const glob = new Bun.Glob(`*-${slug}.cpp`);
+  for await (const f of glob.scan(dir)) {
+    path = `${dir}/${f}`;
+    break;
+  }
+  if (path === null) {
+    const cached = await getCached(slug);
+    let content: string;
+    let id: number;
+    if (cached !== null) {
+      content = cached;
+      id = Number(cached.match(/^\/\/\s*(\d+)\./)?.[1] ?? local?.id ?? 0);
+    } else {
+      const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
+      id = r.id;
+      content = scaffoldContent({
+        id: r.id,
+        title: r.title,
+        slug: r.slug,
+        difficulty: r.difficulty,
+        url: `https://leetcode.com/problems/${r.slug}/`,
+        snippets: r.snippets ?? [],
+        metaData: r.metaData,
+        exampleTestcases: r.exampleTestcases,
+        contentHtml: r.contentHtml,
+      });
+      await putCached(slug, content);
+    }
+    path = `${dir}/${scaffoldFilename(id, slug)}`;
+    await Bun.write(path, content);
+    console.error(`scaffolded ${path}`);
+  }
+
+  if (!(await Bun.file(path).text()).includes("int main()")) {
+    throw new UserError(`${path} has no test harness (unsupported signature) — nothing to run`);
+  }
+
+  // Compile.
+  const cxx = process.env.CXX || "c++";
+  const bin = `${path.replace(/\.cpp$/, "")}.out`;
+  console.error(`compiling ${path}…`);
+  const compile = Bun.spawn([cxx, "-std=c++17", "-O2", path, "-o", bin], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if ((await compile.exited) !== 0) {
+    throw new UserError("compilation failed (fill in the Solution body, then retry)");
+  }
+
+  // Run the harness, streaming its output; exit non-zero if any case failed.
+  const proc = Bun.spawn([bin], { stdout: "inherit", stderr: "inherit" });
+  const code = await proc.exited;
+  if (code !== 0) throw new UserError(`test binary exited ${code}`);
 }
 
 /** Run a command, throwing with stderr on non-zero exit. */
@@ -649,6 +722,9 @@ async function main(): Promise<number> {
           open: { type: "boolean", short: "o" },
         }),
       );
+      return 0;
+    case "test":
+      await cmdTest(parse(rest, { dir: { type: "string" } }));
       return 0;
     case "sync":
       await cmdSync(
