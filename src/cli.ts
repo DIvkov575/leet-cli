@@ -27,8 +27,9 @@ import { runTui } from "./tui.ts";
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
 
 Usage:
+  leet                             Open the interactive browser (pick lists, filter, preview…)
+  leet tui [list]                  Same, optionally starting on a specific list
   leet lists                       List the bundled problem lists
-  leet tui <list>                  Browse a list interactively (filter, preview, mark done, p prefetch)
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet solve <id|slug> [--force]   Scaffold a runnable C++ file (cache-first, --fresh forces live) + print statement
@@ -187,8 +188,8 @@ async function cmdLs(p: Parsed): Promise<void> {
 
 async function cmdTui(p: Parsed): Promise<void> {
   const name = p.positionals[0];
-  if (!name) throw new UserError("usage: leet tui <list>");
-  await runTui(await loadList(name));
+  // With no list, launch into the first list; the picker (L) switches from there.
+  await runTui(name ? await loadList(name) : undefined);
 }
 
 async function cmdRandom(p: Parsed): Promise<void> {
@@ -551,6 +552,14 @@ async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
   switch (command) {
     case undefined:
+      // Bare `leet` drops into the interactive TUI; if there's no terminal
+      // (piped/redirected), fall back to printing help.
+      if (process.stdin.isTTY && process.stdout.isTTY) {
+        await cmdTui(parse(rest));
+      } else {
+        console.log(HELP);
+      }
+      return 0;
     case "help":
     case "-h":
     case "--help":

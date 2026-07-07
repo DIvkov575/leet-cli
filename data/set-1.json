@@ -7,7 +7,7 @@
       "title": "Two Sum",
       "slug": "two-sum",
       "url": "https://leetcode.com/problems/two-sum/",
-      "acceptance": 57.7,
+      "acceptance": 57.8,
       "difficulty": "Easy"
     },
     {
@@ -39,7 +39,7 @@
       "title": "Subarray Sum Equals K",
       "slug": "subarray-sum-equals-k",
       "url": "https://leetcode.com/problems/subarray-sum-equals-k/",
-      "acceptance": 47.6,
+      "acceptance": 47.7,
       "difficulty": "Medium"
     },
     {
@@ -119,7 +119,7 @@
       "title": "Set Matrix Zeroes",
       "slug": "set-matrix-zeroes",
       "url": "https://leetcode.com/problems/set-matrix-zeroes/",
-      "acceptance": 63.2,
+      "acceptance": 63.3,
       "difficulty": "Medium"
     },
     {
@@ -191,7 +191,7 @@
       "title": "Sort Colors",
       "slug": "sort-colors",
       "url": "https://leetcode.com/problems/sort-colors/",
-      "acceptance": 69.9,
+      "acceptance": 70,
       "difficulty": "Medium"
     },
     {
