@@ -16,6 +16,7 @@ const TITLES: Record<string, string> = {
   "set-2": "Set 2",
   uber: "Uber",
   nvidia: "NVIDIA",
+  meta: "Meta",
 };
 
 const files = (await readdir(RAW_DIR)).filter((f) => f.endsWith(".txt"));
