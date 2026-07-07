@@ -43,6 +43,11 @@ export function cppType(leetType: string): string | null {
     const inner = cppType(t.slice(0, -2));
     return inner ? `vector<${inner}>` : null;
   }
+  // LeetCode also uses `list<T>` (e.g. in return types) for array-like values.
+  if (t.startsWith("list<") && t.endsWith(">")) {
+    const inner = cppType(t.slice("list<".length, -1));
+    return inner ? `vector<${inner}>` : null;
+  }
   return null;
 }
 
@@ -158,15 +163,22 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
 
   usable.forEach((c, idx) => {
     let argExprs: string[];
-    let expectedExpr: string | null = null;
     try {
       argExprs = c.args.map((raw, i) => jsonToCppLiteral(JSON.parse(raw), paramTypes[i]!));
-      if (c.expected !== null) {
-        expectedExpr = jsonToCppLiteral(JSON.parse(c.expected), retType);
-      }
     } catch {
-      // Skip a case whose literals we can't emit (e.g. malformed example).
+      // Args we can't emit -> the case is unusable, skip it entirely.
       return;
+    }
+    // Expected output is best-effort: if it's missing or unparseable (some
+    // statements format it oddly), still emit a "ran, got=..." case so the
+    // problem is runnable rather than dropped.
+    let expectedExpr: string | null = null;
+    if (c.expected !== null) {
+      try {
+        expectedExpr = jsonToCppLiteral(JSON.parse(c.expected), retType);
+      } catch {
+        expectedExpr = null;
+      }
     }
     const n = idx + 1;
     lines.push(`  {`);

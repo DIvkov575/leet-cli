@@ -67,6 +67,44 @@ import options:
   --ref <ref>       git ref/branch/sha for a GitHub source (default: default branch)
   --dry-run         report what would be marked without saving`;
 
+/** Written to the solutions repo so cloners know how to run the tests. */
+const REPO_README = `# LeetCode / NeetCode solutions
+
+Synced by [leet-cli](https://github.com/DIvkov575/leet-cli). Each problem has:
+
+- \`<id>-<slug>.md\` — the problem statement
+- \`<id>-<slug>.cpp\` — the C++ starter stub **plus an embedded test harness**
+- \`<id>-<slug>.tests.txt\` — the raw example test cases
+
+## How to test a solution
+
+1. Open the \`.cpp\` file and fill in the \`Solution\` method body.
+2. Compile and run it — the file has its own \`main()\` that runs the example
+   cases and prints pass/fail:
+
+   \`\`\`sh
+   c++ -std=c++17 1-two-sum.cpp -o /tmp/sol && /tmp/sol
+   \`\`\`
+
+   Output looks like:
+
+   \`\`\`
+   case 1: PASS  got=[0,1]
+   case 2: PASS  got=[1,2]
+   3/3 passed
+   \`\`\`
+
+Cases where the expected output could not be parsed print \`ran  got=...\`
+instead of PASS/FAIL, so you can still eyeball the result. Problems whose
+signatures the generator can't yet emit (linked lists, trees) contain the
+example cases as a comment instead of a runnable harness.
+
+## Shortcut
+
+\`leet solve <slug> -o\` scaffolds a problem locally (cache-first) and opens it
+in your editor.
+`;
+
 const DIFFICULTY_ALIASES: Record<string, Difficulty> = {
   easy: "Easy",
   e: "Easy",
@@ -337,11 +375,14 @@ async function run(cmd: string[], cwd?: string): Promise<string> {
 async function cmdSync(p: Parsed): Promise<void> {
   const repo = p.positionals[0];
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-    throw new UserError("usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push]");
+    throw new UserError(
+      "usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push] [--force]",
+    );
   }
   const listArgs = p.positionals.slice(1);
   const listNames = listArgs.length > 0 ? listArgs : undefined;
   const dryRun = Boolean(p.values["dry-run"]);
+  const force = Boolean(p.values.force); // regenerate even if already present
 
   const targets = await collectTargets(listNames);
   console.error(
@@ -369,7 +410,7 @@ async function cmdSync(p: Parsed): Promise<void> {
   };
 
   const result = await syncTargets(targets, {
-    skipExisting: true,
+    skipExisting: !force,
     minDelayMs: 0,
     maxDelayMs: 2000,
     exists: existsInRepo,
@@ -385,14 +426,19 @@ async function cmdSync(p: Parsed): Promise<void> {
     `fetched ${result.written.length} new, skipped ${result.skipped.length}, failed ${result.failed.length}`,
   );
 
-  if (result.written.length === 0) {
+  // Keep a README explaining how to run a problem's tests.
+  await Bun.write(`${clone}/README.md`, REPO_README);
+
+  if (result.written.length === 0 && !force) {
     console.error("nothing new to commit.");
     return;
   }
 
   await run(["git", "add", "-A"], clone);
-  const msg = `sync: add ${result.written.length} problems (leet-cli)`;
-  await run(["git", "commit", "-m", msg], clone);
+  const verb = force ? "regenerate" : "add";
+  const msg = `sync: ${verb} ${result.written.length} problems (leet-cli)`;
+  // Nothing may have actually changed on a --force re-run; tolerate an empty commit.
+  await run(["git", "commit", "--allow-empty", "-m", msg], clone);
   if (!p.values["no-push"]) {
     console.error("pushing…");
     await run(["git", "push"], clone);
@@ -609,6 +655,7 @@ async function main(): Promise<number> {
         parse(rest, {
           "dry-run": { type: "boolean" },
           "no-push": { type: "boolean" },
+          force: { type: "boolean" },
         }),
       );
       return 0;

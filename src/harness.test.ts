@@ -19,6 +19,11 @@ describe("cppType", () => {
     expect(cppType("integer[]")).toBe("vector<int>");
     expect(cppType("integer[][]")).toBe("vector<vector<int>>");
   });
+  test("maps LeetCode list<T> notation", () => {
+    expect(cppType("list<integer>")).toBe("vector<int>");
+    expect(cppType("list<string>")).toBe("vector<string>");
+    expect(cppType("list<list<integer>>")).toBe("vector<vector<int>>");
+  });
   test("returns null for unknown types", () => {
     expect(cppType("ListNode")).toBeNull();
     expect(cppType("TreeNode")).toBeNull();
