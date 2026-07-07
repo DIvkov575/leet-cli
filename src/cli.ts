@@ -32,7 +32,7 @@ Usage:
   leet lists                       List the bundled problem lists
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
-  leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it in $EDITOR
+  leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
@@ -213,7 +213,12 @@ async function openUrl(url: string): Promise<void> {
 
 /** Open a file in the user's editor ($VISUAL/$EDITOR, default vi), inheriting the tty. */
 async function openInEditor(path: string): Promise<void> {
-  const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  // Honor the user's configured editor; otherwise pick the best one installed.
+  const editor =
+    process.env.VISUAL ||
+    process.env.EDITOR ||
+    ["nvim", "vim", "vi"].find((e) => Bun.which(e)) ||
+    "vi";
   // Split on spaces so EDITOR="code -w" style values work.
   const parts = editor.split(/\s+/).filter(Boolean);
   await Bun.spawn([...parts, path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited;
