@@ -16,6 +16,7 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
+import { collectTargets, syncTargets } from "./sync.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { importSource } from "./import.ts";
@@ -31,6 +32,7 @@ Usage:
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet solve <id|slug> [--force]   Scaffold a runnable C++ file (stub + test harness) and print the statement
+  leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
@@ -279,6 +281,92 @@ async function cmdSolve(p: Parsed): Promise<void> {
   console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""}`);
 }
 
+/** Run a command, throwing with stderr on non-zero exit. */
+async function run(cmd: string[], cwd?: string): Promise<string> {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new UserError(`\`${cmd.join(" ")}\` failed: ${err.trim() || out.trim()}`);
+  return out;
+}
+
+/**
+ * `leet sync <owner/repo>` — package every problem across the bundled lists
+ * (descriptions, C++ stub+harness, test cases) into a private GitHub repo.
+ * Clones the repo, skips problems already present, fetches the rest with
+ * staggered random delays, then commits and pushes.
+ */
+async function cmdSync(p: Parsed): Promise<void> {
+  const repo = p.positionals[0];
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new UserError("usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push]");
+  }
+  const listArgs = p.positionals.slice(1);
+  const listNames = listArgs.length > 0 ? listArgs : undefined;
+  const dryRun = Boolean(p.values["dry-run"]);
+
+  const targets = await collectTargets(listNames);
+  console.error(
+    `sync: ${targets.length} unique problems from ${listNames ? listNames.join(", ") : "all lists"}` +
+      (dryRun ? " (dry run)" : ` -> ${repo}`),
+  );
+  if (dryRun) {
+    for (const t of targets) console.log(`${t.slug}  [${t.lists.join(", ")}]`);
+    return;
+  }
+
+  // Clone the target repo into a temp working dir via gh (uses your auth).
+  const workdir = `${await run(["mktemp", "-d"])}`.trim();
+  const clone = `${workdir}/repo`;
+  console.error(`cloning ${repo}…`);
+  await run(["gh", "repo", "clone", repo, clone, "--", "--depth", "1"]);
+
+  const existsInRepo = async (slug: string): Promise<boolean> => {
+    const glob = new Bun.Glob(`*-${slug}.cpp`);
+    for await (const _ of glob.scan(clone)) return true;
+    return false;
+  };
+  const write = async (filename: string, content: string): Promise<void> => {
+    await Bun.write(`${clone}/${filename}`, content);
+  };
+
+  const result = await syncTargets(targets, {
+    skipExisting: true,
+    minDelayMs: 0,
+    maxDelayMs: 2000,
+    exists: existsInRepo,
+    write,
+    onProgress: (done, total, slug) => {
+      if (done % 10 === 0 || done === total) console.error(`  [${done}/${total}] ${slug}`);
+    },
+    onError: (slug, err) =>
+      console.error(`  failed ${slug}: ${err instanceof Error ? err.message : String(err)}`),
+  });
+
+  console.error(
+    `fetched ${result.written.length} new, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+  );
+
+  if (result.written.length === 0) {
+    console.error("nothing new to commit.");
+    return;
+  }
+
+  await run(["git", "add", "-A"], clone);
+  const msg = `sync: add ${result.written.length} problems (leet-cli)`;
+  await run(["git", "commit", "-m", msg], clone);
+  if (!p.values["no-push"]) {
+    console.error("pushing…");
+    await run(["git", "push"], clone);
+    console.error(`pushed to ${repo}.`);
+  } else {
+    console.error(`committed locally in ${clone} (--no-push).`);
+  }
+}
+
 async function cmdOpen(p: Parsed): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet open <id|slug> [list]");
@@ -476,6 +564,14 @@ async function main(): Promise<number> {
           force: { type: "boolean" },
           dir: { type: "string" },
           quiet: { type: "boolean" },
+        }),
+      );
+      return 0;
+    case "sync":
+      await cmdSync(
+        parse(rest, {
+          "dry-run": { type: "boolean" },
+          "no-push": { type: "boolean" },
         }),
       );
       return 0;
