@@ -3,6 +3,7 @@ import { filterProblems } from "./lib.ts";
 import { fetchProblem } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
+import { prefetchProblems } from "./prefetch.ts";
 
 /**
  * Interactive full-screen browser for a bundled list. Unlike the one-shot
@@ -152,6 +153,8 @@ interface State {
   focus: "list" | "preview";
   preview: PreviewState;
   maxId: number;
+  /** Live prefetch status shown in the footer; null when idle. */
+  prefetch: string | null;
 }
 
 function recompute(s: State): void {
@@ -225,10 +228,12 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.searching) {
     footer = fit(` /${s.search}▏  (Enter apply · Esc cancel)`, cols);
     footer = paint(footer, "yellow");
+  } else if (s.prefetch) {
+    footer = paint(fit(` ${s.prefetch}`, cols), "yellow");
   } else {
     footer = paint(
       fit(
-        " ↑↓/jk move · Space done · f filter · d diff · / search · Tab preview · o open · q quit",
+        " ↑↓/jk move · Space done · f filter · d diff · / search · Tab preview · p prefetch · o open · q quit",
         cols,
       ),
       "dim",
@@ -324,6 +329,7 @@ export async function runTui(list: ProblemList): Promise<void> {
     focus: "list",
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: list.problems.reduce((m, p) => Math.max(m, p.id), 0),
+    prefetch: null,
   };
   recompute(state);
 
@@ -372,6 +378,34 @@ export async function runTui(list: ProblemList): Promise<void> {
     await saveCompleted(state.completed);
     recompute(state);
     render();
+  };
+
+  // Background prefetch into the local cache. `page` limits to the currently
+  // filtered rows; otherwise the whole list. Non-blocking: updates the footer.
+  const startPrefetch = (page: boolean): void => {
+    if (state.prefetch) return; // already running
+    const problems = page ? state.filtered.slice() : state.list.problems.slice();
+    if (problems.length === 0) return;
+    state.prefetch = `prefetching 0/${problems.length}…`;
+    render();
+    void prefetchProblems(problems, {
+      onProgress: (done, total, slug) => {
+        state.prefetch = `prefetching ${done}/${total} — ${slug}`;
+        render();
+      },
+    })
+      .then((r) => {
+        state.prefetch = `prefetched: ${r.fromRepo} repo, ${r.fromLeet} live, ${r.skipped} cached, ${r.failed} failed`;
+        render();
+        setTimeout(() => {
+          state.prefetch = null;
+          render();
+        }, 4000);
+      })
+      .catch(() => {
+        state.prefetch = "prefetch failed";
+        render();
+      });
   };
 
   // ─── terminal setup ───
@@ -480,6 +514,12 @@ export async function runTui(list: ProblemList): Promise<void> {
           if (p) void openUrl(p.url);
           break;
         }
+        case "p": // prefetch current (filtered) page into cache
+          startPrefetch(true);
+          return;
+        case "P": // prefetch the whole list into cache
+          startPrefetch(false);
+          return;
         default:
           return; // ignore unknown keys without redraw
       }

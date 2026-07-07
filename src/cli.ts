@@ -17,6 +17,7 @@ import {
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { collectTargets, syncTargets } from "./sync.ts";
+import { getCached, putCached } from "./cache.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { importSource } from "./import.ts";
@@ -27,10 +28,10 @@ const HELP = `leet — browse bundled LeetCode company lists from the terminal
 
 Usage:
   leet lists                       List the bundled problem lists
-  leet tui <list>                  Browse a list interactively (filter, preview, mark done)
+  leet tui <list>                  Browse a list interactively (filter, preview, mark done, p prefetch)
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
-  leet solve <id|slug> [--force]   Scaffold a runnable C++ file (stub + test harness) and print the statement
+  leet solve <id|slug> [--force]   Scaffold a runnable C++ file (cache-first, --fresh forces live) + print statement
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
@@ -243,41 +244,64 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
  */
 async function cmdSolve(p: Parsed): Promise<void> {
   const key = p.positionals[0];
-  if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet]");
+  if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet] [--fresh]");
   const local = await findProblemAnywhere(key);
   const slug = local?.slug ?? key;
-
-  const remote = await fetchProblem(slug, { withSnippets: true, withContent: true });
   const dir = (p.values.dir as string | undefined) ?? "solutions";
-  const path = `${dir}/${scaffoldFilename(remote.id, remote.slug)}`;
+  const fresh = Boolean(p.values.fresh);
 
+  // Cache-first: a prior live fetch (or prefetch) already packaged this file.
+  const cached = fresh ? null : await getCached(slug);
+  let content: string;
+  let id: number;
+  let statement: { title: string; difficulty: string; html: string } | null = null;
+
+  if (cached !== null) {
+    content = cached;
+    // Recover id from the cached header comment: "// <id>. <title> [..]".
+    const m = cached.match(/^\/\/\s*(\d+)\./);
+    id = m ? Number(m[1]) : (local?.id ?? 0);
+  } else {
+    const remote = await fetchProblem(slug, { withSnippets: true, withContent: true });
+    id = remote.id;
+    content = scaffoldContent({
+      id: remote.id,
+      title: remote.title,
+      slug: remote.slug,
+      difficulty: remote.difficulty,
+      url: `https://leetcode.com/problems/${remote.slug}/`,
+      snippets: remote.snippets ?? [],
+      metaData: remote.metaData,
+      exampleTestcases: remote.exampleTestcases,
+      contentHtml: remote.contentHtml,
+    });
+    await putCached(slug, content); // populate cache for next time
+    if (remote.contentHtml) {
+      statement = { title: remote.title, difficulty: remote.difficulty, html: remote.contentHtml };
+    }
+  }
+
+  const path = `${dir}/${scaffoldFilename(id, slug)}`;
   if (!p.values.force && (await Bun.file(path).exists())) {
     throw new UserError(`${path} already exists (pass --force to overwrite)`);
   }
-
-  const url = `https://leetcode.com/problems/${remote.slug}/`;
-  const content = scaffoldContent({
-    id: remote.id,
-    title: remote.title,
-    slug: remote.slug,
-    difficulty: remote.difficulty,
-    url,
-    snippets: remote.snippets ?? [],
-    metaData: remote.metaData,
-    exampleTestcases: remote.exampleTestcases,
-    contentHtml: remote.contentHtml,
-  });
   await Bun.write(path, content);
 
-  if (!p.values.quiet && remote.contentHtml) {
-    console.log(`\n${remote.id}. ${remote.title} [${remote.difficulty}]`);
-    console.log(url);
-    console.log("");
-    console.log(htmlToText(remote.contentHtml));
-    console.log("");
+  if (!p.values.quiet) {
+    if (statement) {
+      console.log(`\n${id}. ${statement.title} [${statement.difficulty}]`);
+      console.log(`https://leetcode.com/problems/${slug}/`);
+      console.log("");
+      console.log(htmlToText(statement.html));
+      console.log("");
+    } else if (cached !== null) {
+      // Served from cache — the description lives in the file's header comment.
+      console.log(`\n(served from cache; description is in ${scaffoldFilename(id, slug)})\n`);
+    }
   }
   const hasHarness = content.includes("int main()");
-  console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""}`);
+  const src = cached !== null ? "cached" : "fetched";
+  console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
 }
 
 /** Run a command, throwing with stderr on non-zero exit. */
@@ -555,6 +579,7 @@ async function main(): Promise<number> {
           force: { type: "boolean" },
           dir: { type: "string" },
           quiet: { type: "boolean" },
+          fresh: { type: "boolean" },
         }),
       );
       return 0;
