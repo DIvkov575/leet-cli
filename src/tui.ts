@@ -9,7 +9,6 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
-import { scaffoldFilename } from "./scaffold.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { prefetchProblems } from "./prefetch.ts";
@@ -424,11 +423,12 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
 
 /**
  * Copy-pasteable shell command that scaffolds the problem's C++ file
- * (cache-first, so it's instant once cached/prefetched) and opens it in $EDITOR.
+ * (cache-first, so it's instant once cached/prefetched) and opens it in the
+ * editor. Kept short so it fits the preview pane without truncation; `-o`
+ * (--open) does the editor hand-off in-process.
  */
-export function solveCommand(id: number, slug: string): string {
-  const file = `solutions/${scaffoldFilename(id, slug)}`;
-  return `leet solve ${slug} && \${EDITOR:-vi} ${file}`;
+export function solveCommand(_id: number, slug: string): string {
+  return `leet solve ${slug} -o`;
 }
 
 function previewHeaderLines(s: State, width: number): string[] {

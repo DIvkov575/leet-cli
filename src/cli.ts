@@ -32,7 +32,7 @@ Usage:
   leet lists                       List the bundled problem lists
   leet ls <list> [filters]         Print a list as a table
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
-  leet solve <id|slug> [--force]   Scaffold a runnable C++ file (cache-first, --fresh forces live) + print statement
+  leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it in $EDITOR
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
@@ -170,6 +170,14 @@ async function openUrl(url: string): Promise<void> {
   await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited;
 }
 
+/** Open a file in the user's editor ($VISUAL/$EDITOR, default vi), inheriting the tty. */
+async function openInEditor(path: string): Promise<void> {
+  const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  // Split on spaces so EDITOR="code -w" style values work.
+  const parts = editor.split(/\s+/).filter(Boolean);
+  await Bun.spawn([...parts, path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited;
+}
+
 async function cmdLists(): Promise<void> {
   const names = await availableLists();
   for (const name of names) {
@@ -288,7 +296,8 @@ async function cmdSolve(p: Parsed): Promise<void> {
   }
   await Bun.write(path, content);
 
-  if (!p.values.quiet) {
+  // -o hands off to the editor, so skip dumping the statement first.
+  if (!p.values.quiet && !p.values.open) {
     if (statement) {
       console.log(`\n${id}. ${statement.title} [${statement.difficulty}]`);
       console.log(`https://leetcode.com/problems/${slug}/`);
@@ -303,6 +312,8 @@ async function cmdSolve(p: Parsed): Promise<void> {
   const hasHarness = content.includes("int main()");
   const src = cached !== null ? "cached" : "fetched";
   console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
+
+  if (p.values.open) await openInEditor(path);
 }
 
 /** Run a command, throwing with stderr on non-zero exit. */
@@ -589,6 +600,7 @@ async function main(): Promise<number> {
           dir: { type: "string" },
           quiet: { type: "boolean" },
           fresh: { type: "boolean" },
+          open: { type: "boolean", short: "o" },
         }),
       );
       return 0;

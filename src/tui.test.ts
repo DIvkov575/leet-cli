@@ -14,10 +14,8 @@ import {
 } from "./tui.ts";
 
 describe("solveCommand", () => {
-  test("scaffolds cache-first and opens the solution file", () => {
-    expect(solveCommand(1, "two-sum")).toBe(
-      "leet solve two-sum && ${EDITOR:-vi} solutions/1-two-sum.cpp",
-    );
+  test("is a short, non-truncating scaffold+open command", () => {
+    expect(solveCommand(1, "two-sum")).toBe("leet solve two-sum -o");
   });
 });
 
