@@ -49,19 +49,55 @@ export function cycleSortState(key: SortKey, desc: boolean): { key: SortKey; des
   return { key: keys[Math.floor(next / 2)]!, desc: next % 2 === 1 };
 }
 
-/** Truncate to `width` display columns, marking cuts with a trailing "…". */
-export function truncate(s: string, width: number): string {
-  if (width <= 0) return "";
-  if (s.length <= width) return s;
-  if (width === 1) return "…";
-  return s.slice(0, width - 1) + "…";
+// CSI SGR escapes ("\x1b[…m") — the only ANSI we emit (color/bold/reverse/reset).
+// Matched globally for stripping, and with a sticky copy for position-anchored scans.
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ANSI_AT = /\x1b\[[0-9;]*m/y;
+const RESET = "\x1b[0m";
+
+/** Number of visible columns, ignoring ANSI escape sequences. */
+export function visibleLength(s: string): number {
+  return s.replace(ANSI_RE, "").length;
 }
 
-/** Pad (right) or truncate to exactly `width` columns. */
+/**
+ * Truncate to `width` *visible* columns, marking cuts with a trailing "…".
+ * ANSI escapes are copied through without counting toward the width, and if the
+ * input carried any styling the result is closed with a reset so it can't bleed
+ * into the rest of the frame — important because rows are often fit() twice
+ * (once when styled, again when composed into an overlay).
+ */
+export function truncate(s: string, width: number): string {
+  if (width <= 0) return "";
+  if (visibleLength(s) <= width) return s;
+
+  const target = width - 1; // leave a column for the ellipsis
+  let out = "";
+  let count = 0;
+  let i = 0;
+  while (i < s.length && count < target) {
+    ANSI_AT.lastIndex = i;
+    const m = ANSI_AT.exec(s);
+    if (m) {
+      out += m[0]; // escape: emit verbatim, does not consume a column
+      i += m[0].length;
+      continue;
+    }
+    out += s[i]!;
+    count++;
+    i++;
+  }
+  out += "…";
+  // Close any styling opened before the cut so it doesn't leak downstream.
+  if (s.includes("\x1b[")) out += RESET;
+  return out;
+}
+
+/** Pad (right) or truncate to exactly `width` visible columns. */
 export function fit(s: string, width: number): string {
   if (width <= 0) return "";
   const t = truncate(s, width);
-  return t + " ".repeat(width - t.length);
+  return t + " ".repeat(Math.max(0, width - visibleLength(t)));
 }
 
 export interface Columns {
