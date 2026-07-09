@@ -289,13 +289,13 @@ function current(s: State): Problem | undefined {
 }
 
 /**
- * Unsolved / total count for a bundled list, computed live against the current
- * completed set. Unknown lists (no metadata loaded) report 0/0.
+ * Done / remaining / total counts for a bundled list, computed live against the
+ * current completed set. Unknown lists (no metadata loaded) report zeros.
  */
-function listCounts(s: State, name: string): { unsolved: number; total: number } {
+function listCounts(s: State, name: string): { done: number; remaining: number; total: number } {
   const ids = s.listMeta.get(name) ?? [];
-  const solved = ids.reduce((n, id) => n + (s.completed.has(id) ? 1 : 0), 0);
-  return { unsolved: ids.length - solved, total: ids.length };
+  const done = ids.reduce((n, id) => n + (s.completed.has(id) ? 1 : 0), 0);
+  return { done, remaining: ids.length - done, total: ids.length };
 }
 
 /** Load a different bundled list into the state and reset the view. */
@@ -338,16 +338,18 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.picker) {
     const nameW = s.picker.items.reduce((w, n) => Math.max(w, n.length), 0);
+    const numW = 6; // holds counts up to 6 digits, right-aligned
+    const col = (n: number | string): string => String(n).padStart(numW);
+    const header = `    ${"".padEnd(nameW)}${col("Done")}${col("Left")}${col("Total")}`;
     const lines = s.picker.items.map((name, i) => {
       const selected = i === s.picker!.index;
       const marker = selected ? "▸ " : "  ";
-      const { unsolved, total } = listCounts(s, name);
-      const count = `${unsolved}/${total} left`;
-      const row = `  ${marker}${name.padEnd(nameW)}   ${count}`;
+      const { done, remaining, total } = listCounts(s, name);
+      const row = `  ${marker}${name.padEnd(nameW)}${col(done)}${col(remaining)}${col(total)}`;
       return selected ? paint(fit(row, cols), "rev") : row;
     });
     return renderOverlay(
-      ["  Choose a list:  (unsolved/total)", "", ...lines],
+      ["  Choose a list:", paint(header, "dim"), ...lines],
       rows,
       cols,
       " lists  (↑↓ move · Enter open · Esc cancel)",
