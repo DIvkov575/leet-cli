@@ -173,6 +173,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
   const s: any = {
     list: { name: "demo", title: "Demo", problems },
     listNames: ["demo"],
+    listMeta: new Map<string, number[]>([["demo", [1, 2, 3]]]),
     completed: new Set<number>(),
     doneFilter: "all",
     diff: undefined,
@@ -235,5 +236,25 @@ describe("renderFrame difficulty color", () => {
       expect(strip(joined)).toContain("Easy");
       expect(strip(joined)).toContain("Hard");
     }
+  });
+});
+
+describe("renderFrame list picker", () => {
+  test("shows unsolved/total per list and stays exactly cols wide", () => {
+    const s = makeState({
+      listNames: ["demo", "other"],
+      listMeta: new Map<string, number[]>([
+        ["demo", [1, 2, 3]],
+        ["other", [10, 20]],
+      ]),
+      completed: new Set<number>([2]), // one of demo's three done
+      picker: { items: ["demo", "other"], index: 0 },
+    });
+    const f = renderFrame(s, 12, 70);
+    expect(f).toHaveLength(12);
+    for (const line of f) expect(strip(line).length).toBe(70);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("2/3 left"); // demo: 3 total, 1 solved → 2 unsolved
+    expect(joined).toContain("2/2 left"); // other: none solved
   });
 });
