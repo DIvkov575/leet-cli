@@ -1,0 +1,19 @@
+20. Valid Parentheses
+44.5%
+Easy
+
+43. Multiply Strings
+44.4%
+Med.
+
+337. House Robber III
+56.1%
+Med.
+
+528. Random Pick with Weight
+49.2%
+Med.
+
+2050. Parallel Courses III
+66.8%
+Hard

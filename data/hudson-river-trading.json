@@ -1,0 +1,70 @@
+{
+  "name": "hudson-river-trading",
+  "title": "Hudson River Trading",
+  "problems": [
+    {
+      "id": 1317,
+      "title": "Convert Integer to the Sum of Two No-Zero Integers",
+      "slug": "convert-integer-to-the-sum-of-two-no-zero-integers",
+      "url": "https://leetcode.com/problems/convert-integer-to-the-sum-of-two-no-zero-integers/",
+      "acceptance": 59.2,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1323,
+      "title": "Maximum 69 Number",
+      "slug": "maximum-69-number",
+      "url": "https://leetcode.com/problems/maximum-69-number/",
+      "acceptance": 84.6,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1342,
+      "title": "Number of Steps to Reduce a Number to Zero",
+      "slug": "number-of-steps-to-reduce-a-number-to-zero",
+      "url": "https://leetcode.com/problems/number-of-steps-to-reduce-a-number-to-zero/",
+      "acceptance": 85.9,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1566,
+      "title": "Detect Pattern of Length M Repeated K or More Times",
+      "slug": "detect-pattern-of-length-m-repeated-k-or-more-times",
+      "url": "https://leetcode.com/problems/detect-pattern-of-length-m-repeated-k-or-more-times/",
+      "acceptance": 44.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 2246,
+      "title": "Longest Path With Different Adjacent Characters",
+      "slug": "longest-path-with-different-adjacent-characters",
+      "url": "https://leetcode.com/problems/longest-path-with-different-adjacent-characters/",
+      "acceptance": 54,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 2285,
+      "title": "Maximum Total Importance of Roads",
+      "slug": "maximum-total-importance-of-roads",
+      "url": "https://leetcode.com/problems/maximum-total-importance-of-roads/",
+      "acceptance": 69.1,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2508,
+      "title": "Add Edges to Make Degrees of All Nodes Even",
+      "slug": "add-edges-to-make-degrees-of-all-nodes-even",
+      "url": "https://leetcode.com/problems/add-edges-to-make-degrees-of-all-nodes-even/",
+      "acceptance": 36.6,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 3225,
+      "title": "Maximum Score From Grid Operations",
+      "slug": "maximum-score-from-grid-operations",
+      "url": "https://leetcode.com/problems/maximum-score-from-grid-operations/",
+      "acceptance": 64.3,
+      "difficulty": "Hard"
+    }
+  ]
+}

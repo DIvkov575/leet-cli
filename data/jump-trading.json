@@ -1,0 +1,38 @@
+{
+  "name": "jump-trading",
+  "title": "Jump Trading",
+  "problems": [
+    {
+      "id": 60,
+      "title": "Permutation Sequence",
+      "slug": "permutation-sequence",
+      "url": "https://leetcode.com/problems/permutation-sequence/",
+      "acceptance": 53.5,
+      "difficulty": "Hard"
+    },
+    {
+      "id": 202,
+      "title": "Happy Number",
+      "slug": "happy-number",
+      "url": "https://leetcode.com/problems/happy-number/",
+      "acceptance": 59.9,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 572,
+      "title": "Subtree of Another Tree",
+      "slug": "subtree-of-another-tree",
+      "url": "https://leetcode.com/problems/subtree-of-another-tree/",
+      "acceptance": 51.8,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 2275,
+      "title": "Largest Combination With Bitwise AND Greater Than Zero",
+      "slug": "largest-combination-with-bitwise-and-greater-than-zero",
+      "url": "https://leetcode.com/problems/largest-combination-with-bitwise-and-greater-than-zero/",
+      "acceptance": 80.8,
+      "difficulty": "Medium"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+1206. Design Skiplist
+59.8%
+Hard
+
+1360. Number of Days Between Two Dates
+53%
+Easy

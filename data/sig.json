@@ -1,0 +1,22 @@
+{
+  "name": "sig",
+  "title": "SIG",
+  "problems": [
+    {
+      "id": 2817,
+      "title": "Minimum Absolute Difference Between Elements With Constraint",
+      "slug": "minimum-absolute-difference-between-elements-with-constraint",
+      "url": "https://leetcode.com/problems/minimum-absolute-difference-between-elements-with-constraint/",
+      "acceptance": 37.9,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 3043,
+      "title": "Find the Length of the Longest Common Prefix",
+      "slug": "find-the-length-of-the-longest-common-prefix",
+      "url": "https://leetcode.com/problems/find-the-length-of-the-longest-common-prefix/",
+      "acceptance": 62.3,
+      "difficulty": "Medium"
+    }
+  ]
+}

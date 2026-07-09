@@ -1,0 +1,22 @@
+{
+  "name": "openai",
+  "title": "OpenAI",
+  "problems": [
+    {
+      "id": 994,
+      "title": "Rotting Oranges",
+      "slug": "rotting-oranges",
+      "url": "https://leetcode.com/problems/rotting-oranges/",
+      "acceptance": 59,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1797,
+      "title": "Design Authentication Manager",
+      "slug": "design-authentication-manager",
+      "url": "https://leetcode.com/problems/design-authentication-manager/",
+      "acceptance": 58.7,
+      "difficulty": "Medium"
+    }
+  ]
+}

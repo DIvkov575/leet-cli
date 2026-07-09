@@ -1,0 +1,23 @@
+1294. Weather Type in Each Country
+67.1%
+Easy
+
+1321. Restaurant Growth
+59.2%
+Med.
+
+1378. Replace Employee ID With The Unique Identifier
+83.6%
+Easy
+
+1407. Top Travellers
+57.5%
+Easy
+
+1440. Evaluate Boolean Expression
+71.7%
+Med.
+
+2680. Maximum OR
+43.4%
+Med.

@@ -1,0 +1,54 @@
+{
+  "name": "point72",
+  "title": "Point72",
+  "problems": [
+    {
+      "id": 1294,
+      "title": "Weather Type in Each Country",
+      "slug": "weather-type-in-each-country",
+      "url": "https://leetcode.com/problems/weather-type-in-each-country/",
+      "acceptance": 67.1,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1321,
+      "title": "Restaurant Growth",
+      "slug": "restaurant-growth",
+      "url": "https://leetcode.com/problems/restaurant-growth/",
+      "acceptance": 59.2,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 1378,
+      "title": "Replace Employee ID With The Unique Identifier",
+      "slug": "replace-employee-id-with-the-unique-identifier",
+      "url": "https://leetcode.com/problems/replace-employee-id-with-the-unique-identifier/",
+      "acceptance": 83.6,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1407,
+      "title": "Top Travellers",
+      "slug": "top-travellers",
+      "url": "https://leetcode.com/problems/top-travellers/",
+      "acceptance": 57.5,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 1440,
+      "title": "Evaluate Boolean Expression",
+      "slug": "evaluate-boolean-expression",
+      "url": "https://leetcode.com/problems/evaluate-boolean-expression/",
+      "acceptance": 71.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 2680,
+      "title": "Maximum OR",
+      "slug": "maximum-or",
+      "url": "https://leetcode.com/problems/maximum-or/",
+      "acceptance": 43.4,
+      "difficulty": "Medium"
+    }
+  ]
+}

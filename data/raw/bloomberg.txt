@@ -1,0 +1,187 @@
+1. Two Sum
+57.8%
+Easy
+
+3. Longest Substring Without Repeating Characters
+39.4%
+Med.
+
+4. Median of Two Sorted Arrays
+47%
+Hard
+
+5. Longest Palindromic Substring
+38.2%
+Med.
+
+9. Palindrome Number
+60.7%
+Easy
+
+10. Regular Expression Matching
+31.2%
+Hard
+
+14. Longest Common Prefix
+47.9%
+Easy
+
+15. 3Sum
+39.4%
+Med.
+
+17. Letter Combinations of a Phone Number
+66.4%
+Med.
+
+18. 4Sum
+41%
+Med.
+
+24. Swap Nodes in Pairs
+69.8%
+Med.
+
+33. Search in Rotated Sorted Array
+45.2%
+Med.
+
+42. Trapping Rain Water
+67.7%
+Hard
+
+43. Multiply Strings
+44.4%
+Med.
+
+49. Group Anagrams
+72.9%
+Med.
+
+53. Maximum Subarray
+53.5%
+Med.
+
+56. Merge Intervals
+52.2%
+Med.
+
+73. Set Matrix Zeroes
+63.3%
+Med.
+
+120. Triangle
+59.9%
+Med.
+
+121. Best Time to Buy and Sell Stock
+57%
+Easy
+
+125. Valid Palindrome
+53.7%
+Easy
+
+128. Longest Consecutive Sequence
+47.2%
+Med.
+
+136. Single Number
+77.9%
+Easy
+
+169. Majority Element
+66.4%
+Easy
+
+206. Reverse Linked List
+80.8%
+Easy
+
+224. Basic Calculator
+47%
+Hard
+
+239. Sliding Window Maximum
+49%
+Hard
+
+383. Ransom Note
+66.2%
+Easy
+
+394. Decode String
+62.9%
+Med.
+
+409. Longest Palindrome
+56.1%
+Easy
+
+438. Find All Anagrams in a String
+54.1%
+Med.
+
+496. Next Greater Element I
+76.4%
+Easy
+
+503. Next Greater Element II
+68.7%
+Med.
+
+560. Subarray Sum Equals K
+47.7%
+Med.
+
+721. Accounts Merge
+61.6%
+Med.
+
+724. Find Pivot Index
+63.2%
+Easy
+
+739. Daily Temperatures
+68.9%
+Med.
+
+977. Squares of a Sorted Array
+73.9%
+Easy
+
+1189. Maximum Number of Balloons
+64.2%
+Easy
+
+1344. Angle Between Hands of a Clock
+69.7%
+Med.
+
+1396. Design Underground System
+74.5%
+Med.
+
+1846. Maximum Element After Decreasing and Rearranging
+69.2%
+Med.
+
+2149. Rearrange Array Elements by Sign
+84.7%
+Med.
+
+3020. Find the Maximum Number of Elements in Subset
+42.3%
+Med.
+
+3612. Process String with Special Operations I
+71.4%
+Med.
+
+3620. Network Recovery Pathways
+50.9%
+Hard
+
+3737. Count Subarrays With Majority Element I
+75.7%
+Med.

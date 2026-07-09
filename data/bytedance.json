@@ -1,0 +1,38 @@
+{
+  "name": "bytedance",
+  "title": "ByteDance",
+  "problems": [
+    {
+      "id": 146,
+      "title": "LRU Cache",
+      "slug": "lru-cache",
+      "url": "https://leetcode.com/problems/lru-cache/",
+      "acceptance": 47.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 200,
+      "title": "Number of Islands",
+      "slug": "number-of-islands",
+      "url": "https://leetcode.com/problems/number-of-islands/",
+      "acceptance": 64.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 300,
+      "title": "Longest Increasing Subsequence",
+      "slug": "longest-increasing-subsequence",
+      "url": "https://leetcode.com/problems/longest-increasing-subsequence/",
+      "acceptance": 59.6,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 540,
+      "title": "Single Element in a Sorted Array",
+      "slug": "single-element-in-a-sorted-array",
+      "url": "https://leetcode.com/problems/single-element-in-a-sorted-array/",
+      "acceptance": 59.3,
+      "difficulty": "Medium"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "waymo",
+  "title": "Waymo",
+  "problems": [
+    {
+      "id": 164,
+      "title": "Maximum Gap",
+      "slug": "maximum-gap",
+      "url": "https://leetcode.com/problems/maximum-gap/",
+      "acceptance": 52.4,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 200,
+      "title": "Number of Islands",
+      "slug": "number-of-islands",
+      "url": "https://leetcode.com/problems/number-of-islands/",
+      "acceptance": 64.7,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 359,
+      "title": "Logger Rate Limiter",
+      "slug": "logger-rate-limiter",
+      "url": "https://leetcode.com/problems/logger-rate-limiter/",
+      "acceptance": 76.9,
+      "difficulty": "Easy"
+    },
+    {
+      "id": 528,
+      "title": "Random Pick with Weight",
+      "slug": "random-pick-with-weight",
+      "url": "https://leetcode.com/problems/random-pick-with-weight/",
+      "acceptance": 49.2,
+      "difficulty": "Medium"
+    }
+  ]
+}

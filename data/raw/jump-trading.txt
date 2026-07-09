@@ -1,0 +1,15 @@
+60. Permutation Sequence
+53.5%
+Hard
+
+202. Happy Number
+59.9%
+Easy
+
+572. Subtree of Another Tree
+51.8%
+Easy
+
+2275. Largest Combination With Bitwise AND Greater Than Zero
+80.8%
+Med.

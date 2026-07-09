@@ -17,6 +17,21 @@ const TITLES: Record<string, string> = {
   uber: "Uber",
   nvidia: "NVIDIA",
   meta: "Meta",
+  point72: "Point72",
+  optiver: "Optiver",
+  bloomberg: "Bloomberg",
+  "de-shaw": "DE Shaw",
+  "jane-street": "Jane Street",
+  "two-sigma": "Two Sigma",
+  citadel: "Citadel",
+  sig: "SIG",
+  "hudson-river-trading": "Hudson River Trading",
+  google: "Google",
+  waymo: "Waymo",
+  openai: "OpenAI",
+  "virtu-financial": "Virtu Financial",
+  "jump-trading": "Jump Trading",
+  bytedance: "ByteDance",
 };
 
 const files = (await readdir(RAW_DIR)).filter((f) => f.endsWith(".txt"));

@@ -1,0 +1,22 @@
+{
+  "name": "de-shaw",
+  "title": "DE Shaw",
+  "problems": [
+    {
+      "id": 767,
+      "title": "Reorganize String",
+      "slug": "reorganize-string",
+      "url": "https://leetcode.com/problems/reorganize-string/",
+      "acceptance": 57.3,
+      "difficulty": "Medium"
+    },
+    {
+      "id": 779,
+      "title": "K-th Symbol in Grammar",
+      "slug": "k-th-symbol-in-grammar",
+      "url": "https://leetcode.com/problems/k-th-symbol-in-grammar/",
+      "acceptance": 48.5,
+      "difficulty": "Medium"
+    }
+  ]
+}

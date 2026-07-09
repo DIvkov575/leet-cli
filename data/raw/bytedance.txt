@@ -1,0 +1,15 @@
+146. LRU Cache
+47.6%
+Med.
+
+200. Number of Islands
+64.7%
+Med.
+
+300. Longest Increasing Subsequence
+59.6%
+Med.
+
+540. Single Element in a Sorted Array
+59.3%
+Med.
