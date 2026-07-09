@@ -49,19 +49,55 @@ export function cycleSortState(key: SortKey, desc: boolean): { key: SortKey; des
   return { key: keys[Math.floor(next / 2)]!, desc: next % 2 === 1 };
 }
 
-/** Truncate to `width` display columns, marking cuts with a trailing "…". */
-export function truncate(s: string, width: number): string {
-  if (width <= 0) return "";
-  if (s.length <= width) return s;
-  if (width === 1) return "…";
-  return s.slice(0, width - 1) + "…";
+// CSI SGR escapes ("\x1b[…m") — the only ANSI we emit (color/bold/reverse/reset).
+// Matched globally for stripping, and with a sticky copy for position-anchored scans.
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ANSI_AT = /\x1b\[[0-9;]*m/y;
+const RESET = "\x1b[0m";
+
+/** Number of visible columns, ignoring ANSI escape sequences. */
+export function visibleLength(s: string): number {
+  return s.replace(ANSI_RE, "").length;
 }
 
-/** Pad (right) or truncate to exactly `width` columns. */
+/**
+ * Truncate to `width` *visible* columns, marking cuts with a trailing "…".
+ * ANSI escapes are copied through without counting toward the width, and if the
+ * input carried any styling the result is closed with a reset so it can't bleed
+ * into the rest of the frame — important because rows are often fit() twice
+ * (once when styled, again when composed into an overlay).
+ */
+export function truncate(s: string, width: number): string {
+  if (width <= 0) return "";
+  if (visibleLength(s) <= width) return s;
+
+  const target = width - 1; // leave a column for the ellipsis
+  let out = "";
+  let count = 0;
+  let i = 0;
+  while (i < s.length && count < target) {
+    ANSI_AT.lastIndex = i;
+    const m = ANSI_AT.exec(s);
+    if (m) {
+      out += m[0]; // escape: emit verbatim, does not consume a column
+      i += m[0].length;
+      continue;
+    }
+    out += s[i]!;
+    count++;
+    i++;
+  }
+  out += "…";
+  // Close any styling opened before the cut so it doesn't leak downstream.
+  if (s.includes("\x1b[")) out += RESET;
+  return out;
+}
+
+/** Pad (right) or truncate to exactly `width` visible columns. */
 export function fit(s: string, width: number): string {
   if (width <= 0) return "";
   const t = truncate(s, width);
-  return t + " ".repeat(width - t.length);
+  return t + " ".repeat(Math.max(0, width - visibleLength(t)));
 }
 
 export interface Columns {
@@ -209,6 +245,8 @@ type Focus = "list" | "menu" | "preview";
 interface State {
   list: ProblemList;
   listNames: string[];
+  /** Problem ids per bundled list, for the picker's unsolved/total counts. */
+  listMeta: Map<string, number[]>;
   completed: Set<number>;
   doneFilter: DoneFilter;
   diff: Difficulty | undefined;
@@ -250,6 +288,16 @@ function current(s: State): Problem | undefined {
   return s.filtered[s.cursor];
 }
 
+/**
+ * Unsolved / total count for a bundled list, computed live against the current
+ * completed set. Unknown lists (no metadata loaded) report 0/0.
+ */
+function listCounts(s: State, name: string): { unsolved: number; total: number } {
+  const ids = s.listMeta.get(name) ?? [];
+  const solved = ids.reduce((n, id) => n + (s.completed.has(id) ? 1 : 0), 0);
+  return { unsolved: ids.length - solved, total: ids.length };
+}
+
 /** Load a different bundled list into the state and reset the view. */
 async function switchList(s: State, name: string): Promise<void> {
   s.list = await loadList(name);
@@ -289,13 +337,17 @@ const HELP_LINES = [
 export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.picker) {
+    const nameW = s.picker.items.reduce((w, n) => Math.max(w, n.length), 0);
     const lines = s.picker.items.map((name, i) => {
-      const marker = i === s.picker!.index ? "▸ " : "  ";
-      const row = `  ${marker}${name}`;
-      return i === s.picker!.index ? paint(fit(row, cols), "rev") : row;
+      const selected = i === s.picker!.index;
+      const marker = selected ? "▸ " : "  ";
+      const { unsolved, total } = listCounts(s, name);
+      const count = `${unsolved}/${total} left`;
+      const row = `  ${marker}${name.padEnd(nameW)}   ${count}`;
+      return selected ? paint(fit(row, cols), "rev") : row;
     });
     return renderOverlay(
-      ["  Choose a list:", "", ...lines],
+      ["  Choose a list:  (unsolved/total)", "", ...lines],
       rows,
       cols,
       " lists  (↑↓ move · Enter open · Esc cancel)",
@@ -498,9 +550,19 @@ export async function runTui(list?: ProblemList): Promise<void> {
   // With no explicit list we still need something loaded behind the picker.
   const initial = list ?? (await loadList(listNames[0]!));
 
+  // Preload each list's problem ids so the picker can show unsolved/total.
+  const listMeta = new Map<string, number[]>();
+  await Promise.all(
+    listNames.map(async (name) => {
+      const l = name === initial.name ? initial : await loadList(name);
+      listMeta.set(name, l.problems.map((p) => p.id));
+    }),
+  );
+
   const state: State = {
     list: initial,
     listNames,
+    listMeta,
     completed: await loadCompleted(),
     doneFilter: "all",
     diff: undefined,
@@ -898,8 +960,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
         case " ":
           void toggleDone();
           return;
-        case "\x1b": // Esc: clear any transient message
-          state.status = "";
+        case "\x1b": // Esc: clear any transient message, then back to the list picker
+          if (state.status) {
+            state.status = "";
+          } else {
+            state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
+          }
           break;
         // Direct accelerators mirroring the menu items.
         case "r":

@@ -5,6 +5,7 @@ import {
   cycleSortState,
   truncate,
   fit,
+  visibleLength,
   layoutColumns,
   computeTop,
   wrapText,
@@ -12,6 +13,9 @@ import {
   solveCommand,
   MENU_ITEMS,
 } from "./tui.ts";
+
+const RESET = "\x1b[0m";
+const REV = "\x1b[7m";
 
 describe("solveCommand", () => {
   test("is a short, non-truncating scaffold+open command", () => {
@@ -64,6 +68,38 @@ describe("truncate", () => {
 describe("fit", () => {
   test("pads to exact width", () => expect(fit("hi", 5)).toBe("hi   "));
   test("truncates to exact width", () => expect(fit("abcdef", 4).length).toBe(4));
+});
+
+describe("visibleLength", () => {
+  test("ignores ANSI escape sequences", () => {
+    expect(visibleLength(`${REV}hello${RESET}`)).toBe(5);
+  });
+  test("plain text is its own length", () => expect(visibleLength("hello")).toBe(5));
+});
+
+describe("fit / truncate with ANSI escapes", () => {
+  test("truncate measures visible width, not escape bytes", () => {
+    // Reverse-video "hello" fits in 5 visible columns → must be unchanged,
+    // not truncated as if the escape bytes counted toward the width.
+    const styled = `${REV}hello${RESET}`;
+    expect(truncate(styled, 5)).toBe(styled);
+  });
+
+  test("fit re-applied to an already-styled+fit row is idempotent", () => {
+    // The exact picker bug: paint(fit(row, w), "rev") then renderOverlay fit()s
+    // it again. The reset code must survive so reverse-video doesn't bleed.
+    const once = `${REV}${fit("  ▸ google", 20)}${RESET}`;
+    const twice = fit(once, 20);
+    expect(twice.endsWith(RESET)).toBe(true);
+    expect(visibleLength(twice)).toBe(20);
+  });
+
+  test("truncating a styled string keeps the trailing reset", () => {
+    const styled = `${REV}${"x".repeat(30)}${RESET}`;
+    const cut = truncate(styled, 10);
+    expect(cut.endsWith(RESET)).toBe(true);
+    expect(visibleLength(cut)).toBe(10);
+  });
 });
 
 describe("layoutColumns", () => {
@@ -137,6 +173,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
   const s: any = {
     list: { name: "demo", title: "Demo", problems },
     listNames: ["demo"],
+    listMeta: new Map<string, number[]>([["demo", [1, 2, 3]]]),
     completed: new Set<number>(),
     doneFilter: "all",
     diff: undefined,
@@ -199,5 +236,25 @@ describe("renderFrame difficulty color", () => {
       expect(strip(joined)).toContain("Easy");
       expect(strip(joined)).toContain("Hard");
     }
+  });
+});
+
+describe("renderFrame list picker", () => {
+  test("shows unsolved/total per list and stays exactly cols wide", () => {
+    const s = makeState({
+      listNames: ["demo", "other"],
+      listMeta: new Map<string, number[]>([
+        ["demo", [1, 2, 3]],
+        ["other", [10, 20]],
+      ]),
+      completed: new Set<number>([2]), // one of demo's three done
+      picker: { items: ["demo", "other"], index: 0 },
+    });
+    const f = renderFrame(s, 12, 70);
+    expect(f).toHaveLength(12);
+    for (const line of f) expect(strip(line).length).toBe(70);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("2/3 left"); // demo: 3 total, 1 solved → 2 unsolved
+    expect(joined).toContain("2/2 left"); // other: none solved
   });
 });

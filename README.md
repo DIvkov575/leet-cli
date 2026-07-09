@@ -21,12 +21,11 @@ bun run compile      # produces ./leet
 
 ## Bundled lists
 
-| Name     | Problems | Source            |
-|----------|----------|-------------------|
-| `uber`   | 361      | Uber-tagged set   |
-| `nvidia` | 138      | NVIDIA-tagged set |
-| `set-1`  | 46       | Assorted set 1    |
-| `set-2`  | 89       | Assorted set 2    |
+Company-tagged sets plus `neetcode-250`. Run `leet lists` for the current set
+and problem counts; the interactive picker (`leet`) shows unsolved/total per
+list. Bundled lists include `uber`, `google`, `nvidia`, `meta`, `bloomberg`,
+`citadel`, `neetcode-250`, and a dozen smaller firm lists (Two Sigma, Point72,
+Jane Street, Optiver, SIG, Hudson River Trading, and more).
 
 Each problem carries its number, title, slug, URL, acceptance rate, and difficulty.
 

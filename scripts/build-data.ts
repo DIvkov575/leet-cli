@@ -12,8 +12,6 @@ const OUT_DIR = join(ROOT, "data");
 
 // Human-readable titles per list name; falls back to the name if absent.
 const TITLES: Record<string, string> = {
-  "set-1": "Set 1",
-  "set-2": "Set 2",
   uber: "Uber",
   nvidia: "NVIDIA",
   meta: "Meta",
