@@ -240,7 +240,7 @@ describe("renderFrame difficulty color", () => {
 });
 
 describe("renderFrame list picker", () => {
-  test("shows unsolved/total per list and stays exactly cols wide", () => {
+  test("shows done/left/total columns per list and stays exactly cols wide", () => {
     const s = makeState({
       listNames: ["demo", "other"],
       listMeta: new Map<string, number[]>([
@@ -253,8 +253,15 @@ describe("renderFrame list picker", () => {
     const f = renderFrame(s, 12, 70);
     expect(f).toHaveLength(12);
     for (const line of f) expect(strip(line).length).toBe(70);
-    const joined = strip(f.join("\n"));
-    expect(joined).toContain("2/3 left"); // demo: 3 total, 1 solved → 2 unsolved
-    expect(joined).toContain("2/2 left"); // other: none solved
+    const lines = f.map(strip);
+    // Column header, no "left" prose.
+    expect(lines.some((l) => l.includes("Done") && l.includes("Left") && l.includes("Total"))).toBe(true);
+    expect(f.join("\n")).not.toContain("left");
+    // demo: 1 done, 2 remaining, 3 total.
+    const demoRow = lines.find((l) => l.includes("demo"))!;
+    expect(demoRow).toMatch(/demo\s+1\s+2\s+3\s*$/);
+    // other: 0 done, 2 remaining, 2 total.
+    const otherRow = lines.find((l) => l.includes("other"))!;
+    expect(otherRow).toMatch(/other\s+0\s+2\s+2\s*$/);
   });
 });
