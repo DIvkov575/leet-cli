@@ -12,8 +12,7 @@
     "gen:embed": "bun run scripts/gen-embed.ts",
     "test": "bun test",
     "compile": "bun run scripts/gen-embed.ts && bun build src/cli.ts --compile --outfile leet",
-    "setup": "bun run scripts/setup.ts",
-    "postinstall": "bun run scripts/setup.ts || true"
+    "setup": "bun run scripts/setup.ts"
   },
   "engines": {
     "bun": ">=1.0.0"

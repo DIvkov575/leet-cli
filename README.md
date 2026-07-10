@@ -18,7 +18,7 @@ A single standalone binary — no Bun, Node, or `gh` required. Available for mac
 ### From source (Bun)
 
 ```sh
-bun install          # no runtime deps; also pre-caches the NeetCode 250 set
+bun install          # no runtime deps
 bun link             # optional: exposes `leet` on your PATH
 # or just run directly:
 bun run src/cli.ts <command>
@@ -30,23 +30,25 @@ Compile your own standalone binary:
 bun run compile      # produces ./leet (bundled lists are embedded)
 ```
 
-### Automatic problem-list caching
+### Problem-list caching
 
-On **first launch** (Homebrew) or during **`bun install`** (from source), leet
-proactively caches the `neetcode-250` study set — fetched over HTTPS from the
-public solutions repo, falling back to LeetCode — so your first `leet solve` /
-preview is instant and works offline. It runs once, in the background, and is
-best-effort (a failure never blocks anything). Controls:
+The bundled lists are **embedded in the binary**, so browsing works with no
+network at all. Problem *statements* and C++ stubs are fetched lazily and cached
+the first time you `solve` or preview a problem — nothing is downloaded up front.
+
+For offline study, you can pre-cache a whole set. On **first launch** the picker
+offers this as a one-time suggestion (press **P** to pre-cache `neetcode-250`,
+any other key to dismiss) — it's opt-in, never a silent background download. Or
+do it explicitly:
 
 ```sh
-LEET_NO_SETUP=1 …                    # skip auto pre-caching
-LEET_SETUP_LIST=uber leet setup      # cache a different list
-leet setup                           # run (or re-run) the pre-cache manually
+leet setup                           # pre-cache neetcode-250 (repo over HTTPS, LeetCode fallback)
+leet setup --list uber               # pre-cache a different list
+LEET_NO_SETUP=1 leet                 # suppress the first-run suggestion
 ```
 
-The bundled lists themselves are **embedded in the binary**, so browsing works
-with no network at all; `refresh` and downloaded lists are written to
-`$XDG_DATA_HOME/leet-cli/lists` and shadow the embedded copies.
+`refresh` and any downloaded lists are written to `$XDG_DATA_HOME/leet-cli/lists`
+and shadow the embedded copies.
 
 ## Bundled lists
 

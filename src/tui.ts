@@ -14,6 +14,10 @@ import { loadCompleted, saveCompleted } from "./progress.ts";
 import { loadConfig, saveConfig, CONFIG_FIELDS, type Config } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
 import { recommendProblems, type Recommendation } from "./recommend.ts";
+import { setupHasRun, markSetupDone } from "./setup.ts";
+
+/** Study set suggested for pre-caching on first run. */
+const SUGGESTED_SETUP_LIST = "neetcode-250";
 
 /**
  * Interactive full-screen browser for the bundled lists — the primary way to
@@ -289,6 +293,8 @@ interface State {
   help: boolean;
   /** Live prefetch status shown in the footer; null when idle. */
   prefetch: string | null;
+  /** First-run: offer to pre-cache the study set (shown once in the picker). */
+  suggestSetup: boolean;
 }
 
 function recompute(s: State): void {
@@ -499,7 +505,18 @@ function recommendedPanel(s: State, width: number, height: number): string[] {
 /** Render the list picker, with a recommended-problems side panel when wide enough. */
 function renderPicker(s: State, rows: number, cols: number): string[] {
   const title = paint(fit(" lists  (↑↓ move · Enter open · c config · Esc cancel)", cols), "bold", "cyan");
-  const footer = paint(fit(" Esc close · q quit", cols), "dim");
+  // Footer: live prefetch status > first-run suggestion > default keys.
+  let footer: string;
+  if (s.prefetch) {
+    footer = paint(fit(` ${s.prefetch}`, cols), "yellow");
+  } else if (s.suggestSetup) {
+    footer = paint(
+      fit(` First run — press P to pre-cache ${SUGGESTED_SETUP_LIST} for offline use · any key to dismiss`, cols),
+      "yellow",
+    );
+  } else {
+    footer = paint(fit(" Esc close · q quit", cols), "dim");
+  }
   const bodyH = rows - 2;
 
   // Split off a right-hand recommended panel on wide terminals.
@@ -668,6 +685,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
     excludeDone: true,
     limit: 100,
   });
+  // First run (only when we open on the picker): suggest pre-caching, opt-in.
+  const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
 
   const state: State = {
     list: initial,
@@ -694,6 +713,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     config: null,
     help: false,
     prefetch: null,
+    suggestSetup,
   };
   recompute(state);
 
@@ -770,6 +790,45 @@ export async function runTui(list?: ProblemList): Promise<void> {
         state.prefetch = "prefetch failed";
         render();
       });
+  };
+
+  // First-run opt-in: pre-cache the suggested study set. Marks setup done so the
+  // suggestion never reappears, whether or not the network run fully succeeds.
+  const acceptSetup = async (): Promise<void> => {
+    state.suggestSetup = false;
+    await markSetupDone();
+    if (state.prefetch) return;
+    let problems;
+    try {
+      problems = (await loadList(SUGGESTED_SETUP_LIST)).problems.slice();
+    } catch {
+      return;
+    }
+    state.prefetch = `pre-caching 0/${problems.length}…`;
+    render();
+    void prefetchProblems(problems, {
+      onProgress: (done, total, slug) => {
+        state.prefetch = `pre-caching ${done}/${total} — ${slug}`;
+        render();
+      },
+    })
+      .then((r) => {
+        state.prefetch = `pre-cached ${SUGGESTED_SETUP_LIST}: ${r.fromRepo + r.fromLeet} cached, ${r.failed} failed`;
+        render();
+        setTimeout(() => {
+          state.prefetch = null;
+          render();
+        }, 4000);
+      })
+      .catch(() => {
+        state.prefetch = "pre-cache failed";
+        render();
+      });
+  };
+
+  const dismissSetup = async (): Promise<void> => {
+    state.suggestSetup = false;
+    await markSetupDone();
   };
 
   const refreshList = async (): Promise<void> => {
@@ -990,6 +1049,19 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
       // ── list picker overlay ──
       if (state.picker) {
+        // First-run suggestion is modal-lite: P accepts, anything else dismisses
+        // it and then falls through to normal picker handling of that same key.
+        if (state.suggestSetup) {
+          if (key === "\x03") {
+            finish();
+            return;
+          }
+          if (key === "P" || key === "p") {
+            void acceptSetup();
+            return;
+          }
+          void dismissSetup(); // fall through to handle the key normally
+        }
         switch (key) {
           case "\x03":
             finish();
