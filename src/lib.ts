@@ -1,12 +1,25 @@
-import { readdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readdir, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Difficulty, Problem, ProblemList } from "./types.ts";
+import { EMBEDDED_LISTS } from "./lists.generated.ts";
 
 export * from "./types.ts";
 export { slugify, problemUrl, parseRawList } from "./parse.ts";
 
-const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
+/**
+ * Bundled lists are embedded in the binary (EMBEDDED_LISTS) so a compiled,
+ * standalone `leet` works with no data/ directory on disk. Downloaded or
+ * refreshed lists are written to a writable "lists" dir under the user data
+ * dir; those shadow the embedded copies of the same name. This is what lets a
+ * distributed binary pick up automatic problem-list downloads.
+ */
+function listsDir(): string {
+  const base =
+    process.env.LEET_DATA_DIR ??
+    join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "leet-cli");
+  return join(base, "lists");
+}
 
 export interface FilterOptions {
   difficulty?: Difficulty;
@@ -26,29 +39,46 @@ export type SortKey = "id" | "acc" | "difficulty" | "title";
 
 const DIFFICULTY_ORDER: Record<Difficulty, number> = { Easy: 0, Medium: 1, Hard: 2 };
 
-/** List the machine names of every bundled list, sorted alphabetically. */
-export async function availableLists(): Promise<string[]> {
-  const files = await readdir(DATA_DIR);
-  return files
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(/\.json$/, ""))
-    .sort();
-}
-
-/** Load one bundled list by name. Throws if it does not exist. */
-export async function loadList(name: string): Promise<ProblemList> {
-  const path = join(DATA_DIR, `${name}.json`);
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    const names = await availableLists();
-    throw new Error(`No such list "${name}". Available: ${names.join(", ")}`);
+/** Machine names of downloaded lists present on disk (may be empty). */
+async function downloadedNames(): Promise<string[]> {
+  try {
+    return (await readdir(listsDir()))
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.replace(/\.json$/, ""));
+  } catch {
+    return []; // dir doesn't exist yet
   }
-  return (await file.json()) as ProblemList;
 }
 
-/** Persist a list back to its bundled JSON file (used by `refresh`). */
+/** List the machine names of every available list (embedded ∪ downloaded), sorted. */
+export async function availableLists(): Promise<string[]> {
+  const names = new Set<string>(Object.keys(EMBEDDED_LISTS));
+  for (const n of await downloadedNames()) names.add(n);
+  return [...names].sort();
+}
+
+/**
+ * Load one list by name. A downloaded copy on disk shadows the embedded one
+ * (so `refresh`/downloads take effect); otherwise the embedded copy is used.
+ */
+export async function loadList(name: string): Promise<ProblemList> {
+  const file = Bun.file(join(listsDir(), `${name}.json`));
+  if (await file.exists()) {
+    return (await file.json()) as ProblemList;
+  }
+  const embedded = EMBEDDED_LISTS[name];
+  if (embedded) return embedded;
+  const names = await availableLists();
+  throw new Error(`No such list "${name}". Available: ${names.join(", ")}`);
+}
+
+/**
+ * Persist a list to the writable lists dir (used by `refresh` and automatic
+ * downloads). This shadows any embedded list of the same name on next load.
+ */
 export async function saveList(list: ProblemList): Promise<void> {
-  const path = join(DATA_DIR, `${list.name}.json`);
+  await mkdir(listsDir(), { recursive: true });
+  const path = join(listsDir(), `${list.name}.json`);
   await Bun.write(path, JSON.stringify(list, null, 2) + "\n");
 }
 
