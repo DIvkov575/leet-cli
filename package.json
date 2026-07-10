@@ -8,9 +8,10 @@
   },
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build:data": "bun run scripts/build-data.ts",
+    "build:data": "bun run scripts/build-data.ts && bun run scripts/gen-embed.ts",
+    "gen:embed": "bun run scripts/gen-embed.ts",
     "test": "bun test",
-    "compile": "bun build src/cli.ts --compile --outfile leet",
+    "compile": "bun run scripts/gen-embed.ts && bun build src/cli.ts --compile --outfile leet",
     "setup": "bun run scripts/setup.ts",
     "postinstall": "bun run scripts/setup.ts || true"
   },

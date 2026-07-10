@@ -31,6 +31,7 @@ import {
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
+import { runSetup, setupHasRun } from "./setup.ts";
 import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
@@ -51,6 +52,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from an external source (e.g. NeetCode sync)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
   leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
+  leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
 
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
@@ -293,6 +295,29 @@ async function cmdConfig(p: Parsed): Promise<void> {
   cfg[field.key] = value;
   await saveConfig(cfg);
   console.log(`${field.key} = ${value}`);
+}
+
+/**
+ * `leet setup [--list <name>]` — pre-cache a study set (default neetcode-250)
+ * so solve/preview is instant offline. Also runs automatically on first launch.
+ */
+async function cmdSetup(p: Parsed): Promise<void> {
+  const list = p.values.list as string | undefined;
+  let announced = false;
+  const result = await runSetup({
+    list,
+    onProgress: (done, total, slug) => {
+      if (!announced) {
+        console.error(`pre-caching ${total} problems from "${list ?? "neetcode-250"}"…`);
+        announced = true;
+      }
+      if (done % 25 === 0 || done === total) console.error(`  [${done}/${total}] ${slug}`);
+    },
+  });
+  console.log(
+    `cached ${result.fromRepo + result.fromLeet} of ${result.total} ` +
+      `(${result.fromRepo} from repo, ${result.fromLeet} live, ${result.skipped} already, ${result.failed} unavailable).`,
+  );
 }
 
 async function cmdTui(p: Parsed): Promise<void> {
@@ -750,6 +775,28 @@ async function cmdRefresh(p: Parsed): Promise<void> {
   }
 }
 
+/**
+ * On first-ever run, kick off the study-set pre-cache in a detached background
+ * process so it doesn't block or interfere with the TUI's alt-screen rendering.
+ * This is how the Homebrew/binary distribution triggers the automatic
+ * problem-list download (there's no npm postinstall hook there). Best-effort:
+ * any failure to spawn is ignored, and $LEET_NO_SETUP disables it.
+ */
+async function maybeFirstRunSetup(): Promise<void> {
+  if (process.env.LEET_NO_SETUP) return;
+  if (await setupHasRun()) return;
+  try {
+    // process.execPath is the leet binary when compiled; argv[1] is the entry
+    // script under `bun run`. Re-invoke ourselves with the `setup` subcommand.
+    const self = process.argv[1];
+    const cmd =
+      self && !self.includes("$bunfs") ? [process.execPath, self, "setup"] : [process.execPath, "setup"];
+    Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref();
+  } catch {
+    // Ignore — pre-caching is an optimization, not a requirement.
+  }
+}
+
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
   switch (command) {
@@ -757,6 +804,7 @@ async function main(): Promise<number> {
       // Bare `leet` drops into the interactive TUI; if there's no terminal
       // (piped/redirected), fall back to printing help.
       if (process.stdin.isTTY && process.stdout.isTTY) {
+        await maybeFirstRunSetup();
         await cmdTui(parse(rest));
       } else {
         console.log(HELP);
@@ -830,6 +878,9 @@ async function main(): Promise<number> {
       return 0;
     case "config":
       await cmdConfig(parse(rest, { unset: { type: "boolean" } }));
+      return 0;
+    case "setup":
+      await cmdSetup(parse(rest, { list: { type: "string" } }));
       return 0;
     default:
       throw new UserError(`unknown command "${command}" (run \`leet help\`)`);

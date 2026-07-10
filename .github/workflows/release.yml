@@ -1,0 +1,60 @@
+name: release
+
+# Build standalone `leet` binaries for each platform and attach them to the
+# GitHub Release when a v* tag is pushed. Homebrew's formula downloads these.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build binaries for"
+        required: true
+
+permissions:
+  contents: write # create releases + upload assets
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            asset: leet-darwin-arm64
+          - target: bun-darwin-x64
+            asset: leet-darwin-x64
+          - target: bun-linux-x64
+            asset: leet-linux-x64
+          - target: bun-linux-arm64
+            asset: leet-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No pre-cache during CI builds.
+      - name: Install deps
+        run: LEET_NO_SETUP=1 bun install --frozen-lockfile
+
+      - name: Regenerate embedded lists
+        run: bun run scripts/gen-embed.ts
+
+      - name: Compile ${{ matrix.asset }}
+        run: |
+          bun build src/cli.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.asset }}
+          chmod +x ${{ matrix.asset }}
+
+      - name: Checksum
+        run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
