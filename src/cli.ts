@@ -16,7 +16,7 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
-import { collectTargets, syncTargets } from "./sync.ts";
+import { collectTargets, syncTargets, missingManifest } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
@@ -108,6 +108,12 @@ Cases where the expected output could not be parsed print \`ran  got=...\`
 instead of PASS/FAIL, so you can still eyeball the result. Problems whose
 signatures the generator can't yet emit (linked lists, trees) contain the
 example cases as a comment instead of a runnable harness.
+
+Some problems have no official C++ starter (LeetCode Premium, SQL/Database, or
+JavaScript-only). For Premium ones a community C++ solution from
+[neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) is substituted
+where available (noted in the file header); the rest carry a placeholder \`.cpp\`
+explaining why. See \`MISSING.md\` for the full list, grouped by reason.
 
 ## Shortcuts
 
@@ -540,25 +546,36 @@ async function cmdSync(p: Parsed): Promise<void> {
     onProgress: (done, total, slug) => {
       if (done % 10 === 0 || done === total) console.error(`  [${done}/${total}] ${slug}`);
     },
+    onMiss: (m) => {
+      const tag = m.recoveredFromNeetcode ? "recovered (neetcode)" : `missing (${m.reason})`;
+      console.error(`  ${tag}: ${m.slug}`);
+    },
     onError: (slug, err) =>
       console.error(`  failed ${slug}: ${err instanceof Error ? err.message : String(err)}`),
   });
 
   console.error(
-    `fetched ${result.written.length} new, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+    `fetched ${result.written.length} new, recovered ${result.recovered.length} via neetcode, ` +
+      `skipped ${result.skipped.length}, missing ${result.missed.length}`,
   );
 
-  // Keep a README explaining how to run a problem's tests.
+  // Keep a README explaining how to run a problem's tests, plus a manifest of gaps.
   await Bun.write(`${clone}/README.md`, REPO_README);
+  await Bun.write(`${clone}/MISSING.md`, missingManifest(result.missed));
 
-  if (result.written.length === 0 && !force) {
+  const changed = result.written.length + result.recovered.length + result.missed.length;
+  if (changed === 0 && !force) {
     console.error("nothing new to commit.");
     return;
   }
 
   await run(["git", "add", "-A"], clone);
   const verb = force ? "regenerate" : "add";
-  const msg = `sync: ${verb} ${result.written.length} problems (leet-cli)`;
+  const msg =
+    `sync: ${verb} ${result.written.length} problems` +
+    (result.recovered.length ? `, ${result.recovered.length} via neetcode` : "") +
+    (result.missed.length ? `, ${result.missed.length} missing` : "") +
+    " (leet-cli)";
   // Nothing may have actually changed on a --force re-run; tolerate an empty commit.
   await run(["git", "commit", "--allow-empty", "-m", msg], clone);
   if (!p.values["no-push"]) {
