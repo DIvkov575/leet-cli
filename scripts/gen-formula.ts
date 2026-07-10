@@ -26,11 +26,22 @@ const ASSETS = [
 
 const base = `https://github.com/${OWNER}/${CLI_REPO}/releases/download/${tag}`;
 
-/** Fetch the checksum file for an asset and return the bare sha256 hex. */
+/**
+ * Read the checksum for an asset via the GitHub API (`gh release download`).
+ * The API path is authoritative immediately after upload, whereas the public
+ * releases/download CDN URL can lag several minutes.
+ */
 async function sha(asset: string): Promise<string> {
-  const res = await fetch(`${base}/${asset}.sha256`, { headers: { "User-Agent": "leet-cli" } });
-  if (!res.ok) throw new Error(`no ${asset}.sha256 for ${tag} (${res.status}) — is the release built?`);
-  const text = await res.text();
+  const proc = Bun.spawn(
+    ["gh", "release", "download", tag, "--repo", `${OWNER}/${CLI_REPO}`, "--pattern", `${asset}.sha256`, "--output", "-"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [text, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(`no ${asset}.sha256 for ${tag}: ${err.trim()} — is the release built?`);
   const hex = text.trim().split(/\s+/)[0];
   if (!hex || !/^[0-9a-f]{64}$/.test(hex)) throw new Error(`bad checksum for ${asset}: ${text}`);
   return hex;
