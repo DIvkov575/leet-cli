@@ -51,12 +51,62 @@ export function testsText(input: PackageInput): string {
   return raw.length > 0 ? raw + "\n" : "";
 }
 
-/** Produce all three artifacts for a problem. */
-export function packageProblem(input: PackageInput): Artifact[] {
+/** Options for substituting a NeetCode-sourced solution when LeetCode has no starter. */
+export interface PackageOptions {
+  /** Full C++ solution recovered from NeetCode, used in place of an official stub. */
+  neetcodeCode?: string;
+  /** Source URL of the NeetCode solution, for the file header. */
+  neetcodeUrl?: string;
+}
+
+/** Header for a substituted NeetCode solution, marking its provenance. */
+function neetcodeCppContent(input: PackageInput, code: string, url: string): string {
+  return (
+    `// ${input.id}. ${input.title} [${input.difficulty}]\n` +
+    `// ${input.url}\n` +
+    `// NOTE: LeetCode has no C++ starter for this problem (likely Premium).\n` +
+    `// Solution sourced from NeetCode: ${url}\n\n` +
+    code.trimEnd() +
+    "\n"
+  );
+}
+
+/** Produce all artifacts for a problem. With `neetcodeCode`, substitutes that solution for the stub. */
+export function packageProblem(input: PackageInput, opts: PackageOptions = {}): Artifact[] {
   const base = stem(input.id, input.slug);
+  const cpp =
+    opts.neetcodeCode && opts.neetcodeUrl
+      ? neetcodeCppContent(input, opts.neetcodeCode, opts.neetcodeUrl)
+      : scaffoldContent(input);
   const artifacts: Artifact[] = [
     { filename: `${base}.md`, content: descriptionMarkdown(input) },
-    { filename: `${base}.cpp`, content: scaffoldContent(input) },
+    { filename: `${base}.cpp`, content: cpp },
+  ];
+  const tests = testsText(input);
+  if (tests.length > 0) {
+    artifacts.push({ filename: `${base}.tests.txt`, content: tests });
+  }
+  return artifacts;
+}
+
+/**
+ * Placeholder artifacts for a problem with no usable C++ starter. Writes a
+ * `.cpp` whose header states why it's empty and an `.md` with the same note, so
+ * the gap is explicit in the repo rather than a silent omission.
+ */
+export function packageMissing(input: PackageInput, reason: string, detail: string): Artifact[] {
+  const base = stem(input.id, input.slug);
+  const cpp =
+    `// ${input.id}. ${input.title} [${input.difficulty}]\n` +
+    `// ${input.url}\n` +
+    `// NO C++ STARTER AVAILABLE (${reason}): ${detail}\n` +
+    `// This problem cannot be scaffolded as C++. See MISSING.md.\n`;
+  const md =
+    descriptionMarkdown(input).trimEnd() +
+    `\n\n---\n\n> **No C++ starter available** (${reason}): ${detail}\n`;
+  const artifacts: Artifact[] = [
+    { filename: `${base}.md`, content: md },
+    { filename: `${base}.cpp`, content: cpp },
   ];
   const tests = testsText(input);
   if (tests.length > 0) {

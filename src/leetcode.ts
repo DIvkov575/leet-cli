@@ -24,6 +24,10 @@ export interface LiveProblem {
   metaData?: string;
   /** Newline-separated example inputs; populated with snippets. */
   exampleTestcases?: string;
+  /** True if the problem is LeetCode Premium (no snippets/content returned without a subscription). */
+  isPaidOnly: boolean;
+  /** LeetCode category, e.g. "Algorithms", "Database", "JavaScript". */
+  category: string;
 }
 
 interface QuestionData {
@@ -36,6 +40,8 @@ interface QuestionData {
   codeSnippets: CodeSnippet[] | null;
   metaData: string | null;
   exampleTestcases: string | null;
+  isPaidOnly: boolean;
+  categoryTitle: string | null;
 }
 
 const QUESTION_QUERY = `query questionData($titleSlug: String!) {
@@ -46,6 +52,8 @@ const QUESTION_QUERY = `query questionData($titleSlug: String!) {
     difficulty
     stats
     content
+    isPaidOnly
+    categoryTitle
     codeSnippets {
       lang
       langSlug
@@ -106,6 +114,8 @@ export async function fetchProblem(
     snippets: opts.withSnippets ? question.codeSnippets ?? [] : undefined,
     metaData: opts.withSnippets ? question.metaData ?? undefined : undefined,
     exampleTestcases: opts.withSnippets ? question.exampleTestcases ?? undefined : undefined,
+    isPaidOnly: Boolean(question.isPaidOnly),
+    category: question.categoryTitle ?? "Algorithms",
   };
 }
 
