@@ -7,10 +7,21 @@ live refresh from LeetCode's public GraphQL API. Built with [Bun](https://bun.sh
 ## Install
 
 ```sh
-bun install          # no runtime deps, but sets up the workspace
+bun install          # no runtime deps; also pre-caches the NeetCode 250 set
 bun link             # optional: exposes `leet` on your PATH
 # or just run directly:
 bun run src/cli.ts <command>
+```
+
+`bun install` runs a `postinstall` step that proactively caches the
+`neetcode-250` study set (from the solutions repo, falling back to LeetCode), so
+your first `leet solve` / preview is instant and works offline. It's
+best-effort — a failure never blocks the install. To control it:
+
+```sh
+LEET_NO_SETUP=1 bun install          # skip pre-caching
+LEET_SETUP_LIST=uber bun install     # pre-cache a different list
+bun run setup                        # run the pre-cache manually, any time
 ```
 
 Compile a standalone binary:
@@ -57,12 +68,18 @@ environment variable, then a built-in default:
 | `editor`       | `$VISUAL`/`$EDITOR`  | `solve -o`          | nvim/vim/vi if found |
 | `solutionsDir` | —                    | `solve` / `test`    | `solutions`          |
 | `cxx`          | `$CXX`               | `test`              | `c++`                |
+| `recommend`    | —                    | picker's Recommended panel | `popularity` (or `acceptance`) |
 
 ```sh
-leet config                      # show all settings
-leet config editor "code -w"     # set the editor
-leet config cxx --unset          # clear a setting
+leet config                          # show all settings
+leet config editor "code -w"         # set the editor
+leet config recommend acceptance     # change the recommendation ranking
+leet config cxx --unset              # clear a setting
 ```
+
+The `recommend` strategy is modular — `popularity` ranks by how many company
+lists a problem appears in (most-asked first); `acceptance` ranks the most
+approachable unsolved problems first.
 
 Inside the interactive browser, open the settings screen with **`c`** (from the
 list picker on launch, or the **Config** menu item). Enter edits the selected
@@ -100,7 +117,10 @@ leet refresh nvidia
 Just run **`leet`** to open the full-screen browser — this is the primary way
 to use the tool, and a front-end for everything the subcommands do. Running it
 bare opens a **list picker** first (no list is silently assumed); pass
-`leet tui <list>` to jump straight into one.
+`leet tui <list>` to jump straight into one. The picker shows each list's
+done/left/total counts, and on wide terminals a **Recommended** panel beside it
+surfaces the highest-signal unsolved problems (ranking set by `recommend` in
+config).
 
 Every action lives in a **menu bar** across the top, so nothing has to be
 memorized: **Tab** / **Shift-Tab** move between menu items and **Enter** fires

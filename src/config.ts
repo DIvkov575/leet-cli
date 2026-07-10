@@ -15,6 +15,8 @@ export interface Config {
   solutionsDir?: string;
   /** C++ compiler for `leet test`. Overrides $CXX. */
   cxx?: string;
+  /** Ranking strategy for the recommended-problems panel (e.g. "popularity", "acceptance"). */
+  recommend?: string;
 }
 
 /** A settings key that keeps the same discipline as an env fallback. */
@@ -32,6 +34,7 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: "editor", label: "Editor command", fallback: "$VISUAL / $EDITOR, else nvim/vim/vi" },
   { key: "solutionsDir", label: "Solutions directory", fallback: "solutions" },
   { key: "cxx", label: "C++ compiler", fallback: "$CXX, else c++" },
+  { key: "recommend", label: "Recommend ranking", fallback: "popularity (or: acceptance)" },
 ] as const;
 
 /** Directory holding user state. Honors LEET_DATA_DIR (used by tests), then XDG. */

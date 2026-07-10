@@ -175,6 +175,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     list: { name: "demo", title: "Demo", problems },
     listNames: ["demo"],
     listMeta: new Map<string, number[]>([["demo", [1, 2, 3]]]),
+    recommended: [],
     completed: new Set<number>(),
     doneFilter: "all",
     diff: undefined,
@@ -271,6 +272,26 @@ describe("renderFrame list picker", () => {
     const s = makeState({ picker: { items: ["demo"], index: 0 } });
     const f = renderFrame(s, 12, 70).map(strip);
     expect(f.join("\n")).toContain("c config");
+  });
+
+  test("wide terminal shows a recommended panel beside the list; narrow does not", () => {
+    const rec = [
+      { problem: { id: 1, title: "Two Sum", slug: "two-sum", url: "u", acceptance: 50, difficulty: "Easy" }, listCount: 5, lists: ["a"], done: false },
+      { problem: { id: 20, title: "Valid Parentheses", slug: "vp", url: "u", acceptance: 40, difficulty: "Easy" }, listCount: 3, lists: ["a"], done: false },
+    ];
+    const s = makeState({ picker: { items: ["demo"], index: 0 }, recommended: rec });
+
+    const wide = renderFrame(s, 16, 120);
+    for (const line of wide) expect(strip(line).length).toBe(120);
+    const wj = strip(wide.join("\n"));
+    expect(wj).toContain("Recommended");
+    expect(wj).toContain("Two Sum");
+    expect(wj).toContain("Choose a list"); // list column still present
+
+    // Narrow: no panel, so the recommendation title should not appear.
+    const narrow = renderFrame(s, 16, 70);
+    for (const line of narrow) expect(strip(line).length).toBe(70);
+    expect(strip(narrow.join("\n"))).not.toContain("Recommended");
   });
 });
 

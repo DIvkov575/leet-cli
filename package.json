@@ -10,7 +10,9 @@
     "start": "bun run src/cli.ts",
     "build:data": "bun run scripts/build-data.ts",
     "test": "bun test",
-    "compile": "bun build src/cli.ts --compile --outfile leet"
+    "compile": "bun build src/cli.ts --compile --outfile leet",
+    "setup": "bun run scripts/setup.ts",
+    "postinstall": "bun run scripts/setup.ts || true"
   },
   "engines": {
     "bun": ">=1.0.0"
