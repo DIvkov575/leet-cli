@@ -86,7 +86,7 @@ describe("resolveCxx: config > $CXX > default", () => {
 });
 
 describe("CONFIG_FIELDS metadata", () => {
-  test("describes the three editable settings", () => {
-    expect(CONFIG_FIELDS.map((f) => f.key)).toEqual(["editor", "solutionsDir", "cxx"]);
+  test("describes the editable settings", () => {
+    expect(CONFIG_FIELDS.map((f) => f.key)).toEqual(["editor", "solutionsDir", "cxx", "recommend"]);
   });
 });

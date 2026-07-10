@@ -13,6 +13,7 @@ import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import { loadConfig, saveConfig, CONFIG_FIELDS, type Config } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
+import { recommendProblems, type Recommendation } from "./recommend.ts";
 
 /**
  * Interactive full-screen browser for the bundled lists — the primary way to
@@ -261,6 +262,8 @@ interface State {
   listNames: string[];
   /** Problem ids per bundled list, for the picker's unsolved/total counts. */
   listMeta: Map<string, number[]>;
+  /** Ranked recommendations shown in the picker's side panel. */
+  recommended: Recommendation[];
   completed: Set<number>;
   doneFilter: DoneFilter;
   diff: Difficulty | undefined;
@@ -353,25 +356,7 @@ const HELP_LINES = [
 export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.config) return renderConfig(s.config, rows, cols);
-  if (s.picker) {
-    const nameW = s.picker.items.reduce((w, n) => Math.max(w, n.length), 0);
-    const numW = 6; // holds counts up to 6 digits, right-aligned
-    const col = (n: number | string): string => String(n).padStart(numW);
-    const header = `    ${"".padEnd(nameW)}${col("Done")}${col("Left")}${col("Total")}`;
-    const lines = s.picker.items.map((name, i) => {
-      const selected = i === s.picker!.index;
-      const marker = selected ? "▸ " : "  ";
-      const { done, remaining, total } = listCounts(s, name);
-      const row = `  ${marker}${name.padEnd(nameW)}${col(done)}${col(remaining)}${col(total)}`;
-      return selected ? paint(fit(row, cols), "rev") : row;
-    });
-    return renderOverlay(
-      ["  Choose a list:", paint(header, "dim"), ...lines],
-      rows,
-      cols,
-      " lists  (↑↓ move · Enter open · c config · Esc cancel)",
-    );
-  }
+  if (s.picker) return renderPicker(s, rows, cols);
 
   const showPreview = cols >= 90;
   const listW = showPreview ? Math.max(40, Math.floor(cols * 0.5)) : cols;
@@ -480,6 +465,73 @@ function renderMenuBar(s: State, cols: number): string {
   }
   const plain = cells.join(" ");
   return paint(fit(plain, cols), s.focus === "menu" ? "bold" : "dim");
+}
+
+/** Difficulty abbreviated to a single colored letter for the tight recommended panel. */
+function diffTag(d: Difficulty): string {
+  return paint(d[0]!, diffColor(d));
+}
+
+/**
+ * Build the recommended-problems panel lines (without the border), each fit to
+ * `width`. Shows rank, id, title (truncated), a difficulty letter, and how many
+ * lists the problem spans.
+ */
+function recommendedPanel(s: State, width: number, height: number): string[] {
+  const lines: string[] = [paint(fit("Recommended", width), "bold"), fit("", width)];
+  if (s.recommended.length === 0) {
+    lines.push(paint(fit("(none — all done?)", width), "dim"));
+  }
+  for (let i = 0; i < s.recommended.length && lines.length < height; i++) {
+    const r = s.recommended[i]!;
+    // "id title  D ·N" — reserve room for the trailing "D ·N" (4 cols) + gap.
+    const tail = `${diffTag(r.problem.difficulty)} ·${r.listCount}`;
+    const tailW = 4; // visible width of the tail (letter, space, ·, count digit)
+    const head = `${String(r.problem.id).padStart(4)} `;
+    const titleW = Math.max(0, width - head.length - tailW - 1);
+    const title = fit(r.problem.title, titleW);
+    lines.push(fit(`${head}${title} ${tail}`, width));
+  }
+  while (lines.length < height) lines.push(fit("", width));
+  return lines.slice(0, height);
+}
+
+/** Render the list picker, with a recommended-problems side panel when wide enough. */
+function renderPicker(s: State, rows: number, cols: number): string[] {
+  const title = paint(fit(" lists  (↑↓ move · Enter open · c config · Esc cancel)", cols), "bold", "cyan");
+  const footer = paint(fit(" Esc close · q quit", cols), "dim");
+  const bodyH = rows - 2;
+
+  // Split off a right-hand recommended panel on wide terminals.
+  const showPanel = cols >= 90 && s.recommended.length > 0;
+  const panelW = showPanel ? Math.min(48, Math.max(32, Math.floor(cols * 0.42))) : 0;
+  const listW = showPanel ? cols - panelW - 1 : cols;
+
+  // Left column: the list chooser with Done/Left/Total counts.
+  const nameW = s.picker!.items.reduce((w, n) => Math.max(w, n.length), 0);
+  const numW = 6;
+  const col = (n: number | string): string => String(n).padStart(numW);
+  const listContent: string[] = [
+    "  Choose a list:",
+    paint(`    ${"".padEnd(nameW)}${col("Done")}${col("Left")}${col("Total")}`, "dim"),
+  ];
+  s.picker!.items.forEach((name, i) => {
+    const selected = i === s.picker!.index;
+    const marker = selected ? "▸ " : "  ";
+    const { done, remaining, total } = listCounts(s, name);
+    const row = `  ${marker}${name.padEnd(nameW)}${col(done)}${col(remaining)}${col(total)}`;
+    listContent.push(selected ? paint(fit(row, listW), "rev") : row);
+  });
+  const listLines: string[] = [];
+  for (let i = 0; i < bodyH; i++) listLines.push(fit(listContent[i] ?? "", listW));
+
+  if (!showPanel) return [title, ...listLines, footer];
+
+  const panelLines = recommendedPanel(s, panelW, bodyH);
+  const sep = paint("│", "dim");
+  const body: string[] = [];
+  for (let i = 0; i < bodyH; i++) body.push(`${listLines[i]}${sep}${panelLines[i] ?? " ".repeat(panelW)}`);
+  return [title, ...body, footer];
 }
 
 /** Render a full-screen overlay from content lines. */
@@ -601,20 +653,28 @@ export async function runTui(list?: ProblemList): Promise<void> {
   // With no explicit list we still need something loaded behind the picker.
   const initial = list ?? (await loadList(listNames[0]!));
 
-  // Preload each list's problem ids so the picker can show unsolved/total.
-  const listMeta = new Map<string, number[]>();
-  await Promise.all(
-    listNames.map(async (name) => {
-      const l = name === initial.name ? initial : await loadList(name);
-      listMeta.set(name, l.problems.map((p) => p.id));
-    }),
+  // Preload every list once: powers both the picker's unsolved/total counts and
+  // the recommended-problems panel (ranked across all lists).
+  const allLists = await Promise.all(
+    listNames.map((name) => (name === initial.name ? Promise.resolve(initial) : loadList(name))),
   );
+  const listMeta = new Map<string, number[]>();
+  for (const l of allLists) listMeta.set(l.name, l.problems.map((p) => p.id));
+
+  const completed = await loadCompleted();
+  const config = await loadConfig();
+  const recommended = recommendProblems(allLists, config.recommend, {
+    completed,
+    excludeDone: true,
+    limit: 100,
+  });
 
   const state: State = {
     list: initial,
     listNames,
     listMeta,
-    completed: await loadCompleted(),
+    recommended,
+    completed,
     doneFilter: "all",
     diff: undefined,
     search: "",

@@ -30,6 +30,7 @@ import {
 } from "./config.ts";
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
+import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
@@ -49,7 +50,7 @@ Usage:
   leet undone <id|slug ...>        Unmark problems as done
   leet import <path|owner/repo>    Mark done from an external source (e.g. NeetCode sync)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
 
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
@@ -256,7 +257,7 @@ async function cmdLs(p: Parsed): Promise<void> {
 
 /**
  * `leet config` — show settings; `leet config <key> <value>` sets one;
- * `leet config <key> --unset` clears it. Keys: editor, solutionsDir, cxx.
+ * `leet config <key> --unset` clears it. Keys: editor, solutionsDir, cxx, recommend.
  */
 async function cmdConfig(p: Parsed): Promise<void> {
   const cfg = await loadConfig();
@@ -284,6 +285,11 @@ async function cmdConfig(p: Parsed): Promise<void> {
 
   const value = valueParts.join(" ").trim();
   if (!value) throw new UserError(`usage: leet config ${field.key} <value>   (or --unset)`);
+  if (field.key === "recommend" && !RECOMMEND_STRATEGIES[value]) {
+    throw new UserError(
+      `unknown recommend strategy "${value}" (options: ${Object.keys(RECOMMEND_STRATEGIES).join(", ")})`,
+    );
+  }
   cfg[field.key] = value;
   await saveConfig(cfg);
   console.log(`${field.key} = ${value}`);
