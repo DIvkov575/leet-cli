@@ -194,6 +194,8 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     picker: null,
     config: null,
     help: false,
+    prefetch: null,
+    suggestSetup: false,
     ...overrides,
   };
   return s;
@@ -272,6 +274,14 @@ describe("renderFrame list picker", () => {
     const s = makeState({ picker: { items: ["demo"], index: 0 } });
     const f = renderFrame(s, 12, 70).map(strip);
     expect(f.join("\n")).toContain("c config");
+  });
+
+  test("first-run footer suggests pre-caching; opt-in, not automatic", () => {
+    const s = makeState({ picker: { items: ["demo"], index: 0 }, suggestSetup: true });
+    const f = renderFrame(s, 12, 100).map(strip);
+    const joined = f.join("\n");
+    expect(joined).toContain("press P to pre-cache");
+    expect(joined).toContain("dismiss");
   });
 
   test("wide terminal shows a recommended panel beside the list; narrow does not", () => {

@@ -77,10 +77,11 @@ class Leet < Formula
 
   def caveats
     <<~EOS
-      On first launch, leet pre-caches the NeetCode 250 study set in the
-      background (over HTTPS, no auth) so solve/preview work offline.
-      Skip it with:  export LEET_NO_SETUP=1
-      Or run it manually any time:  leet setup
+      Bundled problem lists are embedded, so browsing works offline immediately.
+      Problem statements/stubs are cached lazily on first solve/preview.
+      On first launch, leet offers to pre-cache the NeetCode 250 set (opt-in);
+      or run it any time:  leet setup
+      Suppress the suggestion with:  export LEET_NO_SETUP=1
     EOS
   end
 

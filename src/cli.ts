@@ -31,7 +31,7 @@ import {
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
-import { runSetup, setupHasRun } from "./setup.ts";
+import { runSetup } from "./setup.ts";
 import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
@@ -775,36 +775,14 @@ async function cmdRefresh(p: Parsed): Promise<void> {
   }
 }
 
-/**
- * On first-ever run, kick off the study-set pre-cache in a detached background
- * process so it doesn't block or interfere with the TUI's alt-screen rendering.
- * This is how the Homebrew/binary distribution triggers the automatic
- * problem-list download (there's no npm postinstall hook there). Best-effort:
- * any failure to spawn is ignored, and $LEET_NO_SETUP disables it.
- */
-async function maybeFirstRunSetup(): Promise<void> {
-  if (process.env.LEET_NO_SETUP) return;
-  if (await setupHasRun()) return;
-  try {
-    // process.execPath is the leet binary when compiled; argv[1] is the entry
-    // script under `bun run`. Re-invoke ourselves with the `setup` subcommand.
-    const self = process.argv[1];
-    const cmd =
-      self && !self.includes("$bunfs") ? [process.execPath, self, "setup"] : [process.execPath, "setup"];
-    Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref();
-  } catch {
-    // Ignore — pre-caching is an optimization, not a requirement.
-  }
-}
-
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
   switch (command) {
     case undefined:
       // Bare `leet` drops into the interactive TUI; if there's no terminal
-      // (piped/redirected), fall back to printing help.
+      // (piped/redirected), fall back to printing help. The TUI suggests
+      // pre-caching on first run rather than downloading silently.
       if (process.stdin.isTTY && process.stdout.isTTY) {
-        await maybeFirstRunSetup();
         await cmdTui(parse(rest));
       } else {
         console.log(HELP);
