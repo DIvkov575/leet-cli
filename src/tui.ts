@@ -11,6 +11,7 @@ import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
+import { loadConfig, saveConfig, CONFIG_FIELDS, type Config } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
 
 /**
@@ -177,6 +178,7 @@ export type MenuAction =
   | "open"
   | "refresh"
   | "import"
+  | "config"
   | "help";
 
 export interface MenuItem {
@@ -194,6 +196,7 @@ export const MENU_ITEMS: readonly MenuItem[] = [
   { label: "Open", action: "open" },
   { label: "Refresh", action: "refresh" },
   { label: "Import", action: "import" },
+  { label: "Config", action: "config" },
   { label: "Help", action: "help" },
 ];
 
@@ -240,6 +243,17 @@ interface PickerState {
   index: number;
 }
 
+/**
+ * Settings overlay. `index` selects a field; when `editing` is true the field's
+ * `draft` is being typed. Values live in `working` until saved on close.
+ */
+interface ConfigState {
+  index: number;
+  editing: boolean;
+  draft: string;
+  working: Config;
+}
+
 type Focus = "list" | "menu" | "preview";
 
 interface State {
@@ -266,6 +280,8 @@ interface State {
   input: InputState | null;
   /** Active list picker overlay, or null. */
   picker: PickerState | null;
+  /** Active config overlay, or null. */
+  config: ConfigState | null;
   /** Whether the help overlay is showing. */
   help: boolean;
   /** Live prefetch status shown in the footer; null when idle. */
@@ -330,12 +346,13 @@ const HELP_LINES = [
   "",
   "  Direct shortcuts (same as the menu items)",
   "    f filter   d difficulty   s sort   / search   r random",
-  "    L list     o open         R refresh   i import   ? help",
+  "    L list     o open         R refresh   i import   c config   ? help",
 ];
 
 /** Build the full frame: exactly `rows` lines, each padded to `cols` columns. */
 export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
+  if (s.config) return renderConfig(s.config, rows, cols);
   if (s.picker) {
     const nameW = s.picker.items.reduce((w, n) => Math.max(w, n.length), 0);
     const numW = 6; // holds counts up to 6 digits, right-aligned
@@ -352,7 +369,7 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
       ["  Choose a list:", paint(header, "dim"), ...lines],
       rows,
       cols,
-      " lists  (↑↓ move · Enter open · Esc cancel)",
+      " lists  (↑↓ move · Enter open · c config · Esc cancel)",
     );
   }
 
@@ -475,6 +492,38 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
   return [header, ...lines, footer];
 }
 
+/** Render the settings overlay: one row per editable field, showing current value or fallback. */
+function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
+  const labelW = CONFIG_FIELDS.reduce((w, f) => Math.max(w, f.label.length), 0);
+  const content: string[] = ["  Settings", ""];
+  CONFIG_FIELDS.forEach((f, i) => {
+    const selected = i === cfg.index;
+    const marker = selected ? "▸ " : "  ";
+    const set = cfg.working[f.key];
+    let valueCell: string;
+    if (selected && cfg.editing) {
+      valueCell = `${cfg.draft}▏`;
+    } else if (set) {
+      valueCell = set;
+    } else {
+      valueCell = `(unset — ${f.fallback})`;
+    }
+    const row = `  ${marker}${f.label.padEnd(labelW)}   ${valueCell}`;
+    // Only the value is dimmed when unset; keep the whole selected row reverse-video.
+    if (selected) {
+      content.push(paint(fit(row, cols), "rev"));
+    } else if (set) {
+      content.push(row);
+    } else {
+      content.push(`  ${marker}${f.label.padEnd(labelW)}   ` + paint(`(unset — ${f.fallback})`, "dim"));
+    }
+  });
+  const hint = cfg.editing
+    ? " editing  (Enter save field · Esc cancel edit)"
+    : " settings  (↑↓ move · Enter edit · x clear · Esc save & close)";
+  return renderOverlay(content, rows, cols, hint);
+}
+
 /**
  * Copy-pasteable shell command that scaffolds the problem's C++ file
  * (cache-first, so it's instant once cached/prefetched) and opens it in the
@@ -582,6 +631,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     input: null,
     // No explicit list → open the picker so nothing is silently "the default".
     picker: list ? null : { items: listNames, index: 0 },
+    config: null,
     help: false,
     prefetch: null,
   };
@@ -684,6 +734,21 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
+  const openConfig = async (): Promise<void> => {
+    const cfg = await loadConfig();
+    state.config = { index: 0, editing: false, draft: "", working: { ...cfg } };
+    render();
+  };
+
+  const closeConfig = async (): Promise<void> => {
+    if (!state.config) return;
+    const working = state.config.working;
+    state.config = null;
+    await saveConfig(working);
+    state.status = "settings saved.";
+    render();
+  };
+
   const runImport = async (source: string): Promise<void> => {
     state.status = `importing from ${source}…`;
     render();
@@ -737,6 +802,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
       case "import":
         state.input = { kind: "import", value: "" };
         break;
+      case "config":
+        void openConfig();
+        return;
       case "help":
         state.help = true;
         break;
@@ -807,6 +875,59 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
+      // ── config overlay ── (takes priority; can open over the picker)
+      if (state.config) {
+        const cfg = state.config;
+        const field = CONFIG_FIELDS[cfg.index]!;
+        if (cfg.editing) {
+          if (key === "\r" || key === "\n") {
+            const v = cfg.draft.trim();
+            if (v) cfg.working[field.key] = v;
+            else delete cfg.working[field.key];
+            cfg.editing = false;
+          } else if (key === "\x1b") {
+            cfg.editing = false; // cancel edit, keep prior value
+          } else if (key === "\x7f" || key === "\b") {
+            cfg.draft = cfg.draft.slice(0, -1);
+          } else if (key === "\x03") {
+            finish();
+            return;
+          } else if (key >= " " && !key.startsWith("\x1b")) {
+            cfg.draft += key;
+          }
+          render();
+          return;
+        }
+        switch (key) {
+          case "\x03":
+            finish();
+            return;
+          case "q":
+          case "\x1b":
+            void closeConfig();
+            return;
+          case "k":
+          case "\x1b[A":
+            cfg.index = Math.max(0, cfg.index - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            cfg.index = Math.min(CONFIG_FIELDS.length - 1, cfg.index + 1);
+            break;
+          case "x":
+          case "\x7f":
+            delete cfg.working[field.key];
+            break;
+          case "\r":
+          case "\n":
+            cfg.editing = true;
+            cfg.draft = cfg.working[field.key] ?? "";
+            break;
+        }
+        render();
+        return;
+      }
+
       // ── list picker overlay ──
       if (state.picker) {
         switch (key) {
@@ -825,6 +946,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "\x1b[B":
             state.picker.index = Math.min(state.picker.items.length - 1, state.picker.index + 1);
             break;
+          case "c":
+            void openConfig(); // settings, reachable straight from home
+            return;
           case "\r":
           case "\n": {
             const name = state.picker.items[state.picker.index]!;
@@ -983,6 +1107,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
         case "o":
         case "R":
         case "i":
+        case "c":
         case "?": {
           const map: Record<string, MenuAction> = {
             f: "filter",
@@ -993,6 +1118,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
             o: "open",
             R: "refresh",
             i: "import",
+            c: "config",
             "?": "help",
           };
           activateMenu(map[key]!);

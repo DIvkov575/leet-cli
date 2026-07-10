@@ -155,6 +155,7 @@ describe("MENU_ITEMS", () => {
       "open",
       "refresh",
       "import",
+      "config",
       "help",
     ]);
   });
@@ -190,6 +191,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     status: "",
     input: null,
     picker: null,
+    config: null,
     help: false,
     ...overrides,
   };
@@ -263,5 +265,37 @@ describe("renderFrame list picker", () => {
     // other: 0 done, 2 remaining, 2 total.
     const otherRow = lines.find((l) => l.includes("other"))!;
     expect(otherRow).toMatch(/other\s+0\s+2\s+2\s*$/);
+  });
+
+  test("picker footer advertises the config shortcut", () => {
+    const s = makeState({ picker: { items: ["demo"], index: 0 } });
+    const f = renderFrame(s, 12, 70).map(strip);
+    expect(f.join("\n")).toContain("c config");
+  });
+});
+
+describe("renderFrame config overlay", () => {
+  test("lists each setting; shows value when set, fallback when unset", () => {
+    const s = makeState({
+      config: { index: 0, editing: false, draft: "", working: { editor: "code -w" } },
+    });
+    const f = renderFrame(s, 14, 70);
+    expect(f).toHaveLength(14);
+    for (const line of f) expect(strip(line).length).toBe(70);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Settings");
+    expect(joined).toContain("Editor command");
+    expect(joined).toContain("code -w"); // configured value shown
+    expect(joined).toContain("Solutions directory");
+    expect(joined).toContain("(unset"); // unset field shows its fallback
+    expect(joined).toContain("C++ compiler");
+  });
+
+  test("editing a field shows the draft with a caret", () => {
+    const s = makeState({
+      config: { index: 1, editing: true, draft: "mysols", working: {} },
+    });
+    const joined = strip(renderFrame(s, 14, 70).join("\n"));
+    expect(joined).toContain("mysols▏");
   });
 });
