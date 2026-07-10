@@ -43,7 +43,30 @@ leet done [id|slug ...]          # mark problems done, or list what's done
 leet undone <id|slug ...>        # unmark problems as done
 leet import <path|owner/repo>    # mark done from an external source (e.g. NeetCode)
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
+leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx)
 ```
+
+## Configuration
+
+Settings persist to `config.json` in the data dir (`$XDG_DATA_HOME/leet-cli`, or
+`~/.local/share/leet-cli`). Each is optional and layers over the matching
+environment variable, then a built-in default:
+
+| Key            | Overrides            | Used by             | Default              |
+|----------------|----------------------|---------------------|----------------------|
+| `editor`       | `$VISUAL`/`$EDITOR`  | `solve -o`          | nvim/vim/vi if found |
+| `solutionsDir` | —                    | `solve` / `test`    | `solutions`          |
+| `cxx`          | `$CXX`               | `test`              | `c++`                |
+
+```sh
+leet config                      # show all settings
+leet config editor "code -w"     # set the editor
+leet config cxx --unset          # clear a setting
+```
+
+Inside the interactive browser, open the settings screen with **`c`** (from the
+list picker on launch, or the **Config** menu item). Enter edits the selected
+field, `x` clears it, Esc saves and closes.
 
 ### Filters (for `ls` / `random`)
 

@@ -20,6 +20,14 @@ import { collectTargets, syncTargets } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
+import {
+  loadConfig,
+  saveConfig,
+  resolveEditor,
+  resolveSolutionsDir,
+  resolveCxx,
+  CONFIG_FIELDS,
+} from "./config.ts";
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { runTui } from "./tui.ts";
@@ -41,6 +49,7 @@ Usage:
   leet undone <id|slug ...>        Unmark problems as done
   leet import <path|owner/repo>    Mark done from an external source (e.g. NeetCode sync)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx)
 
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
@@ -211,12 +220,11 @@ async function openUrl(url: string): Promise<void> {
   await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited;
 }
 
-/** Open a file in the user's editor ($VISUAL/$EDITOR, default vi), inheriting the tty. */
+/** Open a file in the user's editor (config > $VISUAL/$EDITOR, else best installed), inheriting the tty. */
 async function openInEditor(path: string): Promise<void> {
-  // Honor the user's configured editor; otherwise pick the best one installed.
+  // config `editor` > $VISUAL > $EDITOR; otherwise pick the best one installed.
   const editor =
-    process.env.VISUAL ||
-    process.env.EDITOR ||
+    resolveEditor(await loadConfig()) ||
     ["nvim", "vim", "vi"].find((e) => Bun.which(e)) ||
     "vi";
   // Split on spaces so EDITOR="code -w" style values work.
@@ -238,6 +246,41 @@ async function cmdLs(p: Parsed): Promise<void> {
   const list = await loadList(name);
   const completed = await loadCompleted();
   output(applyView(list.problems, p.values, completed), p.values, completed);
+}
+
+/**
+ * `leet config` — show settings; `leet config <key> <value>` sets one;
+ * `leet config <key> --unset` clears it. Keys: editor, solutionsDir, cxx.
+ */
+async function cmdConfig(p: Parsed): Promise<void> {
+  const cfg = await loadConfig();
+  const [key, ...valueParts] = p.positionals;
+
+  if (!key) {
+    for (const f of CONFIG_FIELDS) {
+      const v = cfg[f.key];
+      console.log(`${f.key.padEnd(14)} ${v ? v : `(unset — ${f.fallback})`}`);
+    }
+    return;
+  }
+
+  const field = CONFIG_FIELDS.find((f) => f.key === key);
+  if (!field) {
+    throw new UserError(`unknown config key "${key}" (keys: ${CONFIG_FIELDS.map((f) => f.key).join(", ")})`);
+  }
+
+  if (p.values.unset) {
+    delete cfg[field.key];
+    await saveConfig(cfg);
+    console.log(`unset ${field.key}`);
+    return;
+  }
+
+  const value = valueParts.join(" ").trim();
+  if (!value) throw new UserError(`usage: leet config ${field.key} <value>   (or --unset)`);
+  cfg[field.key] = value;
+  await saveConfig(cfg);
+  console.log(`${field.key} = ${value}`);
 }
 
 async function cmdTui(p: Parsed): Promise<void> {
@@ -302,7 +345,7 @@ async function cmdSolve(p: Parsed): Promise<void> {
   if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet] [--fresh]");
   const local = await findProblemAnywhere(key);
   const slug = local?.slug ?? key;
-  const dir = (p.values.dir as string | undefined) ?? "solutions";
+  const dir = resolveSolutionsDir(p.values.dir as string | undefined, await loadConfig());
   const fresh = Boolean(p.values.fresh);
 
   // Cache-first: a prior live fetch (or prefetch) already packaged this file.
@@ -373,7 +416,8 @@ async function cmdTest(p: Parsed): Promise<void> {
   if (!key) throw new UserError("usage: leet test <id|slug> [--dir <dir>]");
   const local = await findProblemAnywhere(key);
   const slug = local?.slug ?? key;
-  const dir = (p.values.dir as string | undefined) ?? "solutions";
+  const config = await loadConfig();
+  const dir = resolveSolutionsDir(p.values.dir as string | undefined, config);
 
   // Locate the scaffolded .cpp; scaffold it (from cache, else live) if missing.
   let path: string | null = null;
@@ -415,7 +459,7 @@ async function cmdTest(p: Parsed): Promise<void> {
   }
 
   // Compile.
-  const cxx = process.env.CXX || "c++";
+  const cxx = resolveCxx(config);
   const bin = `${path.replace(/\.cpp$/, "")}.out`;
   console.error(`compiling ${path}…`);
   const compile = Bun.spawn([cxx, "-std=c++17", "-O2", path, "-o", bin], {
@@ -760,6 +804,9 @@ async function main(): Promise<number> {
       return 0;
     case "refresh":
       await cmdRefresh(parse(rest, { all: { type: "boolean" } }));
+      return 0;
+    case "config":
+      await cmdConfig(parse(rest, { unset: { type: "boolean" } }));
       return 0;
     default:
       throw new UserError(`unknown command "${command}" (run \`leet help\`)`);
