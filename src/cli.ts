@@ -33,6 +33,9 @@ import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
+import { verifySession } from "./leetcode-progress.ts";
+import { readChromeCookies } from "./chrome-cookies.ts";
+import { readFirefoxCookies } from "./firefox-cookies.ts";
 import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
@@ -51,6 +54,7 @@ Usage:
   leet done [id|slug ...]          Mark problems done, or list what's done
   leet undone <id|slug ...>        Unmark problems as done
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
+  leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
   leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
@@ -319,6 +323,58 @@ async function cmdSetup(p: Parsed): Promise<void> {
   console.log(
     `cached ${result.fromRepo + result.fromLeet} of ${result.total} ` +
       `(${result.fromRepo} from repo, ${result.fromLeet} live, ${result.skipped} already, ${result.failed} unavailable).`,
+  );
+}
+
+/**
+ * `leet auth` — grab your LeetCode session cookie from a local browser and save
+ * it to config, so `leet import --adapter leetcode` works without hand-copying.
+ * Tries Firefox (plaintext cookie DB) then Chrome (Keychain-decrypted); some
+ * recent Chrome builds use app-bound encryption we can't read.
+ */
+async function cmdAuth(p: Parsed): Promise<void> {
+  const onlyChrome = Boolean(p.values["from-chrome"]);
+  const onlyFirefox = Boolean(p.values["from-firefox"]);
+  const sources: Array<"firefox" | "chrome"> =
+    onlyChrome ? ["chrome"] : onlyFirefox ? ["firefox"] : ["firefox", "chrome"];
+
+  let found: { session: string; csrf?: string; from: string } | null = null;
+  const notes: string[] = [];
+  for (const src of sources) {
+    try {
+      const reader = src === "firefox" ? readFirefoxCookies : readChromeCookies;
+      const c = await reader("leetcode.com", ["LEETCODE_SESSION", "csrftoken"]);
+      const session = c.get("LEETCODE_SESSION");
+      if (session) {
+        found = { session, csrf: c.get("csrftoken"), from: src };
+        break;
+      }
+      notes.push(`${src}: no LeetCode session (are you logged in there?)`);
+    } catch (err) {
+      notes.push(`${src}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  if (!found) {
+    throw new UserError(
+      "couldn't find a LeetCode session in a local browser:\n  " +
+        notes.join("\n  ") +
+        "\n\nLog into leetcode.com in Firefox or Chrome, then re-run `leet auth`. " +
+        "Or set it manually:  export LEETCODE_SESSION=<cookie from devtools>",
+    );
+  }
+
+  // Verify the cookie really authenticates before saving it.
+  console.error(`found a session in ${found.from}; verifying with LeetCode…`);
+  const username = await verifySession({ session: found.session, csrf: found.csrf });
+
+  const cfg = await loadConfig();
+  cfg.leetcodeSession = found.session;
+  if (found.csrf) cfg.leetcodeCsrf = found.csrf;
+  await saveConfig(cfg);
+  console.log(
+    `saved LeetCode session for "${username}" (from ${found.from}). ` +
+      `Run \`leet import --adapter leetcode\` to sync your solved problems.`,
   );
 }
 
@@ -882,6 +938,14 @@ async function main(): Promise<number> {
       return 0;
     case "setup":
       await cmdSetup(parse(rest, { list: { type: "string" } }));
+      return 0;
+    case "auth":
+      await cmdAuth(
+        parse(rest, {
+          "from-chrome": { type: "boolean" },
+          "from-firefox": { type: "boolean" },
+        }),
+      );
       return 0;
     default:
       throw new UserError(`unknown command "${command}" (run \`leet help\`)`);

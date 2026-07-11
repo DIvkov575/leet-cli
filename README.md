@@ -223,13 +223,25 @@ import is idempotable — re-running only marks what is new.
 ### Resync directly from LeetCode
 
 The `leetcode` adapter pulls your solved problems straight from your LeetCode
-account — no repo needed. It authenticates with your `LEETCODE_SESSION` cookie
-(find it in your browser devtools → Application → Cookies → `leetcode.com`):
+account — no repo needed. It authenticates with your `LEETCODE_SESSION` cookie.
+
+The easiest way to get the cookie is **`leet auth`**, which grabs it from a
+browser where you're logged into leetcode.com and saves it to config:
+
+```sh
+leet auth                          # tries Firefox, then Chrome
+leet auth --from-firefox           # force a specific browser
+leet import --adapter leetcode     # then resync everything you've solved
+```
+
+Firefox is the reliable source (its cookie store is plaintext). Recent Chrome
+versions use *app-bound* cookie encryption that external tools can't read, so if
+you only use Chrome, set the cookie manually instead — copy `LEETCODE_SESSION`
+from devtools → Application → Cookies → `leetcode.com`:
 
 ```sh
 export LEETCODE_SESSION=<cookie value>       # optionally: export LEETCODE_CSRF=<token>
-leet import --adapter leetcode               # resync everything you've solved
-leet import --adapter leetcode --dry-run     # preview first
+leet import --adapter leetcode
 ```
 
 The session can also live in `config.json` as `leetcodeSession` (it's kept out
