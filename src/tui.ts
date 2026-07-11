@@ -361,6 +361,15 @@ function listCounts(s: State, name: string): { done: number; remaining: number; 
   return { done, remaining: ids.length - done, total: ids.length };
 }
 
+/** Bundled lists (by name, sorted) that contain the given problem id. */
+function listsContaining(s: State, id: number): string[] {
+  const names: string[] = [];
+  for (const name of s.listNames) {
+    if ((s.listMeta.get(name) ?? []).includes(id)) names.push(name);
+  }
+  return names;
+}
+
 /**
  * Point the Problems panel at a Lists-panel row: either the ★ Recommended
  * pseudo-list or a bundled list by name. Resets the problem cursor/preview.
@@ -679,7 +688,7 @@ export function solveCommand(_id: number, slug: string): string {
 function previewHeaderLines(s: State, width: number): string[] {
   const p = current(s);
   if (!p) return [fit("(no problem selected)", width)];
-  return [
+  const lines = [
     paint(fit(`${p.id}. ${p.title}`, width), "bold", "cyan"),
     fit(
       `${paint(p.difficulty, diffColor(p.difficulty))}  ${s.completed.has(p.id) ? paint("✓ done", "green") : ""}`,
@@ -687,8 +696,23 @@ function previewHeaderLines(s: State, width: number): string[] {
     ),
     paint(fit(p.url, width), "dim"),
     paint(fit(`$ ${solveCommand(p.id, p.slug)}`, width), "green"),
-    "",
   ];
+
+  // Explain the cross-list popularity — why it's recommended, and where it shows
+  // up. Wrapped so long membership lists don't overflow the preview pane.
+  const inLists = listsContaining(s, p.id);
+  if (inLists.length > 0) {
+    const lead = s.showingRecommended
+      ? `Recommended — appears in ${inLists.length} list${inLists.length === 1 ? "" : "s"}:`
+      : `Appears in ${inLists.length} list${inLists.length === 1 ? "" : "s"}:`;
+    lines.push("");
+    lines.push(paint(fit(lead, width), s.showingRecommended ? "yellow" : "dim"));
+    for (const w of wrapText(inLists.join(", "), Math.max(1, width - 2))) {
+      lines.push(paint(fit(`  ${w}`, width), "dim"));
+    }
+  }
+  lines.push("");
+  return lines;
 }
 
 function previewBody(s: State, width: number): string[] {
