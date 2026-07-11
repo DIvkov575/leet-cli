@@ -11,10 +11,20 @@ import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
-import { loadConfig, saveConfig, CONFIG_FIELDS, type Config } from "./config.ts";
+import {
+  loadConfig,
+  saveConfig,
+  resolveEditor,
+  resolveSolutionsDir,
+  CONFIG_FIELDS,
+  type Config,
+} from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
 import { recommendProblems, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
+import { getCached, putCached } from "./cache.ts";
+import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
+import { mkdir } from "node:fs/promises";
 
 /** Study set suggested for pre-caching on first run. */
 const SUGGESTED_SETUP_LIST = "neetcode-250";
@@ -242,12 +252,6 @@ interface InputState {
   value: string;
 }
 
-/** Full-screen overlay showing a chooseable list of items. */
-interface PickerState {
-  items: string[];
-  index: number;
-}
-
 /**
  * Settings overlay. `index` selects a field; when `editing` is true the field's
  * `draft` is being typed. Values live in `working` until saved on close.
@@ -259,15 +263,25 @@ interface ConfigState {
   working: Config;
 }
 
-type Focus = "list" | "menu" | "preview";
+/**
+ * The three hierarchical panels (lists → problems → preview) plus the bottom
+ * menu bar. Tab/→ moves deeper, Shift-Tab/← moves back; the menu is reachable
+ * from any panel and returns focus to where it was.
+ */
+type Focus = "lists" | "problems" | "preview" | "menu";
+
+/** Sentinel list name for the "★ Recommended" pseudo-list at the top of Lists. */
+const RECOMMENDED_LIST = "★ recommended";
 
 interface State {
   list: ProblemList;
   listNames: string[];
-  /** Problem ids per bundled list, for the picker's unsolved/total counts. */
+  /** Problem ids per bundled list, for the Lists panel's unsolved/total counts. */
   listMeta: Map<string, number[]>;
-  /** Ranked recommendations shown in the picker's side panel. */
+  /** Ranked recommendations; shown as their own pseudo-list in the Lists panel. */
   recommended: Recommendation[];
+  /** True while the Problems panel is showing the recommended set, not `list`. */
+  showingRecommended: boolean;
   completed: Set<number>;
   doneFilter: DoneFilter;
   diff: Difficulty | undefined;
@@ -275,9 +289,15 @@ interface State {
   sortKey: SortKey;
   sortDesc: boolean;
   filtered: Problem[];
+  /** Cursor within the Problems panel. */
   cursor: number;
   top: number;
+  /** Cursor within the Lists panel (0 = ★ Recommended, then each list name). */
+  listCursor: number;
+  listTop: number;
   focus: Focus;
+  /** Panel focus is restored to this when leaving the menu. */
+  lastPanel: Exclude<Focus, "menu">;
   menuIndex: number;
   preview: PreviewState;
   maxId: number;
@@ -285,21 +305,39 @@ interface State {
   status: string;
   /** Active text prompt, or null. */
   input: InputState | null;
-  /** Active list picker overlay, or null. */
-  picker: PickerState | null;
   /** Active config overlay, or null. */
   config: ConfigState | null;
   /** Whether the help overlay is showing. */
   help: boolean;
   /** Live prefetch status shown in the footer; null when idle. */
   prefetch: string | null;
-  /** First-run: offer to pre-cache the study set (shown once in the picker). */
+  /** First-run: offer to pre-cache the study set (shown once). */
   suggestSetup: boolean;
+}
+
+/** The Lists panel's rows: the recommended sentinel followed by every list name. */
+function listRows(s: State): string[] {
+  return [RECOMMENDED_LIST, ...s.listNames];
+}
+
+/** Row index of a list name within listRows() (sentinel occupies index 0). */
+function listRows0(names: string[], name: string): number {
+  const i = names.indexOf(name);
+  return i < 0 ? 0 : i + 1;
+}
+
+/** Problems currently shown in the Problems panel (recommended set or the list). */
+function problemsView(s: State): Problem[] {
+  return s.filtered;
 }
 
 function recompute(s: State): void {
   const done = s.doneFilter === "all" ? undefined : s.doneFilter === "done";
-  const out = filterProblems(s.list.problems, {
+  // Source problems: the recommended set (pseudo-list) or the current list.
+  const source = s.showingRecommended
+    ? s.recommended.map((r) => r.problem)
+    : s.list.problems;
+  const out = filterProblems(source, {
     difficulty: s.diff,
     search: s.search || undefined,
     completed: s.completed,
@@ -323,15 +361,33 @@ function listCounts(s: State, name: string): { done: number; remaining: number; 
   return { done, remaining: ids.length - done, total: ids.length };
 }
 
-/** Load a different bundled list into the state and reset the view. */
-async function switchList(s: State, name: string): Promise<void> {
-  s.list = await loadList(name);
-  s.maxId = s.list.problems.reduce((m, p) => Math.max(m, p.id), 0);
+/**
+ * Point the Problems panel at a Lists-panel row: either the ★ Recommended
+ * pseudo-list or a bundled list by name. Resets the problem cursor/preview.
+ */
+async function selectListRow(s: State, name: string): Promise<void> {
+  if (name === RECOMMENDED_LIST) {
+    s.showingRecommended = true;
+    s.maxId = s.recommended.reduce((m, r) => Math.max(m, r.problem.id), 0);
+  } else {
+    s.showingRecommended = false;
+    s.list = await loadList(name);
+    s.maxId = s.list.problems.reduce((m, p) => Math.max(m, p.id), 0);
+  }
   s.cursor = 0;
   s.top = 0;
   s.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
-  s.focus = "list";
   recompute(s);
+}
+
+/** Human label for the Problems-panel header: list title or "Recommended". */
+function currentViewTitle(s: State): string {
+  return s.showingRecommended ? "Recommended" : s.list.title;
+}
+
+/** Machine name of the active view (for status text / refresh eligibility). */
+function currentViewName(s: State): string {
+  return s.showingRecommended ? RECOMMENDED_LIST : s.list.name;
 }
 
 // ─── rendering (pure: state + dims -> lines) ───────────────────────────────
@@ -339,105 +395,97 @@ async function switchList(s: State, name: string): Promise<void> {
 const HELP_LINES = [
   "  leet — key bindings",
   "",
-  "  The menu bar (second line) holds every action. Tab / Shift-Tab move",
-  "  between items, Enter fires the highlighted one. The arrow keys keep",
-  "  scrolling the list even while the menu is focused.",
+  "  Three hierarchical panels: Lists → Problems → Preview.",
+  "  → / Enter drills deeper (open a list, then preview a problem);",
+  "  ← / Esc steps back out. The menu bar (top) holds every action —",
+  "  Tab enters it, ←→ move, Enter fires; Esc returns to your panel.",
   "",
   "  Navigation",
-  "    ↑ ↓ / j k     move cursor (scroll preview when focused)",
+  "    ↑ ↓ / j k     move within the focused panel",
+  "    → / Enter     drill in (list → problems → preview)",
+  "    ← / Esc       step back out",
   "    g / G         jump to top / bottom",
-  "    PgUp / PgDn   page up / down",
-  "    Enter         preview the selected problem",
+  "    PgUp / PgDn   page up / down (Problems)",
   "    Space         toggle done (saved immediately)",
-  "    Tab / S-Tab   focus / cycle the menu bar",
-  "    Esc           leave menu / preview, clear messages",
+  "    s             solve — scaffold the C++ file and open it",
+  "    Tab           enter the menu bar",
   "    q             quit",
   "",
-  "  Direct shortcuts (same as the menu items)",
+  "  Direct shortcuts (from any panel)",
   "    f filter   d difficulty   s sort   / search   r random",
-  "    L list     o open         R refresh   i import   c config   ? help",
+  "    L lists    o open         R refresh   i import   c config   ? help",
 ];
 
-/** Build the full frame: exactly `rows` lines, each padded to `cols` columns. */
-export function renderFrame(s: State, rows: number, cols: number): string[] {
-  if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
-  if (s.config) return renderConfig(s.config, rows, cols);
-  if (s.picker) return renderPicker(s, rows, cols);
+/** Panel headers, highlighted (bold cyan) when that panel holds focus. */
+function panelHeader(label: string, focused: boolean, width: number): string {
+  const text = `${focused ? "▸ " : "  "}${label}`;
+  return focused ? paint(fit(text, width), "bold", "cyan") : paint(fit(text, width), "dim");
+}
 
-  const showPreview = cols >= 90;
-  const listW = showPreview ? Math.max(40, Math.floor(cols * 0.5)) : cols;
-  const previewW = showPreview ? cols - listW - 1 : 0;
-
-  if (s.focus === "preview" && !showPreview) return renderPreviewFull(s, rows, cols);
-
-  const bodyH = rows - 3; // status + menu + footer
-  const cols5 = layoutColumns(listW, s.maxId);
-
-  // Line 0 — status: list name, match count, active view settings.
-  const settings = [
-    `${s.doneFilter}`,
-    s.diff ?? "any",
-    `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`,
-    s.search ? `"${s.search}"` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const status = paint(
-    fit(` ${s.list.name}   ${s.filtered.length}/${s.list.problems.length}   ${settings}`, cols),
-    "bold",
-    "cyan",
-  );
-
-  // Line 1 — menu bar.
-  const menuBar = renderMenuBar(s, cols);
-
-  // List body.
-  s.top = computeTop(s.cursor, s.filtered.length, bodyH, s.top);
-  const listLines: string[] = [];
-  for (let i = 0; i < bodyH; i++) {
-    const idx = s.top + i;
-    const p = s.filtered[idx];
-    if (!p) {
-      listLines.push(" ".repeat(listW));
-      continue;
-    }
-    listLines.push(styleListRow(s, p, idx === s.cursor, cols5, listW));
-  }
-
-  // Footer — prompt > prefetch > transient status > minimal hint.
-  let footer: string;
+/** The footer hint / status line, shared across layouts. */
+function footerLine(s: State, cols: number): string {
   if (s.input) {
     const label = s.input.kind === "search" ? "/" : "import: ";
-    footer = paint(fit(` ${label}${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
-  } else if (s.prefetch) {
-    footer = paint(fit(` ${s.prefetch}`, cols), "yellow");
-  } else if (s.status) {
-    footer = paint(fit(` ${s.status}`, cols), "cyan");
-  } else {
-    footer = paint(
-      fit(" Tab menu · ↑↓ move · Enter preview · Space done · p prefetch · q quit · ? help", cols),
-      "dim",
+    return paint(fit(` ${label}${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
+  }
+  if (s.prefetch) return paint(fit(` ${s.prefetch}`, cols), "yellow");
+  if (s.suggestSetup) {
+    return paint(
+      fit(` First run — press P to pre-cache ${SUGGESTED_SETUP_LIST} for offline use · any key to dismiss`, cols),
+      "yellow",
     );
   }
-
-  if (!showPreview) return [status, menuBar, ...listLines, footer];
-
-  // Side-by-side: compose list │ preview per row.
-  const previewLines = renderPreviewPane(s, bodyH, previewW);
-  const sep = paint("│", "dim");
-  const bodyRows: string[] = [];
-  for (let i = 0; i < bodyH; i++) {
-    bodyRows.push(`${listLines[i]}${sep}${previewLines[i] ?? " ".repeat(previewW)}`);
-  }
-  return [status, menuBar, ...bodyRows, footer];
+  if (s.status) return paint(fit(` ${s.status}`, cols), "cyan");
+  const hint =
+    s.focus === "lists"
+      ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
+      : s.focus === "problems"
+        ? " ↑↓ move · Enter/→ preview · Space done · ← lists · s solve · Tab menu"
+        : s.focus === "preview"
+          ? " ↑↓ scroll · s solve · o open · Space done · ← back · Tab menu"
+          : " ←→ move · Enter fire · Esc back to panel";
+  return paint(fit(hint, cols), "dim");
 }
 
 /**
- * Style one list row to exactly `listW` visible columns. Difficulty is colored
- * per level; selection (reverse) and done (dim) states wrap the whole row while
- * keeping the difficulty color where they coexist.
+ * The Lists panel: a ★ Recommended pseudo-row followed by each bundled list
+ * with Done/Left/Total counts. Rendered to exactly `width` × `height`.
  */
-function styleListRow(s: State, p: Problem, selected: boolean, cols5: Columns, listW: number): string {
+function listsPanel(s: State, width: number, height: number, focused: boolean): string[] {
+  const rows = listRows(s);
+  const numW = 4; // per count column
+  const col = (n: number | string): string => String(n).padStart(numW);
+  // Name column absorbs the rest after the marker (2) + 3 count columns; names
+  // truncate rather than pushing the counts out of the panel.
+  const nameW = Math.max(6, width - 2 - numW * 3);
+  const bodyH = height - 1; // minus header
+  s.listTop = computeTop(s.listCursor, rows.length, bodyH, s.listTop);
+
+  const lines = [panelHeader("Lists", focused, width)];
+  for (let i = 0; i < bodyH; i++) {
+    const idx = s.listTop + i;
+    const name = rows[idx];
+    if (name === undefined) {
+      lines.push(fit("", width));
+      continue;
+    }
+    const selected = idx === s.listCursor;
+    let text: string;
+    if (name === RECOMMENDED_LIST) {
+      text = `  ${RECOMMENDED_LIST}`;
+    } else {
+      const { done, remaining, total } = listCounts(s, name);
+      text = `  ${fit(name, nameW)}${col(done)}${col(remaining)}${col(total)}`;
+    }
+    if (selected && focused) lines.push(paint(fit(text, width), "rev"));
+    else if (selected) lines.push(paint(fit(text, width), "bold"));
+    else lines.push(fit(text, width));
+  }
+  return lines.slice(0, height);
+}
+
+/** One Problems-panel row to exactly `width` cols (status, id, title, acc, difficulty). */
+function styleProblemRow(s: State, p: Problem, selected: boolean, focused: boolean, cols5: Columns, width: number): string {
   const done = s.completed.has(p.id);
   const statusCell = done ? "✓" : " ";
   const idCell = String(p.id).padStart(cols5.idW);
@@ -446,16 +494,122 @@ function styleListRow(s: State, p: Problem, selected: boolean, cols5: Columns, l
   const diffCell = fit(p.difficulty, cols5.diffW);
 
   const plain = `${statusCell} ${idCell} ${titleCell} ${accCell} ${diffCell}`;
-  const pad = " ".repeat(Math.max(0, listW - plain.length));
+  const pad = " ".repeat(Math.max(0, width - plain.length));
 
-  if (selected && s.focus === "list") return paint(plain + pad, "rev");
+  if (selected && focused) return paint(plain + pad, "rev");
   if (selected) return paint(plain + pad, "bold");
 
   const prefix = `${statusCell} ${idCell} ${titleCell} ${accCell}`;
-  if (done) {
-    return paint(prefix, "dim") + " " + paint(diffCell, "dim", diffColor(p.difficulty)) + pad;
-  }
+  if (done) return paint(prefix, "dim") + " " + paint(diffCell, "dim", diffColor(p.difficulty)) + pad;
   return prefix + " " + paint(diffCell, diffColor(p.difficulty)) + pad;
+}
+
+/** The Problems panel: header (view + counts + filters) then the filtered rows. */
+function problemsPanel(s: State, width: number, height: number, focused: boolean): string[] {
+  const settings = [
+    `${s.doneFilter}`,
+    s.diff ?? "any",
+    `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`,
+    s.search ? `"${s.search}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const total = s.showingRecommended ? s.recommended.length : s.list.problems.length;
+  const label = `${currentViewTitle(s)}  ${s.filtered.length}/${total}  ${settings}`;
+  const bodyH = height - 1;
+  const cols5 = layoutColumns(width, s.maxId);
+  s.top = computeTop(s.cursor, s.filtered.length, bodyH, s.top);
+
+  const lines = [panelHeader(label, focused, width)];
+  for (let i = 0; i < bodyH; i++) {
+    const idx = s.top + i;
+    const p = s.filtered[idx];
+    if (!p) {
+      lines.push(fit("", width));
+      continue;
+    }
+    lines.push(styleProblemRow(s, p, idx === s.cursor, focused, cols5, width));
+  }
+  return lines.slice(0, height);
+}
+
+/** The Preview panel: header (problem meta) then the wrapped statement body. */
+function previewPanel(s: State, width: number, height: number, focused: boolean): string[] {
+  const lines = [panelHeader("Preview", focused, width)];
+  const header = previewHeaderLines(s, width);
+  const body = previewBody(s, width).slice(s.preview.scroll);
+  const composed = [...header, ...body];
+  const bodyH = height - 1;
+  for (let i = 0; i < bodyH; i++) lines.push(fit(composed[i] ?? "", width));
+  return lines.slice(0, height);
+}
+
+/** Glue an array of same-height panel column-blocks together with dim separators. */
+function joinColumns(blocks: string[][], height: number, widths: number[]): string[] {
+  const sep = paint("│", "dim");
+  const rows: string[] = [];
+  for (let i = 0; i < height; i++) {
+    rows.push(blocks.map((b, c) => b[i] ?? " ".repeat(widths[c]!)).join(sep));
+  }
+  return rows;
+}
+
+/**
+ * Build the full frame: three hierarchical panels (Lists │ Problems │ Preview)
+ * side by side when wide, or just the focused panel full-screen when narrow.
+ * Overlays (help/config) and the menu bar take precedence.
+ */
+export function renderFrame(s: State, rows: number, cols: number): string[] {
+  if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
+  if (s.config) return renderConfig(s.config, rows, cols);
+
+  const menuBar = renderMenuBar(s, cols);
+  const footer = footerLine(s, cols);
+  const bodyH = rows - 2; // menu bar + footer
+
+  // Wide: all three panels. Medium: two. Narrow: the focused panel only.
+  const three = cols >= 110;
+  const two = cols >= 80;
+
+  if (three) {
+    const listsW = Math.max(22, Math.floor(cols * 0.22));
+    const previewW = Math.max(30, Math.floor(cols * 0.34));
+    const problemsW = cols - listsW - previewW - 2; // two separators
+    const body = joinColumns(
+      [
+        listsPanel(s, listsW, bodyH, s.focus === "lists"),
+        problemsPanel(s, problemsW, bodyH, s.focus === "problems"),
+        previewPanel(s, previewW, bodyH, s.focus === "preview"),
+      ],
+      bodyH,
+      [listsW, problemsW, previewW],
+    );
+    return [menuBar, ...body, footer];
+  }
+
+  if (two) {
+    // Show the two panels around the focus: lists+problems, or problems+preview.
+    const leftIsLists = s.focus !== "preview";
+    const leftW = Math.floor(cols * (leftIsLists ? 0.32 : 0.5));
+    const rightW = cols - leftW - 1;
+    const left = leftIsLists
+      ? listsPanel(s, leftW, bodyH, s.focus === "lists")
+      : problemsPanel(s, leftW, bodyH, s.focus === "problems");
+    const right = leftIsLists
+      ? problemsPanel(s, rightW, bodyH, s.focus === "problems")
+      : previewPanel(s, rightW, bodyH, s.focus === "preview");
+    const body = joinColumns([left, right], bodyH, [leftW, rightW]);
+    return [menuBar, ...body, footer];
+  }
+
+  // Narrow: only the focused panel, full width.
+  const panel =
+    s.focus === "lists"
+      ? listsPanel(s, cols, bodyH, true)
+      : s.focus === "preview"
+        ? previewPanel(s, cols, bodyH, true)
+        : problemsPanel(s, cols, bodyH, true);
+  return [menuBar, ...panel, footer];
 }
 
 /** Render the menu bar to exactly `cols`, highlighting the focused item. */
@@ -471,84 +625,6 @@ function renderMenuBar(s: State, cols: number): string {
   }
   const plain = cells.join(" ");
   return paint(fit(plain, cols), s.focus === "menu" ? "bold" : "dim");
-}
-
-/** Difficulty abbreviated to a single colored letter for the tight recommended panel. */
-function diffTag(d: Difficulty): string {
-  return paint(d[0]!, diffColor(d));
-}
-
-/**
- * Build the recommended-problems panel lines (without the border), each fit to
- * `width`. Shows rank, id, title (truncated), a difficulty letter, and how many
- * lists the problem spans.
- */
-function recommendedPanel(s: State, width: number, height: number): string[] {
-  const lines: string[] = [paint(fit("Recommended", width), "bold"), fit("", width)];
-  if (s.recommended.length === 0) {
-    lines.push(paint(fit("(none — all done?)", width), "dim"));
-  }
-  for (let i = 0; i < s.recommended.length && lines.length < height; i++) {
-    const r = s.recommended[i]!;
-    // "id title  D ·N" — reserve room for the trailing "D ·N" (4 cols) + gap.
-    const tail = `${diffTag(r.problem.difficulty)} ·${r.listCount}`;
-    const tailW = 4; // visible width of the tail (letter, space, ·, count digit)
-    const head = `${String(r.problem.id).padStart(4)} `;
-    const titleW = Math.max(0, width - head.length - tailW - 1);
-    const title = fit(r.problem.title, titleW);
-    lines.push(fit(`${head}${title} ${tail}`, width));
-  }
-  while (lines.length < height) lines.push(fit("", width));
-  return lines.slice(0, height);
-}
-
-/** Render the list picker, with a recommended-problems side panel when wide enough. */
-function renderPicker(s: State, rows: number, cols: number): string[] {
-  const title = paint(fit(" lists  (↑↓ move · Enter open · c config · Esc cancel)", cols), "bold", "cyan");
-  // Footer: live prefetch status > first-run suggestion > default keys.
-  let footer: string;
-  if (s.prefetch) {
-    footer = paint(fit(` ${s.prefetch}`, cols), "yellow");
-  } else if (s.suggestSetup) {
-    footer = paint(
-      fit(` First run — press P to pre-cache ${SUGGESTED_SETUP_LIST} for offline use · any key to dismiss`, cols),
-      "yellow",
-    );
-  } else {
-    footer = paint(fit(" Esc close · q quit", cols), "dim");
-  }
-  const bodyH = rows - 2;
-
-  // Split off a right-hand recommended panel on wide terminals.
-  const showPanel = cols >= 90 && s.recommended.length > 0;
-  const panelW = showPanel ? Math.min(48, Math.max(32, Math.floor(cols * 0.42))) : 0;
-  const listW = showPanel ? cols - panelW - 1 : cols;
-
-  // Left column: the list chooser with Done/Left/Total counts.
-  const nameW = s.picker!.items.reduce((w, n) => Math.max(w, n.length), 0);
-  const numW = 6;
-  const col = (n: number | string): string => String(n).padStart(numW);
-  const listContent: string[] = [
-    "  Choose a list:",
-    paint(`    ${"".padEnd(nameW)}${col("Done")}${col("Left")}${col("Total")}`, "dim"),
-  ];
-  s.picker!.items.forEach((name, i) => {
-    const selected = i === s.picker!.index;
-    const marker = selected ? "▸ " : "  ";
-    const { done, remaining, total } = listCounts(s, name);
-    const row = `  ${marker}${name.padEnd(nameW)}${col(done)}${col(remaining)}${col(total)}`;
-    listContent.push(selected ? paint(fit(row, listW), "rev") : row);
-  });
-  const listLines: string[] = [];
-  for (let i = 0; i < bodyH; i++) listLines.push(fit(listContent[i] ?? "", listW));
-
-  if (!showPanel) return [title, ...listLines, footer];
-
-  const panelLines = recommendedPanel(s, panelW, bodyH);
-  const sep = paint("│", "dim");
-  const body: string[] = [];
-  for (let i = 0; i < bodyH; i++) body.push(`${listLines[i]}${sep}${panelLines[i] ?? " ".repeat(panelW)}`);
-  return [title, ...body, footer];
 }
 
 /** Render a full-screen overlay from content lines. */
@@ -626,25 +702,6 @@ function previewBody(s: State, width: number): string[] {
   return pv.lines;
 }
 
-function renderPreviewPane(s: State, height: number, width: number): string[] {
-  const header = previewHeaderLines(s, width);
-  const body = previewBody(s, width).slice(s.preview.scroll);
-  const focusMark = s.focus === "preview" ? paint(fit("▸ preview", width), "bold") : "";
-  const composed = [...header, ...body];
-  const lines: string[] = [];
-  for (let i = 0; i < height; i++) lines.push(fit(composed[i] ?? "", width));
-  if (focusMark && height > 0) lines[height - 1] = focusMark;
-  return lines;
-}
-
-function renderPreviewFull(s: State, rows: number, cols: number): string[] {
-  const bodyH = rows - 2;
-  const header = paint(fit(" preview  (Esc back · ↑↓ scroll)", cols), "bold", "cyan");
-  const pane = renderPreviewPane(s, bodyH, cols);
-  const footer = paint(fit(" Space done · o open · q quit", cols), "dim");
-  return [header, ...pane, footer];
-}
-
 // ─── runtime ───────────────────────────────────────────────────────────────
 
 async function openUrl(url: string): Promise<void> {
@@ -667,11 +724,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
   }
 
   const listNames = await availableLists();
-  // With no explicit list we still need something loaded behind the picker.
   const initial = list ?? (await loadList(listNames[0]!));
 
-  // Preload every list once: powers both the picker's unsolved/total counts and
-  // the recommended-problems panel (ranked across all lists).
+  // Preload every list once: powers the Lists panel counts and recommendations.
   const allLists = await Promise.all(
     listNames.map((name) => (name === initial.name ? Promise.resolve(initial) : loadList(name))),
   );
@@ -685,14 +740,18 @@ export async function runTui(list?: ProblemList): Promise<void> {
     excludeDone: true,
     limit: 100,
   });
-  // First run (only when we open on the picker): suggest pre-caching, opt-in.
+  // First run: suggest pre-caching, opt-in (only when opening bare, no list arg).
   const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
+
+  // Bare launch focuses the Lists panel; an explicit list jumps into Problems.
+  const listCursor = list ? Math.max(0, listRows0(listNames, initial.name)) : 0;
 
   const state: State = {
     list: initial,
     listNames,
     listMeta,
     recommended,
+    showingRecommended: false,
     completed,
     doneFilter: "all",
     diff: undefined,
@@ -702,14 +761,15 @@ export async function runTui(list?: ProblemList): Promise<void> {
     filtered: [],
     cursor: 0,
     top: 0,
-    focus: "list",
+    listCursor,
+    listTop: 0,
+    focus: list ? "problems" : "lists",
+    lastPanel: list ? "problems" : "lists",
     menuIndex: 0,
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
     status: "",
     input: null,
-    // No explicit list → open the picker so nothing is silently "the default".
-    picker: list ? null : { items: listNames, index: 0 },
     config: null,
     help: false,
     prefetch: null,
@@ -859,6 +919,65 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
+  // Scaffold the current problem's C++ file (cache-first) into the solutions
+  // dir. If an editor is configured/available, suspend the TUI, open the file,
+  // then restore. Branches off from the Problems/Preview panels via `s`.
+  const solveCurrent = async (): Promise<void> => {
+    const p = current(state);
+    if (!p) return;
+    state.status = `scaffolding ${p.slug}…`;
+    render();
+    const config = await loadConfig();
+    const dir = resolveSolutionsDir(undefined, config);
+    const path = `${dir}/${scaffoldFilename(p.id, p.slug)}`;
+    try {
+      let content = await getCached(p.slug);
+      if (content === null) {
+        const r = await fetchProblem(p.slug, { withSnippets: true, withContent: true });
+        content = scaffoldContent({
+          id: r.id,
+          title: r.title,
+          slug: r.slug,
+          difficulty: r.difficulty,
+          url: `https://leetcode.com/problems/${r.slug}/`,
+          snippets: r.snippets ?? [],
+          metaData: r.metaData,
+          exampleTestcases: r.exampleTestcases,
+          contentHtml: r.contentHtml,
+        });
+        await putCached(p.slug, content);
+      }
+      await mkdir(dir, { recursive: true });
+      if (!(await Bun.file(path).exists())) await Bun.write(path, content);
+    } catch (err) {
+      state.status = `solve failed: ${err instanceof Error ? err.message : String(err)}`;
+      render();
+      return;
+    }
+
+    const editor = resolveEditor(config) || ["nvim", "vim", "vi"].find((e) => Bun.which(e));
+    if (!editor) {
+      state.status = `wrote ${path} (set an editor in config to open it)`;
+      render();
+      return;
+    }
+    // Suspend the alt-screen, hand the terminal to the editor, then restore.
+    out.write("\x1b[?25h\x1b[?1049l");
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    const parts = editor.split(/\s+/).filter(Boolean);
+    try {
+      await Bun.spawn([...parts, path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited;
+    } catch {
+      // ignore editor spawn failure
+    }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    out.write("\x1b[?1049h\x1b[?25l");
+    state.status = `edited ${path}`;
+    render();
+  };
+
   const closeConfig = async (): Promise<void> => {
     if (!state.config) return;
     const working = state.config.working;
@@ -908,7 +1027,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
         state.input = { kind: "search", value: state.search };
         break;
       case "list":
-        state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
+        // Jump focus to the Lists panel (was a modal picker).
+        state.focus = "lists";
+        state.lastPanel = "lists";
         break;
       case "open": {
         const p = current(state);
@@ -1047,52 +1168,6 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
-      // ── list picker overlay ──
-      if (state.picker) {
-        // First-run suggestion is modal-lite: P accepts, anything else dismisses
-        // it and then falls through to normal picker handling of that same key.
-        if (state.suggestSetup) {
-          if (key === "\x03") {
-            finish();
-            return;
-          }
-          if (key === "P" || key === "p") {
-            void acceptSetup();
-            return;
-          }
-          void dismissSetup(); // fall through to handle the key normally
-        }
-        switch (key) {
-          case "\x03":
-            finish();
-            return;
-          case "q":
-          case "\x1b":
-            state.picker = null;
-            break;
-          case "k":
-          case "\x1b[A":
-            state.picker.index = Math.max(0, state.picker.index - 1);
-            break;
-          case "j":
-          case "\x1b[B":
-            state.picker.index = Math.min(state.picker.items.length - 1, state.picker.index + 1);
-            break;
-          case "c":
-            void openConfig(); // settings, reachable straight from home
-            return;
-          case "\r":
-          case "\n": {
-            const name = state.picker.items[state.picker.index]!;
-            state.picker = null;
-            void switchList(state, name).then(render);
-            return;
-          }
-        }
-        render();
-        return;
-      }
-
       // ── help overlay ──
       if (state.help) {
         if (key === "?" || key === "\x1b" || key === "q") state.help = false;
@@ -1100,9 +1175,29 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
-      // ── Tab / Shift-Tab: focus & move through the menu bar ──
+      // ── config overlay handled above; first-run suggestion is modal-lite ──
+      if (state.suggestSetup) {
+        if (key === "\x03") {
+          finish();
+          return;
+        }
+        if (key === "P" || key === "p") {
+          void acceptSetup();
+          return;
+        }
+        void dismissSetup(); // then fall through to handle the key normally
+      }
+
+      // Ctrl-C / q always quit (except while typing, handled above).
+      if (key === "\x03") {
+        finish();
+        return;
+      }
+
+      // ── Tab / Shift-Tab: enter/cycle the menu bar ──
       if (key === "\t" || key === "\x1b[Z") {
         if (state.focus !== "menu") {
+          state.lastPanel = state.focus;
           state.focus = "menu";
         } else {
           const dir = key === "\t" ? 1 : -1;
@@ -1115,30 +1210,19 @@ export async function runTui(list?: ProblemList): Promise<void> {
       // ── menu focus ──
       if (state.focus === "menu") {
         switch (key) {
-          case "\x03":
           case "q":
             finish();
             return;
-          case "\x1b": // Esc back to the list
-            state.focus = "list";
+          case "\x1b": // Esc back to the panel we came from
+            state.focus = state.lastPanel;
             break;
           case "h":
-          case "\x1b[D": // left
+          case "\x1b[D":
             state.menuIndex = (state.menuIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
             break;
           case "l":
-          case "\x1b[C": // right
+          case "\x1b[C":
             state.menuIndex = (state.menuIndex + 1) % MENU_ITEMS.length;
-            break;
-          case "k":
-          case "\x1b[A": // arrows still scroll the list underneath
-            state.cursor = Math.max(0, state.cursor - 1);
-            invalidateStalePreview();
-            break;
-          case "j":
-          case "\x1b[B":
-            state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
-            invalidateStalePreview();
             break;
           case "\r":
           case "\n":
@@ -1151,15 +1235,150 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
-      // ── preview focus ──
-      if (state.focus === "preview") {
+      // Direct accelerators (menu items) work from any panel.
+      const accel: Record<string, MenuAction> = {
+        f: "filter",
+        d: "diff",
+        s: "sort",
+        "/": "search",
+        L: "list",
+        R: "refresh",
+        i: "import",
+        c: "config",
+        "?": "help",
+      };
+      if (accel[key]) {
+        activateMenu(accel[key]!);
+        invalidateStalePreview();
+        return;
+      }
+
+      // ── Lists panel ──
+      if (state.focus === "lists") {
+        const rows = listRows(state);
         switch (key) {
-          case "\x03":
           case "q":
             finish();
             return;
-          case "\x1b": // Esc back to list
-            state.focus = "list";
+          case "k":
+          case "\x1b[A":
+            state.listCursor = Math.max(0, state.listCursor - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            state.listCursor = Math.min(rows.length - 1, state.listCursor + 1);
+            break;
+          case "g":
+            state.listCursor = 0;
+            break;
+          case "G":
+            state.listCursor = rows.length - 1;
+            break;
+          case "\r":
+          case "\n":
+          case "\x1b[C": // → drill into the Problems panel
+          case "l": {
+            const name = rows[state.listCursor]!;
+            void selectListRow(state, name).then(() => {
+              state.focus = "problems";
+              state.lastPanel = "problems";
+              render();
+            });
+            return;
+          }
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── Problems panel ──
+      if (state.focus === "problems") {
+        switch (key) {
+          case "q":
+            finish();
+            return;
+          case "k":
+          case "\x1b[A":
+            state.cursor = Math.max(0, state.cursor - 1);
+            invalidateStalePreview();
+            break;
+          case "j":
+          case "\x1b[B":
+            state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
+            invalidateStalePreview();
+            break;
+          case "\x1b[5~":
+            state.cursor = Math.max(0, state.cursor - pageStep());
+            invalidateStalePreview();
+            break;
+          case "\x1b[6~":
+            state.cursor = Math.min(state.filtered.length - 1, state.cursor + pageStep());
+            invalidateStalePreview();
+            break;
+          case "g":
+            state.cursor = 0;
+            invalidateStalePreview();
+            break;
+          case "G":
+            state.cursor = Math.max(0, state.filtered.length - 1);
+            invalidateStalePreview();
+            break;
+          case "\x1b": // ← / Esc back to the Lists panel
+          case "\x1b[D":
+          case "h":
+            state.focus = "lists";
+            state.lastPanel = "lists";
+            break;
+          case "\r":
+          case "\n":
+          case "\x1b[C": // → drill into Preview
+            state.focus = "preview";
+            state.lastPanel = "preview";
+            void loadPreview();
+            return;
+          case " ":
+            void toggleDone();
+            return;
+          case "s": // branch off into solve/stub
+            void solveCurrent();
+            return;
+          case "o": {
+            const p = current(state);
+            if (p) void openUrl(p.url);
+            break;
+          }
+          case "r":
+            state.cursor =
+              state.filtered.length > 0 ? Math.floor(pseudoRandom() * state.filtered.length) : 0;
+            state.status = "";
+            invalidateStalePreview();
+            break;
+          case "p":
+            startPrefetch(true);
+            return;
+          case "P":
+            startPrefetch(false);
+            return;
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── Preview panel ──
+      if (state.focus === "preview") {
+        switch (key) {
+          case "q":
+            finish();
+            return;
+          case "\x1b": // ← / Esc back to Problems
+          case "\x1b[D":
+          case "h":
+            state.focus = "problems";
+            state.lastPanel = "problems";
             break;
           case "k":
           case "\x1b[A":
@@ -1172,6 +1391,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case " ":
             void toggleDone();
             return;
+          case "s": // branch off into solve/stub
+            void solveCurrent();
+            return;
           case "o": {
             const p = current(state);
             if (p) void openUrl(p.url);
@@ -1183,91 +1405,6 @@ export async function runTui(list?: ProblemList): Promise<void> {
         render();
         return;
       }
-
-      // ── list focus ──
-      switch (key) {
-        case "\x03":
-        case "q":
-          finish();
-          return;
-        case "k":
-        case "\x1b[A":
-          state.cursor = Math.max(0, state.cursor - 1);
-          break;
-        case "j":
-        case "\x1b[B":
-          state.cursor = Math.min(state.filtered.length - 1, state.cursor + 1);
-          break;
-        case "\x1b[5~": // PageUp
-          state.cursor = Math.max(0, state.cursor - pageStep());
-          break;
-        case "\x1b[6~": // PageDown
-          state.cursor = Math.min(state.filtered.length - 1, state.cursor + pageStep());
-          break;
-        case "g":
-          state.cursor = 0;
-          break;
-        case "G":
-          state.cursor = Math.max(0, state.filtered.length - 1);
-          break;
-        case "\r": // Enter: preview the selected problem
-        case "\n":
-          state.focus = "preview";
-          void loadPreview();
-          return;
-        case " ":
-          void toggleDone();
-          return;
-        case "\x1b": // Esc: clear any transient message, then back to the list picker
-          if (state.status) {
-            state.status = "";
-          } else {
-            state.picker = { items: state.listNames, index: state.listNames.indexOf(state.list.name) };
-          }
-          break;
-        // Direct accelerators mirroring the menu items.
-        case "r":
-          state.cursor =
-            state.filtered.length > 0 ? Math.floor(pseudoRandom() * state.filtered.length) : 0;
-          state.status = "";
-          break;
-        case "f":
-        case "d":
-        case "s":
-        case "/":
-        case "L":
-        case "o":
-        case "R":
-        case "i":
-        case "c":
-        case "?": {
-          const map: Record<string, MenuAction> = {
-            f: "filter",
-            d: "diff",
-            s: "sort",
-            "/": "search",
-            L: "list",
-            o: "open",
-            R: "refresh",
-            i: "import",
-            c: "config",
-            "?": "help",
-          };
-          activateMenu(map[key]!);
-          invalidateStalePreview();
-          return;
-        }
-        case "p": // prefetch current (filtered) page into cache
-          startPrefetch(true);
-          return;
-        case "P": // prefetch the whole list into cache
-          startPrefetch(false);
-          return;
-        default:
-          return; // ignore unknown keys without redraw
-      }
-      invalidateStalePreview();
-      render();
     };
 
     out.on("resize", render);

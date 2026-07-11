@@ -176,6 +176,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     listNames: ["demo"],
     listMeta: new Map<string, number[]>([["demo", [1, 2, 3]]]),
     recommended: [],
+    showingRecommended: false,
     completed: new Set<number>(),
     doneFilter: "all",
     diff: undefined,
@@ -185,13 +186,15 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     filtered: problems,
     cursor: 0,
     top: 0,
-    focus: "list",
+    listCursor: 0,
+    listTop: 0,
+    focus: "problems",
+    lastPanel: "problems",
     menuIndex: 0,
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: 3,
     status: "",
     input: null,
-    picker: null,
     config: null,
     help: false,
     prefetch: null,
@@ -208,20 +211,21 @@ describe("renderFrame layout", () => {
     for (const line of f) expect(strip(line).length).toBe(70);
   });
 
-  test("second line is the menu bar with all labels", () => {
+  test("first line is the menu bar with all labels", () => {
     const f = renderFrame(makeState(), 12, 100);
-    expect(strip(f[1]!)).toContain("Filter");
-    expect(strip(f[1]!)).toContain("Sort");
-    expect(strip(f[1]!)).toContain("Import");
+    expect(strip(f[0]!)).toContain("Filter");
+    expect(strip(f[0]!)).toContain("Sort");
+    expect(strip(f[0]!)).toContain("Import");
   });
 
-  test("status line shows list name, count, and view settings", () => {
-    const f = renderFrame(makeState({ doneFilter: "todo", sortKey: "acc", sortDesc: true }), 12, 90);
-    const status = strip(f[0]!);
-    expect(status).toContain("demo");
-    expect(status).toContain("3/3");
-    expect(status).toContain("todo");
-    expect(status).toContain("acc↓");
+  test("Problems panel header shows view name, count, and settings", () => {
+    // Wide enough for three panels; Problems is the middle column.
+    const f = renderFrame(makeState({ doneFilter: "todo", sortKey: "acc", sortDesc: true }), 12, 120);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Demo"); // list title
+    expect(joined).toContain("3/3");
+    expect(joined).toContain("todo");
+    expect(joined).toContain("acc↓");
   });
 });
 
@@ -244,8 +248,27 @@ describe("renderFrame difficulty color", () => {
   });
 });
 
-describe("renderFrame list picker", () => {
-  test("shows done/left/total columns per list and stays exactly cols wide", () => {
+describe("renderFrame three-panel layout", () => {
+  test("wide terminal shows Lists │ Problems │ Preview, all exactly cols wide", () => {
+    const s = makeState({
+      listNames: ["demo", "other"],
+      listMeta: new Map<string, number[]>([
+        ["demo", [1, 2, 3]],
+        ["other", [10, 20]],
+      ]),
+      focus: "lists",
+    });
+    const f = renderFrame(s, 16, 120);
+    for (const line of f) expect(strip(line).length).toBe(120);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Lists");
+    expect(joined).toContain("Preview");
+    expect(joined).toContain("★ recommended"); // recommended pseudo-list row
+    expect(joined).toContain("demo");
+    expect(joined).toContain("other");
+  });
+
+  test("Lists panel shows done/left/total counts for each list", () => {
     const s = makeState({
       listNames: ["demo", "other"],
       listMeta: new Map<string, number[]>([
@@ -253,55 +276,47 @@ describe("renderFrame list picker", () => {
         ["other", [10, 20]],
       ]),
       completed: new Set<number>([2]), // one of demo's three done
-      picker: { items: ["demo", "other"], index: 0 },
+      focus: "lists",
     });
-    const f = renderFrame(s, 12, 70);
-    expect(f).toHaveLength(12);
-    for (const line of f) expect(strip(line).length).toBe(70);
-    const lines = f.map(strip);
-    // Column header, no "left" prose.
-    expect(lines.some((l) => l.includes("Done") && l.includes("Left") && l.includes("Total"))).toBe(true);
-    expect(f.join("\n")).not.toContain("left");
-    // demo: 1 done, 2 remaining, 3 total.
-    const demoRow = lines.find((l) => l.includes("demo"))!;
-    expect(demoRow).toMatch(/demo\s+1\s+2\s+3\s*$/);
-    // other: 0 done, 2 remaining, 2 total.
+    const lines = renderFrame(s, 16, 120).map(strip);
+    const demoRow = lines.find((l) => l.includes("demo") && !l.includes("Demo"))!;
+    expect(demoRow).toMatch(/demo\s+1\s+2\s+3/); // done left total
     const otherRow = lines.find((l) => l.includes("other"))!;
-    expect(otherRow).toMatch(/other\s+0\s+2\s+2\s*$/);
+    expect(otherRow).toMatch(/other\s+0\s+2\s+2/);
   });
 
-  test("picker footer advertises the config shortcut", () => {
-    const s = makeState({ picker: { items: ["demo"], index: 0 } });
-    const f = renderFrame(s, 12, 70).map(strip);
-    expect(f.join("\n")).toContain("c config");
+  test("narrow terminal shows only the focused panel", () => {
+    const listsFocus = renderFrame(makeState({ focus: "lists" }), 16, 60);
+    for (const line of listsFocus) expect(strip(line).length).toBe(60);
+    const lj = strip(listsFocus.join("\n"));
+    expect(lj).toContain("Lists");
+    expect(lj).not.toContain("Preview"); // other panels hidden when narrow
+
+    const probFocus = strip(renderFrame(makeState({ focus: "problems" }), 16, 60).join("\n"));
+    expect(probFocus).toContain("Demo");
+    expect(probFocus).not.toContain("Lists");
+  });
+
+  test("selecting the recommended pseudo-list surfaces recommendations", () => {
+    const rec = [
+      { problem: { id: 1, title: "Two Sum", slug: "two-sum", url: "u", acceptance: 50, difficulty: "Easy" }, listCount: 5, lists: ["a"], done: false },
+    ];
+    const s = makeState({
+      recommended: rec,
+      showingRecommended: true,
+      filtered: rec.map((r) => r.problem),
+      focus: "problems",
+    });
+    const joined = strip(renderFrame(s, 16, 120).join("\n"));
+    expect(joined).toContain("Recommended"); // Problems header reflects the view
+    expect(joined).toContain("Two Sum");
   });
 
   test("first-run footer suggests pre-caching; opt-in, not automatic", () => {
-    const s = makeState({ picker: { items: ["demo"], index: 0 }, suggestSetup: true });
-    const f = renderFrame(s, 12, 100).map(strip);
-    const joined = f.join("\n");
+    const s = makeState({ focus: "lists", suggestSetup: true });
+    const joined = strip(renderFrame(s, 16, 120).join("\n"));
     expect(joined).toContain("press P to pre-cache");
     expect(joined).toContain("dismiss");
-  });
-
-  test("wide terminal shows a recommended panel beside the list; narrow does not", () => {
-    const rec = [
-      { problem: { id: 1, title: "Two Sum", slug: "two-sum", url: "u", acceptance: 50, difficulty: "Easy" }, listCount: 5, lists: ["a"], done: false },
-      { problem: { id: 20, title: "Valid Parentheses", slug: "vp", url: "u", acceptance: 40, difficulty: "Easy" }, listCount: 3, lists: ["a"], done: false },
-    ];
-    const s = makeState({ picker: { items: ["demo"], index: 0 }, recommended: rec });
-
-    const wide = renderFrame(s, 16, 120);
-    for (const line of wide) expect(strip(line).length).toBe(120);
-    const wj = strip(wide.join("\n"));
-    expect(wj).toContain("Recommended");
-    expect(wj).toContain("Two Sum");
-    expect(wj).toContain("Choose a list"); // list column still present
-
-    // Narrow: no panel, so the recommendation title should not appear.
-    const narrow = renderFrame(s, 16, 70);
-    for (const line of narrow) expect(strip(line).length).toBe(70);
-    expect(strip(narrow.join("\n"))).not.toContain("Recommended");
   });
 });
 
