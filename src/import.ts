@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { availableLists, loadList } from "./lib.ts";
 import type { Problem } from "./types.ts";
 import { getAdapter, type ImportAdapter } from "./adapters.ts";
+import { fetchSolvedSlugs, type LeetCodeAuth } from "./leetcode-progress.ts";
 
 /**
  * Import a solved-problems source (e.g. a NeetCode GitHub sync) and resolve it
@@ -150,9 +151,29 @@ async function defaultBranch(ownerRepo: string): Promise<string> {
 /** End-to-end: acquire source paths, run the adapter, resolve against bundled. */
 export async function importSource(
   source: string,
-  opts: { adapter?: string; ref?: string } = {},
+  opts: {
+    adapter?: string;
+    ref?: string;
+    /** LeetCode session auth; required by the `leetcode` adapter. */
+    auth?: LeetCodeAuth;
+    onProgress?: (fetched: number, total: number) => void;
+  } = {},
 ): Promise<ResolveResult> {
-  const adapter = getAdapter(opts.adapter ?? "neetcode");
+  const adapterName = opts.adapter ?? "neetcode";
+  const adapter = getAdapter(adapterName);
+
+  // The LeetCode adapter fetches your solved slugs over the authenticated API
+  // instead of reading file paths from a source.
+  if (adapterName === "leetcode") {
+    if (!opts.auth) {
+      throw new Error(
+        "leetcode adapter needs a session: set LEETCODE_SESSION (and optionally LEETCODE_CSRF), or leetcodeSession in config.json",
+      );
+    }
+    const solved = await fetchSolvedSlugs(opts.auth, { onProgress: opts.onProgress });
+    return resolveSlugs(solved, adapter);
+  }
+
   const paths = await listSourcePaths(source, opts.ref);
   const solved = adapter.solvedSlugs(paths);
   return resolveSlugs(solved, adapter);

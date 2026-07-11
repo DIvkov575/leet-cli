@@ -121,6 +121,15 @@ const ADAPTERS: Record<string, ImportAdapter> = {
     solvedSlugs: neetcodeSolvedSlugs,
     aliases: NEETCODE_ALIASES,
   },
+  // The LeetCode adapter fetches solved slugs over the authenticated API rather
+  // than from file paths, so importSource() special-cases it; solvedSlugs is
+  // unused for it (LeetCode's own slugs are already canonical, so no aliases).
+  leetcode: {
+    name: "leetcode",
+    description: "Your solved problems on LeetCode (via LEETCODE_SESSION cookie)",
+    solvedSlugs: () => [],
+    aliases: {},
+  },
 };
 
 export function getAdapter(name: string): ImportAdapter {

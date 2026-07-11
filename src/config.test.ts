@@ -8,6 +8,7 @@ import {
   resolveEditor,
   resolveSolutionsDir,
   resolveCxx,
+  resolveLeetCodeAuth,
   CONFIG_FIELDS,
   type Config,
 } from "./config.ts";
@@ -86,7 +87,34 @@ describe("resolveCxx: config > $CXX > default", () => {
 });
 
 describe("CONFIG_FIELDS metadata", () => {
-  test("describes the editable settings", () => {
+  test("describes the editable settings (credentials excluded)", () => {
     expect(CONFIG_FIELDS.map((f) => f.key)).toEqual(["editor", "solutionsDir", "cxx", "recommend"]);
+    // The session cookie is a credential and must not be a TUI-editable field.
+    expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
+  });
+});
+
+describe("resolveLeetCodeAuth: env > config", () => {
+  test("env session wins over config", () => {
+    const auth = resolveLeetCodeAuth({ leetcodeSession: "cfg" }, { LEETCODE_SESSION: "env" });
+    expect(auth?.session).toBe("env");
+  });
+  test("config session used when env unset", () => {
+    expect(resolveLeetCodeAuth({ leetcodeSession: "cfg" }, {})?.session).toBe("cfg");
+  });
+  test("null when no session anywhere", () => {
+    expect(resolveLeetCodeAuth({}, {})).toBeNull();
+  });
+  test("carries the csrf token", () => {
+    expect(resolveLeetCodeAuth({}, { LEETCODE_SESSION: "s", LEETCODE_CSRF: "c" })?.csrf).toBe("c");
+  });
+});
+
+describe("credential persists through save/load (hidden but stored)", () => {
+  test("leetcodeSession round-trips", async () => {
+    await saveConfig({ leetcodeSession: "abc123", editor: "vim" });
+    const cfg = await loadConfig();
+    expect(cfg.leetcodeSession).toBe("abc123");
+    expect(cfg.editor).toBe("vim");
   });
 });
