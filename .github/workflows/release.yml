@@ -15,10 +15,28 @@ on:
 permissions:
   contents: write # create releases + upload assets
 
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
+  # Create (or reuse) the release once, before the matrix, so the parallel build
+  # jobs don't race to create the same tag ("already_exists").
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --generate-notes
+
   build:
+    needs: create-release
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # one platform failing must not cancel the others
       matrix:
         include:
           - target: bun-darwin-arm64
@@ -51,10 +69,9 @@ jobs:
       - name: Checksum
         run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: |
-            ${{ matrix.asset }}
-            ${{ matrix.asset }}.sha256
+      # Upload straight to the release that create-release guaranteed exists.
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" ${{ matrix.asset }} ${{ matrix.asset }}.sha256 --clobber
