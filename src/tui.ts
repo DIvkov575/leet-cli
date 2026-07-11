@@ -385,11 +385,6 @@ function currentViewTitle(s: State): string {
   return s.showingRecommended ? "Recommended" : s.list.title;
 }
 
-/** Machine name of the active view (for status text / refresh eligibility). */
-function currentViewName(s: State): string {
-  return s.showingRecommended ? RECOMMENDED_LIST : s.list.name;
-}
-
 // ─── rendering (pure: state + dims -> lines) ───────────────────────────────
 
 const HELP_LINES = [
@@ -403,11 +398,13 @@ const HELP_LINES = [
   "  Navigation",
   "    ↑ ↓ / j k     move within the focused panel",
   "    → / Enter     drill in (list → problems → preview)",
+  "    p             preview the selected problem (handy in the narrow view)",
   "    ← / Esc       step back out",
   "    g / G         jump to top / bottom",
   "    PgUp / PgDn   page up / down (Problems)",
   "    Space         toggle done (saved immediately)",
   "    s             solve — scaffold the C++ file and open it",
+  "    P             prefetch the current view into the cache (offline)",
   "    Tab           enter the menu bar",
   "    q             quit",
   "",
@@ -440,7 +437,7 @@ function footerLine(s: State, cols: number): string {
     s.focus === "lists"
       ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
       : s.focus === "problems"
-        ? " ↑↓ move · Enter/→ preview · Space done · ← lists · s solve · Tab menu"
+        ? " ↑↓ move · p/Enter/→ preview · Space done · s solve · ← lists · Tab menu"
         : s.focus === "preview"
           ? " ↑↓ scroll · s solve · o open · Space done · ← back · Tab menu"
           : " ←→ move · Enter fire · Esc back to panel";
@@ -824,11 +821,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
-  // Background prefetch into the local cache. `page` limits to the currently
-  // filtered rows; otherwise the whole list. Non-blocking: updates the footer.
-  const startPrefetch = (page: boolean): void => {
+  // Background prefetch of the current view (filtered problems — list or
+  // recommended) into the local cache. Non-blocking: updates the footer.
+  const startPrefetch = (): void => {
     if (state.prefetch) return; // already running
-    const problems = page ? state.filtered.slice() : state.list.problems.slice();
+    const problems = state.filtered.slice();
     if (problems.length === 0) return;
     state.prefetch = `prefetching 0/${problems.length}…`;
     render();
@@ -1355,11 +1352,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
             state.status = "";
             invalidateStalePreview();
             break;
-          case "p":
-            startPrefetch(true);
+          case "p": // preview — same as Enter/→, handy in the compressed one-panel view
+            state.focus = "preview";
+            state.lastPanel = "preview";
+            void loadPreview();
             return;
-          case "P":
-            startPrefetch(false);
+          case "P": // prefetch the current view into the local cache
+            startPrefetch();
             return;
           default:
             return;
