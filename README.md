@@ -136,7 +136,7 @@ leet refresh nvidia
 
 Just run **`leet`** to open the full-screen browser — this is the primary way
 to use the tool, and a front-end for everything the subcommands do. It's built
-around **three hierarchical panels — Lists │ Problems │ Preview**:
+around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
 
 - **Lists** — every bundled list with done/left/total counts, plus a
   **★ Recommended** pseudo-list at the top that surfaces the highest-signal
@@ -145,27 +145,33 @@ around **three hierarchical panels — Lists │ Problems │ Preview**:
   filterable/sortable/searchable.
 - **Preview** — the selected problem's statement, links, and a copy-paste solve
   command.
+- **Logs** — the compiled/run output of the test harness. Press **`t`** to
+  compile & run the current problem; the panel header turns green (PASS) or red
+  (FAIL/compile error) and shows the captured output.
 
-**`→` / `Enter` drills deeper** (open a list → preview a problem); **`←` / `Esc`
-steps back out**. From the Problems or Preview panel, **`s`** branches off into
-*solve*: it scaffolds the C++ file (cache-first) and opens it in your editor.
+**`→` / `Enter` drills deeper** (open a list → preview a problem → its test
+logs); **`←` / `Esc` steps back out**. From the Problems or Preview panel,
+**`s`** branches off into *solve* (scaffold the C++ file cache-first and open it
+in your editor) and **`t`** into *test* (compile & run, output in Logs).
 
 Every action also lives in a **menu bar** across the top — press **Tab** to
 enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
 List · Open · Refresh · Import · Config · Help); `Esc` returns to your panel.
-The layout adapts to width: all three panels ≥ 110 cols, two ≥ 80, and just the
-focused panel when narrow (it's all hierarchical, so one-at-a-time still works).
+The layout adapts to width — it shows as many adjacent panels as fit (~38 cols
+each), always including the focused one, down to a single panel when narrow
+(it's all hierarchical, so one-at-a-time still works).
 
 Core keys:
 
 | Key              | Action                                            |
 |------------------|---------------------------------------------------|
 | `↑`/`↓`, `j`/`k` | move within the focused panel                     |
-| `→` / `Enter`    | drill in (list → problems → preview)              |
+| `→` / `Enter`    | drill in (list → problems → preview → logs)       |
 | `←` / `Esc`      | step back out                                     |
 | `g` / `G`        | jump to top / bottom · PgUp/PgDn page             |
 | `Space`          | toggle done (saved immediately)                   |
 | `s`              | solve — scaffold the C++ file and open it         |
+| `t`              | test — compile & run the harness (output in Logs) |
 | `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 

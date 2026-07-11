@@ -16,6 +16,7 @@ import {
   saveConfig,
   resolveEditor,
   resolveSolutionsDir,
+  resolveCxx,
   CONFIG_FIELDS,
   type Config,
 } from "./config.ts";
@@ -24,6 +25,7 @@ import { recommendProblems, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
 import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
+import { compileAndRun } from "./runner.ts";
 import { mkdir } from "node:fs/promises";
 
 /** Study set suggested for pre-caching on first run. */
@@ -264,14 +266,27 @@ interface ConfigState {
 }
 
 /**
- * The three hierarchical panels (lists → problems → preview) plus the bottom
+ * The hierarchical panels (lists → problems → preview → logs) plus the bottom
  * menu bar. Tab/→ moves deeper, Shift-Tab/← moves back; the menu is reachable
  * from any panel and returns focus to where it was.
  */
-type Focus = "lists" | "problems" | "preview" | "menu";
+type Focus = "lists" | "problems" | "preview" | "logs" | "menu";
 
 /** Sentinel list name for the "★ Recommended" pseudo-list at the top of Lists. */
 const RECOMMENDED_LIST = "★ recommended";
+
+/** Captured test-run state for the Logs panel (beside Preview). */
+interface LogsState {
+  /** Slug the log belongs to (so it invalidates when the selection changes). */
+  slug: string | null;
+  status: "idle" | "running" | "done";
+  /** Captured compile + run output, line-wrapped for the panel width. */
+  lines: string[];
+  scroll: number;
+  /** Pass/fail summary shown in the panel header once done. */
+  summary?: string;
+  ok?: boolean;
+}
 
 interface State {
   list: ProblemList;
@@ -300,6 +315,8 @@ interface State {
   lastPanel: Exclude<Focus, "menu">;
   menuIndex: number;
   preview: PreviewState;
+  /** Captured output of the last test run, shown in the Logs panel. */
+  logs: LogsState;
   maxId: number;
   /** Transient message shown in the footer (cleared on next navigation). */
   status: string;
@@ -399,20 +416,21 @@ function currentViewTitle(s: State): string {
 const HELP_LINES = [
   "  leet — key bindings",
   "",
-  "  Three hierarchical panels: Lists → Problems → Preview.",
-  "  → / Enter drills deeper (open a list, then preview a problem);",
-  "  ← / Esc steps back out. The menu bar (top) holds every action —",
-  "  Tab enters it, ←→ move, Enter fires; Esc returns to your panel.",
+  "  Four hierarchical panels: Lists → Problems → Preview → Logs.",
+  "  → / Enter drills deeper (open a list, preview a problem, then its",
+  "  test logs); ← / Esc steps back out. The menu bar (top) holds every",
+  "  action — Tab enters it, ←→ move, Enter fires; Esc returns to your panel.",
   "",
   "  Navigation",
   "    ↑ ↓ / j k     move within the focused panel",
-  "    → / Enter     drill in (list → problems → preview)",
+  "    → / Enter     drill in (list → problems → preview → logs)",
   "    p             preview the selected problem (handy in the narrow view)",
   "    ← / Esc       step back out",
   "    g / G         jump to top / bottom",
   "    PgUp / PgDn   page up / down (Problems)",
   "    Space         toggle done (saved immediately)",
   "    s             solve — scaffold the C++ file and open it",
+  "    t             test — compile & run the harness, output in Logs",
   "    P             prefetch the current view into the cache (offline)",
   "    Tab           enter the menu bar",
   "    q             quit",
@@ -446,10 +464,12 @@ function footerLine(s: State, cols: number): string {
     s.focus === "lists"
       ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
       : s.focus === "problems"
-        ? " ↑↓ move · p/Enter/→ preview · Space done · s solve · ← lists · Tab menu"
+        ? " ↑↓ move · p/Enter/→ preview · s solve · t test · Space done · ← lists"
         : s.focus === "preview"
-          ? " ↑↓ scroll · s solve · o open · Space done · ← back · Tab menu"
-          : " ←→ move · Enter fire · Esc back to panel";
+          ? " ↑↓ scroll · s solve · t test · →/Enter logs · o open · ← back"
+          : s.focus === "logs"
+            ? " ↑↓ scroll · t re-run · s solve · Space done · ← preview · Tab menu"
+            : " ←→ move · Enter fire · Esc back to panel";
   return paint(fit(hint, cols), "dim");
 }
 
@@ -550,6 +570,38 @@ function previewPanel(s: State, width: number, height: number, focused: boolean)
   return lines.slice(0, height);
 }
 
+/** The Logs panel: captured compile+run output of the last `t` test run. */
+function logsPanel(s: State, width: number, height: number, focused: boolean): string[] {
+  const lg = s.logs;
+  const label =
+    lg.status === "running"
+      ? "Logs — running…"
+      : lg.status === "done"
+        ? `Logs — ${lg.summary ?? ""}`
+        : "Logs";
+  // Header color reflects pass/fail once a run finished.
+  const head =
+    lg.status === "done" && lg.ok === false
+      ? paint(fit(`${focused ? "▸ " : "  "}${label}`, width), "bold", "red")
+      : lg.status === "done" && lg.ok
+        ? paint(fit(`${focused ? "▸ " : "  "}${label}`, width), "bold", "green")
+        : panelHeader(label, focused, width);
+
+  const lines = [head];
+  const bodyH = height - 1;
+  const body =
+    lg.status === "idle"
+      ? [paint(fit("Press t to compile & run the test harness.", width), "dim")]
+      : lg.status === "running"
+        ? [paint(fit("Compiling and running…", width), "dim")]
+        : lg.lines.length > 0
+          ? lg.lines
+          : [paint(fit("(no output)", width), "dim")];
+  const view = body.slice(lg.scroll);
+  for (let i = 0; i < bodyH; i++) lines.push(fit(view[i] ?? "", width));
+  return lines.slice(0, height);
+}
+
 /** Glue an array of same-height panel column-blocks together with dim separators. */
 function joinColumns(blocks: string[][], height: number, widths: number[]): string[] {
   const sep = paint("│", "dim");
@@ -560,10 +612,45 @@ function joinColumns(blocks: string[][], height: number, widths: number[]): stri
   return rows;
 }
 
+/** The panel hierarchy, left → right. Focus drills through these in order. */
+const PANEL_ORDER = ["lists", "problems", "preview", "logs"] as const;
+type PanelName = (typeof PANEL_ORDER)[number];
+
+/** Render one panel by name to the given box. */
+function renderPanelByName(s: State, name: PanelName, width: number, height: number): string[] {
+  const focused = s.focus === name;
+  switch (name) {
+    case "lists":
+      return listsPanel(s, width, height, focused);
+    case "problems":
+      return problemsPanel(s, width, height, focused);
+    case "preview":
+      return previewPanel(s, width, height, focused);
+    case "logs":
+      return logsPanel(s, width, height, focused);
+  }
+}
+
 /**
- * Build the full frame: three hierarchical panels (Lists │ Problems │ Preview)
- * side by side when wide, or just the focused panel full-screen when narrow.
- * Overlays (help/config) and the menu bar take precedence.
+ * Choose the contiguous window of panels to show at `cols`, always including the
+ * focused panel and preferring to reveal its ancestors (so the hierarchy reads
+ * left→right). ~38 cols per panel; at least one.
+ */
+function visiblePanels(focus: PanelName, cols: number): PanelName[] {
+  const capacity = Math.max(1, Math.min(PANEL_ORDER.length, Math.floor(cols / 38)));
+  const focusIdx = PANEL_ORDER.indexOf(focus);
+  // Anchor the window so the focused panel is the rightmost when possible,
+  // revealing the ancestor chain to its left.
+  let start = Math.max(0, focusIdx - (capacity - 1));
+  const end = Math.min(PANEL_ORDER.length, start + capacity);
+  start = Math.max(0, end - capacity);
+  return PANEL_ORDER.slice(start, end);
+}
+
+/**
+ * Build the full frame: a window of the panel hierarchy
+ * (Lists │ Problems │ Preview │ Logs) sized to the terminal, always including
+ * the focused panel. Overlays (help/config) and the menu bar take precedence.
  */
 export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
@@ -573,49 +660,28 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   const footer = footerLine(s, cols);
   const bodyH = rows - 2; // menu bar + footer
 
-  // Wide: all three panels. Medium: two. Narrow: the focused panel only.
-  const three = cols >= 110;
-  const two = cols >= 80;
+  const panels = visiblePanels(s.focus === "menu" ? s.lastPanel : s.focus, cols);
+  const seps = panels.length - 1;
+  // Give Lists a slim fixed-ish share; split the rest evenly.
+  const widths = distributeWidths(panels, cols - seps);
+  const blocks = panels.map((name, i) => renderPanelByName(s, name, widths[i]!, bodyH));
+  const body = joinColumns(blocks, bodyH, widths);
+  return [menuBar, ...body, footer];
+}
 
-  if (three) {
-    const listsW = Math.max(22, Math.floor(cols * 0.22));
-    const previewW = Math.max(30, Math.floor(cols * 0.34));
-    const problemsW = cols - listsW - previewW - 2; // two separators
-    const body = joinColumns(
-      [
-        listsPanel(s, listsW, bodyH, s.focus === "lists"),
-        problemsPanel(s, problemsW, bodyH, s.focus === "problems"),
-        previewPanel(s, previewW, bodyH, s.focus === "preview"),
-      ],
-      bodyH,
-      [listsW, problemsW, previewW],
-    );
-    return [menuBar, ...body, footer];
-  }
-
-  if (two) {
-    // Show the two panels around the focus: lists+problems, or problems+preview.
-    const leftIsLists = s.focus !== "preview";
-    const leftW = Math.floor(cols * (leftIsLists ? 0.32 : 0.5));
-    const rightW = cols - leftW - 1;
-    const left = leftIsLists
-      ? listsPanel(s, leftW, bodyH, s.focus === "lists")
-      : problemsPanel(s, leftW, bodyH, s.focus === "problems");
-    const right = leftIsLists
-      ? problemsPanel(s, rightW, bodyH, s.focus === "problems")
-      : previewPanel(s, rightW, bodyH, s.focus === "preview");
-    const body = joinColumns([left, right], bodyH, [leftW, rightW]);
-    return [menuBar, ...body, footer];
-  }
-
-  // Narrow: only the focused panel, full width.
-  const panel =
-    s.focus === "lists"
-      ? listsPanel(s, cols, bodyH, true)
-      : s.focus === "preview"
-        ? previewPanel(s, cols, bodyH, true)
-        : problemsPanel(s, cols, bodyH, true);
-  return [menuBar, ...panel, footer];
+/** Column widths for the visible panels: Lists gets ~22%, others split evenly. */
+function distributeWidths(panels: PanelName[], avail: number): number[] {
+  if (panels.length === 1) return [avail];
+  const hasLists = panels[0] === "lists";
+  const listsW = hasLists ? Math.max(20, Math.floor(avail * 0.22)) : 0;
+  const rest = avail - listsW;
+  const others = panels.length - (hasLists ? 1 : 0);
+  const each = Math.floor(rest / others);
+  const widths = panels.map((_, i) => (hasLists && i === 0 ? listsW : each));
+  // Give any rounding remainder to the last panel.
+  const used = widths.reduce((a, b) => a + b, 0);
+  widths[widths.length - 1]! += avail - used;
+  return widths;
 }
 
 /** Render the menu bar to exactly `cols`, highlighting the focused item. */
@@ -788,6 +854,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     lastPanel: list ? "problems" : "lists",
     menuIndex: 0,
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
     status: "",
     input: null,
@@ -807,6 +874,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   const previewWidthForCols = (cols: number): number =>
     cols >= 90 ? cols - Math.max(40, Math.floor(cols * 0.5)) - 1 : cols;
+
+  // Rough width the Logs panel gets; used to pre-wrap captured output.
+  const logsWidthForCols = (cols: number): number =>
+    Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
 
   const loadPreview = async (): Promise<void> => {
     const p = current(state);
@@ -943,13 +1014,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
   // Scaffold the current problem's C++ file (cache-first) into the solutions
   // dir. If an editor is configured/available, suspend the TUI, open the file,
   // then restore. Branches off from the Problems/Preview panels via `s`.
-  const solveCurrent = async (): Promise<void> => {
-    const p = current(state);
-    if (!p) return;
-    state.status = `scaffolding ${p.slug}…`;
-    render();
-    const config = await loadConfig();
-    const dir = resolveSolutionsDir(undefined, config);
+  // Scaffold the current problem's C++ file to disk (cache-first) and return its
+  // path, or null on failure (status is set). Shared by solve and test-run.
+  const scaffoldToDisk = async (p: Problem, dir: string): Promise<string | null> => {
     const path = `${dir}/${scaffoldFilename(p.id, p.slug)}`;
     try {
       let content = await getCached(p.slug);
@@ -970,11 +1037,69 @@ export async function runTui(list?: ProblemList): Promise<void> {
       }
       await mkdir(dir, { recursive: true });
       if (!(await Bun.file(path).exists())) await Bun.write(path, content);
+      return path;
     } catch (err) {
-      state.status = `solve failed: ${err instanceof Error ? err.message : String(err)}`;
+      state.status = `scaffold failed: ${err instanceof Error ? err.message : String(err)}`;
+      render();
+      return null;
+    }
+  };
+
+  // Compile + run the current problem's harness, capturing output into the Logs
+  // panel. Focuses Logs so the result is visible. Non-blocking on render.
+  const runTest = async (): Promise<void> => {
+    const p = current(state);
+    if (!p) return;
+    const config = await loadConfig();
+    const dir = resolveSolutionsDir(undefined, config);
+    state.logs = { slug: p.slug, status: "running", lines: [], scroll: 0 };
+    state.focus = "logs";
+    state.lastPanel = "logs";
+    render();
+
+    const path = await scaffoldToDisk(p, dir);
+    if (path === null) {
+      state.logs = { slug: p.slug, status: "done", lines: [state.status], scroll: 0, summary: "scaffold failed", ok: false };
       render();
       return;
     }
+    if (!(await Bun.file(path).text()).includes("int main()")) {
+      state.logs = {
+        slug: p.slug,
+        status: "done",
+        lines: ["No test harness for this problem (unsupported signature)."],
+        scroll: 0,
+        summary: "no harness",
+        ok: false,
+      };
+      render();
+      return;
+    }
+
+    const w = Math.max(10, logsWidthForCols(out.columns ?? 80));
+    const result = await compileAndRun(path, resolveCxx(config));
+    const wrapped = result.log.split("\n").flatMap((l) => (l ? wrapText(l, w) : [""]));
+    const summary = !result.compiled
+      ? "compile error"
+      : result.ok
+        ? "PASS"
+        : `FAIL (exit ${result.exitCode})`;
+    // Only apply if the selection hasn't moved on.
+    if (state.logs.slug === p.slug) {
+      state.logs = { slug: p.slug, status: "done", lines: wrapped, scroll: 0, summary, ok: result.ok };
+      render();
+    }
+  };
+
+  const solveCurrent = async (): Promise<void> => {
+    const p = current(state);
+    if (!p) return;
+    state.status = `scaffolding ${p.slug}…`;
+    render();
+    const config = await loadConfig();
+    const dir = resolveSolutionsDir(undefined, config);
+    const path = await scaffoldToDisk(p, dir);
+    if (path === null) return;
 
     const editor = resolveEditor(config) || ["nvim", "vim", "vi"].find((e) => Bun.which(e));
     if (!editor) {
@@ -1098,6 +1223,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
       const p = current(state);
       if (p && state.preview.slug !== p.slug && state.focus !== "preview") {
         state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+      }
+      // The Logs panel is per-problem; reset it when the selection moves off it.
+      if (p && state.logs.slug !== p.slug && state.focus !== "logs") {
+        state.logs = { slug: null, status: "idle", lines: [], scroll: 0 };
       }
     };
 
@@ -1383,6 +1512,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
             state.lastPanel = "preview";
             void loadPreview();
             return;
+          case "t": // compile & run the test harness, show output in Logs
+            void runTest();
+            return;
           case "P": // prefetch the current view into the local cache
             startPrefetch();
             return;
@@ -1405,6 +1537,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
             state.focus = "problems";
             state.lastPanel = "problems";
             break;
+          case "\x1b[C": // → drill into the Logs panel
+          case "l":
+          case "\r":
+          case "\n":
+            state.focus = "logs";
+            state.lastPanel = "logs";
+            break;
           case "k":
           case "\x1b[A":
             state.preview.scroll = Math.max(0, state.preview.scroll - 1);
@@ -1419,11 +1558,57 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "s": // branch off into solve/stub
             void solveCurrent();
             return;
+          case "t": // compile & run the harness → Logs
+            void runTest();
+            return;
           case "o": {
             const p = current(state);
             if (p) void openUrl(p.url);
             break;
           }
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── Logs panel ──
+      if (state.focus === "logs") {
+        const maxScroll = Math.max(0, state.logs.lines.length - 1);
+        switch (key) {
+          case "q":
+            finish();
+            return;
+          case "\x1b": // ← / Esc back to Preview
+          case "\x1b[D":
+          case "h":
+            state.focus = "preview";
+            state.lastPanel = "preview";
+            break;
+          case "k":
+          case "\x1b[A":
+            state.logs.scroll = Math.max(0, state.logs.scroll - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            state.logs.scroll = Math.min(maxScroll, state.logs.scroll + 1);
+            break;
+          case "g":
+            state.logs.scroll = 0;
+            break;
+          case "G":
+            state.logs.scroll = maxScroll;
+            break;
+          case "t": // re-run the test
+            void runTest();
+            return;
+          case "s":
+            void solveCurrent();
+            return;
+          case " ":
+            void toggleDone();
+            return;
           default:
             return;
         }
