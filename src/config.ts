@@ -17,6 +17,14 @@ export interface Config {
   cxx?: string;
   /** Ranking strategy for the recommended-problems panel (e.g. "popularity", "acceptance"). */
   recommend?: string;
+  /**
+   * LeetCode session cookie for `import --adapter leetcode`. Deliberately NOT in
+   * CONFIG_FIELDS so it's never shown/edited in the TUI (it's a credential);
+   * set it via the LEETCODE_SESSION env var, or hand-edit config.json.
+   */
+  leetcodeSession?: string;
+  /** Matching CSRF token (LEETCODE_CSRF env var); optional. */
+  leetcodeCsrf?: string;
 }
 
 /** A settings key that keeps the same discipline as an env fallback. */
@@ -49,10 +57,15 @@ function configPath(): string {
   return join(dataDir(), "config.json");
 }
 
+// Credential keys live in the config file but are hidden from the TUI editor,
+// so they aren't in CONFIG_FIELDS; keep them across load/save explicitly.
+const EXTRA_STRING_KEYS: ConfigKey[] = ["leetcodeSession", "leetcodeCsrf"];
+
 /** Keep only known string keys with non-empty values. */
 function sanitize(raw: Record<string, unknown>): Config {
   const cfg: Config = {};
-  for (const { key } of CONFIG_FIELDS) {
+  const keys = [...CONFIG_FIELDS.map((f) => f.key), ...EXTRA_STRING_KEYS];
+  for (const key of keys) {
     const v = raw[key];
     if (typeof v === "string" && v.trim() !== "") cfg[key] = v.trim();
   }
@@ -96,4 +109,19 @@ export function resolveSolutionsDir(flag: string | undefined, cfg: Config): stri
 /** C++ compiler: config `cxx` > $CXX > "c++". */
 export function resolveCxx(cfg: Config, env: Env = process.env): string {
   return cfg.cxx || env.CXX || "c++";
+}
+
+/**
+ * LeetCode auth for `import --adapter leetcode`: env vars win over config so a
+ * shell-exported cookie is used without touching the file. Returns null when no
+ * session is available.
+ */
+export function resolveLeetCodeAuth(
+  cfg: Config,
+  env: Env = process.env,
+): { session: string; csrf?: string } | null {
+  const session = env.LEETCODE_SESSION || cfg.leetcodeSession;
+  if (!session) return null;
+  const csrf = env.LEETCODE_CSRF || cfg.leetcodeCsrf || undefined;
+  return { session, csrf };
 }

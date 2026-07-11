@@ -220,6 +220,23 @@ problems, e.g. `anagram-groups` → `group-anagrams`), then by normalized title.
 Anything solved that is not in any bundled list is reported and skipped, and the
 import is idempotable — re-running only marks what is new.
 
+### Resync directly from LeetCode
+
+The `leetcode` adapter pulls your solved problems straight from your LeetCode
+account — no repo needed. It authenticates with your `LEETCODE_SESSION` cookie
+(find it in your browser devtools → Application → Cookies → `leetcode.com`):
+
+```sh
+export LEETCODE_SESSION=<cookie value>       # optionally: export LEETCODE_CSRF=<token>
+leet import --adapter leetcode               # resync everything you've solved
+leet import --adapter leetcode --dry-run     # preview first
+```
+
+The session can also live in `config.json` as `leetcodeSession` (it's kept out
+of the interactive settings screen since it's a credential). This uses LeetCode's
+unofficial GraphQL endpoint; the cookie expires periodically, and an expired one
+reports a clear error rather than silently importing nothing.
+
 ## Live data
 
 `--live` and `refresh` query LeetCode's public GraphQL endpoint

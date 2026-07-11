@@ -26,6 +26,7 @@ import {
   resolveEditor,
   resolveSolutionsDir,
   resolveCxx,
+  resolveLeetCodeAuth,
   CONFIG_FIELDS,
 } from "./config.ts";
 import { importSource } from "./import.ts";
@@ -49,7 +50,7 @@ Usage:
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
   leet undone <id|slug ...>        Unmark problems as done
-  leet import <path|owner/repo>    Mark done from an external source (e.g. NeetCode sync)
+  leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
   leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
@@ -68,8 +69,9 @@ Examples:
   leet ls uber --search tree --limit 20
   leet ls uber --todo              # what's left to do in the uber list
   leet done 42 two-sum             # mark problems as completed
-  leet import DIvkov575/neetcode-submissions-zkag82uy   # mark done from a GitHub sync
+  leet import DIvkov575/neetcode-submissions-zkag82uy   # mark done from a NeetCode GitHub sync
   leet import ~/code/neetcode --dry-run                 # preview from a local clone
+  LEETCODE_SESSION=… leet import --adapter leetcode     # resync solved from your LeetCode account
   leet random uber -d medium
   leet show 42 --live
   leet solve two-sum              # write solutions/1-two-sum.cpp
@@ -694,18 +696,38 @@ async function setDone(keys: string[], completed: Set<number>, done: boolean): P
 }
 
 async function cmdImport(p: Parsed): Promise<void> {
-  const source = p.positionals[0];
-  if (!source) {
+  const adapter = (p.values.adapter as string | undefined) ?? "neetcode";
+  const source = p.positionals[0] ?? "";
+  const dryRun = Boolean(p.values["dry-run"]);
+
+  // The leetcode adapter needs no source (it fetches from the API) but does need
+  // a session; every other adapter needs a source path/repo.
+  let auth: { session: string; csrf?: string } | undefined;
+  if (adapter === "leetcode") {
+    const resolved = resolveLeetCodeAuth(await loadConfig());
+    if (!resolved) {
+      throw new UserError(
+        "leetcode import needs your session cookie. Set it with:\n" +
+          "  export LEETCODE_SESSION=<cookie value from your browser>\n" +
+          "(optionally LEETCODE_CSRF), or add \"leetcodeSession\" to config.json. " +
+          "Find it in your browser devtools → Application → Cookies → leetcode.com.",
+      );
+    }
+    auth = resolved;
+  } else if (!source) {
     throw new UserError(
       `usage: leet import <path|owner/repo|url> [--adapter <${adapterNames().join("|")}>] [--ref <ref>] [--dry-run]`,
     );
   }
-  const adapter = (p.values.adapter as string | undefined) ?? "neetcode";
-  const dryRun = Boolean(p.values["dry-run"]);
 
+  if (adapter === "leetcode") console.error("fetching your solved problems from LeetCode…");
   const result = await importSource(source, {
     adapter,
     ref: p.values.ref as string | undefined,
+    auth,
+    onProgress: (fetched, total) => {
+      if (fetched % 500 === 0 || fetched === total) console.error(`  scanned ${fetched}/${total}`);
+    },
   });
 
   const completed = await loadCompleted();
@@ -848,6 +870,7 @@ async function main(): Promise<number> {
           adapter: { type: "string" },
           ref: { type: "string" },
           "dry-run": { type: "boolean" },
+          json: { type: "boolean" },
         }),
       );
       return 0;
