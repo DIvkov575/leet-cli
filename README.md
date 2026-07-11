@@ -88,7 +88,7 @@ environment variable, then a built-in default:
 | `editor`       | `$VISUAL`/`$EDITOR`  | `solve -o`          | nvim/vim/vi if found |
 | `solutionsDir` | —                    | `solve` / `test`    | `solutions`          |
 | `cxx`          | `$CXX`               | `test`              | `c++`                |
-| `recommend`    | —                    | picker's Recommended panel | `popularity` (or `acceptance`) |
+| `recommend`    | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
 
 ```sh
 leet config                          # show all settings
@@ -101,9 +101,9 @@ The `recommend` strategy is modular — `popularity` ranks by how many company
 lists a problem appears in (most-asked first); `acceptance` ranks the most
 approachable unsolved problems first.
 
-Inside the interactive browser, open the settings screen with **`c`** (from the
-list picker on launch, or the **Config** menu item). Enter edits the selected
-field, `x` clears it, Esc saves and closes.
+Inside the interactive browser, open the settings screen with **`c`** (from any
+panel, or the **Config** menu item). Enter edits the selected field, `x` clears
+it, Esc saves and closes.
 
 ### Filters (for `ls` / `random`)
 
@@ -135,37 +135,44 @@ leet refresh nvidia
 ## Interactive mode
 
 Just run **`leet`** to open the full-screen browser — this is the primary way
-to use the tool, and a front-end for everything the subcommands do. Running it
-bare opens a **list picker** first (no list is silently assumed); pass
-`leet tui <list>` to jump straight into one. The picker shows each list's
-done/left/total counts, and on wide terminals a **Recommended** panel beside it
-surfaces the highest-signal unsolved problems (ranking set by `recommend` in
-config).
+to use the tool, and a front-end for everything the subcommands do. It's built
+around **three hierarchical panels — Lists │ Problems │ Preview**:
 
-Every action lives in a **menu bar** across the top, so nothing has to be
-memorized: **Tab** / **Shift-Tab** move between menu items and **Enter** fires
-the highlighted one (Filter · Difficulty · Sort · Search · List · Open ·
-Refresh · Import · Help). The arrow keys keep scrolling the list even while the
-menu is focused. The view adapts to the terminal size — columns are computed to
-fit the width (long titles truncate with `…` rather than wrapping), difficulty
-is color-coded (green/yellow/red), and on terminals ≥ 90 columns a live
-problem-preview pane appears beside the list.
+- **Lists** — every bundled list with done/left/total counts, plus a
+  **★ Recommended** pseudo-list at the top that surfaces the highest-signal
+  unsolved problems across all lists (ranking set by `recommend` in config).
+- **Problems** — the problems in the selected list (or the recommended set),
+  filterable/sortable/searchable.
+- **Preview** — the selected problem's statement, links, and a copy-paste solve
+  command.
+
+**`→` / `Enter` drills deeper** (open a list → preview a problem); **`←` / `Esc`
+steps back out**. From the Problems or Preview panel, **`s`** branches off into
+*solve*: it scaffolds the C++ file (cache-first) and opens it in your editor.
+
+Every action also lives in a **menu bar** across the top — press **Tab** to
+enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
+List · Open · Refresh · Import · Config · Help); `Esc` returns to your panel.
+The layout adapts to width: all three panels ≥ 110 cols, two ≥ 80, and just the
+focused panel when narrow (it's all hierarchical, so one-at-a-time still works).
 
 Core keys:
 
 | Key              | Action                                            |
 |------------------|---------------------------------------------------|
-| `↑`/`↓`, `j`/`k` | move the cursor (scroll the preview when focused) |
+| `↑`/`↓`, `j`/`k` | move within the focused panel                     |
+| `→` / `Enter`    | drill in (list → problems → preview)              |
+| `←` / `Esc`      | step back out                                     |
 | `g` / `G`        | jump to top / bottom · PgUp/PgDn page             |
-| `Enter`          | preview the selected problem                      |
 | `Space`          | toggle done (saved immediately)                   |
-| `Tab` / Shift-Tab | focus / move through the menu bar                |
-| `Esc`            | leave the menu / preview, clear messages          |
+| `s`              | solve — scaffold the C++ file and open it         |
+| `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 
-Each menu item also has a direct shortcut for muscle memory: `f` filter, `d`
-difficulty, `s` sort, `/` search, `r` random, `L` list, `o` open, `R` refresh,
-`i` import, `?` help. Press `?` in-app for the full reference.
+Each menu item also has a direct shortcut, usable from any panel: `f` filter,
+`d` difficulty, `s` sort (also solve on a problem), `/` search, `r` random, `L`
+lists, `o` open, `R` refresh, `i` import, `c` config, `?` help. Press `?`
+in-app for the full reference.
 
 The preview fetches the statement lazily from LeetCode's public GraphQL API the
 first time you open it, so browsing stays offline until you ask. The one-shot
