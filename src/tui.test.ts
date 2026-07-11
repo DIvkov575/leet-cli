@@ -192,6 +192,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     lastPanel: "problems",
     menuIndex: 0,
     preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: 3,
     status: "",
     input: null,
@@ -266,6 +267,25 @@ describe("renderFrame three-panel layout", () => {
     expect(joined).toContain("★ recommended"); // recommended pseudo-list row
     expect(joined).toContain("demo");
     expect(joined).toContain("other");
+  });
+
+  test("Logs panel appears when focused and shows captured run output", () => {
+    const s = makeState({
+      focus: "logs",
+      logs: { slug: "easy-one", status: "done", lines: ["case 1: PASS", "1/1 passed"], scroll: 0, summary: "PASS", ok: true },
+    });
+    const f = renderFrame(s, 16, 160); // wide enough for all four panels
+    for (const line of f) expect(strip(line).length).toBe(160);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Logs");
+    expect(joined).toContain("PASS");
+    expect(joined).toContain("1/1 passed");
+  });
+
+  test("Logs panel prompts to run when idle", () => {
+    const s = makeState({ focus: "logs" });
+    const joined = strip(renderFrame(s, 16, 160).join("\n"));
+    expect(joined).toContain("Press t to compile & run");
   });
 
   test("Lists panel shows done/left/total counts for each list", () => {
