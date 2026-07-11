@@ -418,7 +418,7 @@ const HELP_LINES = [
   "    q             quit",
   "",
   "  Direct shortcuts (from any panel)",
-  "    f filter   d difficulty   s sort   / search   r random",
+  "    f filter   d difficulty   S sort   / search   r random",
   "    L lists    o open         R refresh   i import   c config   ? help",
 ];
 
@@ -1256,11 +1256,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
-      // Direct accelerators (menu items) work from any panel.
+      // Direct accelerators (menu items) work from any panel. Note `s` is NOT
+      // here — it's the contextual "solve" action in the Problems/Preview
+      // panels; sort is on `S` to avoid shadowing it.
       const accel: Record<string, MenuAction> = {
         f: "filter",
         d: "diff",
-        s: "sort",
+        S: "sort",
         "/": "search",
         L: "list",
         R: "refresh",

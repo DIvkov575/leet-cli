@@ -170,9 +170,9 @@ Core keys:
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 
 Each menu item also has a direct shortcut, usable from any panel: `f` filter,
-`d` difficulty, `s` sort (also solve on a problem), `/` search, `r` random, `L`
-lists, `o` open, `R` refresh, `i` import, `c` config, `?` help. Press `?`
-in-app for the full reference.
+`d` difficulty, `S` sort, `/` search, `r` random, `L` lists, `o` open, `R`
+refresh, `i` import, `c` config, `?` help. `s` is reserved for **solve** on the
+Problems/Preview panels. Press `?` in-app for the full reference.
 
 The preview fetches the statement lazily from LeetCode's public GraphQL API the
 first time you open it, so browsing stays offline until you ask. The one-shot
