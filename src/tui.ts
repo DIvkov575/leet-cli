@@ -571,6 +571,32 @@ function previewPanel(s: State, width: number, height: number, focused: boolean)
 }
 
 /** The Logs panel: captured compile+run output of the last `t` test run. */
+/**
+ * Barebones syntax coloring for one captured harness line. Distinguishes the
+ * three things worth telling apart at a glance:
+ *   - result: "case N:" verdict — PASS green, FAIL/expected red, ran cyan
+ *   - output: the "got=" value (and "expected=") — dim labels, plain value
+ *   - the summary "P/T passed" line — bold (green if all passed)
+ * Anything else (compiler diagnostics, user cout/cerr) is left plain, except
+ * lines that look like errors, which are tinted red.
+ */
+function colorLogLine(line: string): string {
+  const m = line.match(/^(case \d+: )(PASS|FAIL|ran)(\s+)(.*)$/);
+  if (m) {
+    const [, head, verdict, gap, rest] = m;
+    const vColor = verdict === "PASS" ? "green" : verdict === "FAIL" ? "red" : "cyan";
+    // Dim the got=/expected= labels so the values stand out.
+    const body = rest!.replace(/\b(got=|expected=)/g, (lbl) => paint(lbl, "dim"));
+    return paint(head!, "dim") + paint(verdict!, vColor) + gap + body;
+  }
+  if (/^\d+\/\d+ passed$/.test(line.trim())) {
+    const [p, t] = line.trim().split("/");
+    return paint(line, "bold", p === t?.split(" ")[0] ? "green" : "red");
+  }
+  if (/\b(error|Error|undefined reference|fatal)\b/.test(line)) return paint(line, "red");
+  return line;
+}
+
 function logsPanel(s: State, width: number, height: number, focused: boolean): string[] {
   const lg = s.logs;
   const label =
@@ -589,16 +615,19 @@ function logsPanel(s: State, width: number, height: number, focused: boolean): s
 
   const lines = [head];
   const bodyH = height - 1;
-  const body =
-    lg.status === "idle"
-      ? [paint(fit("Press t to compile & run the test harness.", width), "dim")]
-      : lg.status === "running"
-        ? [paint(fit("Compiling and running…", width), "dim")]
-        : lg.lines.length > 0
-          ? lg.lines
-          : [paint(fit("(no output)", width), "dim")];
+  if (lg.status === "idle") {
+    lines.push(paint(fit("Press t to compile & run the test harness.", width), "dim"));
+    for (let i = lines.length; i <= bodyH; i++) lines.push(fit("", width));
+    return lines.slice(0, height);
+  }
+  if (lg.status === "running") {
+    lines.push(paint(fit("Compiling and running…", width), "dim"));
+    for (let i = lines.length; i <= bodyH; i++) lines.push(fit("", width));
+    return lines.slice(0, height);
+  }
+  const body = lg.lines.length > 0 ? lg.lines : [paint("(no output)", "dim")];
   const view = body.slice(lg.scroll);
-  for (let i = 0; i < bodyH; i++) lines.push(fit(view[i] ?? "", width));
+  for (let i = 0; i < bodyH; i++) lines.push(fit(colorLogLine(view[i] ?? ""), width));
   return lines.slice(0, height);
 }
 
