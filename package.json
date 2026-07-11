@@ -1,6 +1,6 @@
 {
   "name": "leet-cli",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Browse bundled LeetCode company lists (uber, nvidia, ...) from the terminal, with optional live refresh from LeetCode's public GraphQL.",
   "type": "module",
   "bin": {
