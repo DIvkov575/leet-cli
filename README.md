@@ -156,7 +156,10 @@ in your editor) and **`t`** into *test* (compile & run, output in Logs).
 
 Every action also lives in a **menu bar** across the top — press **Tab** to
 enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
-List · Open · Refresh · Import · Config · Help); `Esc` returns to your panel.
+List · Open · Refresh · Import · Sync · Config · Help); `Esc` returns to your
+panel. The **Sync** menu runs the LeetCode account features right in the TUI —
+authenticate from your browser, pull your solved problems, and push solutions
+(with an in-panel confirm before any real submission).
 The layout adapts to width — it shows as many adjacent panels as fit (~38 cols
 each), always including the focused one, down to a single panel when narrow
 (it's all hierarchical, so one-at-a-time still works).
