@@ -1,0 +1,65 @@
+import { describe, expect, test, afterEach } from "bun:test";
+import { submitSolution } from "./leetcode-submit.ts";
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+const auth = { session: "s", csrf: "c" };
+const noSleep = async () => {};
+
+/** Stub the graphql questionId lookup, the submit POST, and N check polls. */
+function stubSubmit(checkStates: object[]) {
+  let poll = 0;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/graphql")) {
+      return new Response(JSON.stringify({ data: { question: { questionId: "42" } } }), { status: 200 });
+    }
+    if (url.endsWith("/submit/")) {
+      return new Response(JSON.stringify({ submission_id: 999 }), { status: 200 });
+    }
+    if (url.includes("/check/")) {
+      const body = checkStates[Math.min(poll, checkStates.length - 1)];
+      poll++;
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+    return new Response("", { status: 404 });
+  }) as unknown as typeof fetch;
+}
+
+describe("submitSolution", () => {
+  test("returns Accepted verdict once the judge finishes", async () => {
+    stubSubmit([
+      { state: "PENDING" },
+      { state: "SUCCESS", status_msg: "Accepted", total_correct: 354, total_testcases: 354 },
+    ]);
+    const v = await submitSolution(auth, "regular-expression-matching", "code", { sleep: noSleep });
+    expect(v.accepted).toBe(true);
+    expect(v.statusMsg).toBe("Accepted");
+    expect(v.passed).toBe(354);
+  });
+
+  test("reports a non-accepted verdict with detail", async () => {
+    stubSubmit([
+      { state: "SUCCESS", status_msg: "Wrong Answer", total_correct: 3, total_testcases: 10 },
+    ]);
+    const v = await submitSolution(auth, "two-sum", "code", { sleep: noSleep });
+    expect(v.accepted).toBe(false);
+    expect(v.statusMsg).toBe("Wrong Answer");
+    expect(v.passed).toBe(3);
+  });
+
+  test("requires a CSRF token", async () => {
+    await expect(submitSolution({ session: "s" }, "two-sum", "code", { sleep: noSleep })).rejects.toThrow(
+      /CSRF/i,
+    );
+  });
+
+  test("times out if the judge never finishes", async () => {
+    stubSubmit([{ state: "PENDING" }]);
+    await expect(
+      submitSolution(auth, "two-sum", "code", { sleep: noSleep, timeoutMs: 5, pollMs: 1 }),
+    ).rejects.toThrow(/timed out/i);
+  });
+});

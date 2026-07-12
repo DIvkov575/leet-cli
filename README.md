@@ -249,6 +249,29 @@ of the interactive settings screen since it's a credential). This uses LeetCode'
 unofficial GraphQL endpoint; the cookie expires periodically, and an expired one
 reports a clear error rather than silently importing nothing.
 
+## Submitting solutions to LeetCode
+
+`leet push` submits solutions to LeetCode so problems are marked **Accepted** on
+your account — e.g. to backfill problems you solved elsewhere. It sources a C++
+solution per problem (default: the [neetcode-gh](https://github.com/neetcode-gh/leetcode)
+community repo; or `--source dir` to submit your own `<id>-<slug>.cpp` files from
+the solutions dir), submits it, and waits for the judge's verdict.
+
+```sh
+leet push --only-unsolved --limit 5          # dry run: show what would be submitted
+leet push --only-unsolved --limit 5 --yes    # actually submit (5 real submissions)
+leet push --source dir --yes                 # submit your own solution files
+```
+
+It **writes to your LeetCode account**, so it defaults to a dry run and does
+nothing until you pass `--yes`; submissions are rate-limited (~4s apart) and
+capped with `--limit`. Requires `leet auth` first (submitting needs the CSRF
+token, not just the session). Accepted problems are also marked done locally.
+
+> Note: submitting community solutions backfills your profile with code you
+> didn't write, and some solutions may not match LeetCode's exact problem
+> variant (Wrong Answer). Use deliberately.
+
 ## Live data
 
 `--live` and `refresh` query LeetCode's public GraphQL endpoint
