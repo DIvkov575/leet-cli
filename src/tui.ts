@@ -17,6 +17,7 @@ import {
   resolveEditor,
   resolveSolutionsDir,
   resolveCxx,
+  resolveLeetCodeAuth,
   CONFIG_FIELDS,
   type Config,
 } from "./config.ts";
@@ -26,6 +27,10 @@ import { setupHasRun, markSetupDone } from "./setup.ts";
 import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { compileAndRun } from "./runner.ts";
+import { authFromBrowser } from "./auth.ts";
+import { fetchSolvedSlugs } from "./leetcode-progress.ts";
+import { submitSolution } from "./leetcode-submit.ts";
+import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { mkdir } from "node:fs/promises";
 
 /** Study set suggested for pre-caching on first run. */
@@ -195,6 +200,7 @@ export type MenuAction =
   | "open"
   | "refresh"
   | "import"
+  | "sync"
   | "config"
   | "help";
 
@@ -213,6 +219,7 @@ export const MENU_ITEMS: readonly MenuItem[] = [
   { label: "Open", action: "open" },
   { label: "Refresh", action: "refresh" },
   { label: "Import", action: "import" },
+  { label: "Sync", action: "sync" },
   { label: "Config", action: "config" },
   { label: "Help", action: "help" },
 ];
@@ -263,6 +270,28 @@ interface ConfigState {
   editing: boolean;
   draft: string;
   working: Config;
+}
+
+/** The Sync overlay's three actions, in menu order. */
+const SYNC_ACTIONS = [
+  { key: "auth", label: "Authenticate", hint: "grab your LeetCode session from a browser" },
+  { key: "pull", label: "Pull solved from LeetCode", hint: "mark done what you've solved on your account" },
+  { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
+] as const;
+type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
+
+/**
+ * Sync overlay: a small menu (auth / pull / push) plus a scrolling log of the
+ * running action. `busy` blocks re-entry; `confirmPush` gates the destructive
+ * push behind an explicit yes.
+ */
+interface SyncState {
+  index: number;
+  busy: boolean;
+  /** Log lines from the current/last action (progress + results). */
+  lines: string[];
+  /** When set, push is awaiting y/n confirmation; holds the plan count. */
+  confirmPush: number | null;
 }
 
 /**
@@ -324,6 +353,10 @@ interface State {
   input: InputState | null;
   /** Active config overlay, or null. */
   config: ConfigState | null;
+  /** Active sync overlay (auth / pull / push), or null. */
+  sync: SyncState | null;
+  /** Pending push work list, staged between the plan and confirm+run steps. */
+  syncWork?: { pr: Problem; code: string }[];
   /** Whether the help overlay is showing. */
   help: boolean;
   /** Live prefetch status shown in the footer; null when idle. */
@@ -438,6 +471,9 @@ const HELP_LINES = [
   "  Direct shortcuts (from any panel)",
   "    f filter   d difficulty   S sort   / search   r random",
   "    L lists    o open         R refresh   i import   c config   ? help",
+  "",
+  "  Sync (menu bar → Sync): authenticate, pull solved from LeetCode,",
+  "  and push solutions to your account (with a confirm before submitting).",
 ];
 
 /** Panel headers, highlighted (bold cyan) when that panel holds focus. */
@@ -684,6 +720,7 @@ function visiblePanels(focus: PanelName, cols: number): PanelName[] {
 export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.config) return renderConfig(s.config, rows, cols);
+  if (s.sync) return renderSync(s.sync, rows, cols);
 
   const menuBar = renderMenuBar(s, cols);
   const footer = footerLine(s, cols);
@@ -767,6 +804,29 @@ function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
   const hint = cfg.editing
     ? " editing  (Enter save field · Esc cancel edit)"
     : " settings  (↑↓ move · Enter edit · x clear · Esc save & close)";
+  return renderOverlay(content, rows, cols, hint);
+}
+
+/** Render the Sync overlay: the action menu, then the running/last action's log. */
+function renderSync(sync: SyncState, rows: number, cols: number): string[] {
+  const content: string[] = ["  LeetCode Sync", ""];
+  SYNC_ACTIONS.forEach((a, i) => {
+    const selected = i === sync.index;
+    const marker = selected ? "▸ " : "  ";
+    const row = `  ${marker}${a.label}`;
+    if (selected) content.push(paint(fit(row, cols), "rev"));
+    else content.push(row);
+    // Show the one-line hint under the selected action.
+    if (selected) content.push(paint(fit(`      ${a.hint}`, cols), "dim"));
+  });
+  if (sync.lines.length > 0) {
+    content.push("", paint(fit("  ─ output ─", cols), "dim"), ...sync.lines.map((l) => `  ${l}`));
+  }
+  const hint = sync.confirmPush !== null
+    ? ` push ${sync.confirmPush} solution(s) to your LeetCode account?  (y = submit · n/Esc = cancel)`
+    : sync.busy
+      ? " working…  (Esc when done)"
+      : " sync  (↑↓ move · Enter run · Esc close)";
   return renderOverlay(content, rows, cols, hint);
 }
 
@@ -888,6 +948,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     status: "",
     input: null,
     config: null,
+    sync: null,
     help: false,
     prefetch: null,
     suggestSetup,
@@ -1181,6 +1242,159 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
+  // ── Sync overlay: auth / pull / push, all running in-panel ──
+  const openSync = (): void => {
+    state.sync = { index: 0, busy: false, lines: [], confirmPush: null };
+    render();
+  };
+  const syncLog = (line: string): void => {
+    if (!state.sync) return;
+    state.sync.lines.push(line);
+    render();
+  };
+
+  const syncAuth = async (): Promise<void> => {
+    if (!state.sync) return;
+    state.sync.busy = true;
+    state.sync.lines = ["Looking for a LeetCode session in your browsers…"];
+    render();
+    try {
+      const { username, from } = await authFromBrowser();
+      syncLog(`Signed in as ${username} (from ${from}). Session saved.`);
+    } catch (err) {
+      for (const l of (err instanceof Error ? err.message : String(err)).split("\n")) syncLog(l);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  const syncPull = async (): Promise<void> => {
+    if (!state.sync) return;
+    const auth = resolveLeetCodeAuth(await loadConfig());
+    if (!auth) {
+      syncLog("No session — run Authenticate first.");
+      return;
+    }
+    state.sync.busy = true;
+    state.sync.lines = ["Fetching your solved problems from LeetCode…"];
+    render();
+    try {
+      const result = await importSource("", { adapter: "leetcode", auth });
+      const before = state.completed.size;
+      for (const id of result.matchedIds) state.completed.add(id);
+      const added = state.completed.size - before;
+      await saveCompleted(state.completed);
+      recompute(state);
+      syncLog(
+        `${result.matched.length} of ${result.totalSolved} solved are in bundled lists; ` +
+          `marked ${added} new.`,
+      );
+    } catch (err) {
+      syncLog(`pull failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  // Push step 1: resolve the work list (unsolved-on-LeetCode with a solution),
+  // then ask for confirmation before any real submission.
+  const syncPushPlan = async (): Promise<void> => {
+    if (!state.sync) return;
+    const auth = resolveLeetCodeAuth(await loadConfig());
+    if (!auth || !auth.csrf) {
+      syncLog(auth ? "No CSRF token — re-run Authenticate." : "No session — run Authenticate first.");
+      return;
+    }
+    state.sync.busy = true;
+    state.sync.lines = ["Checking what's not yet Accepted on LeetCode…"];
+    render();
+    try {
+      const remoteSolved = new Set(await fetchSolvedSlugs(auth));
+      const seen = new Set<string>();
+      const work: { pr: Problem; code: string }[] = [];
+      let premium = 0;
+      for (const name of state.listNames) {
+        for (const pr of (await loadList(name)).problems) {
+          if (seen.has(pr.slug) || remoteSolved.has(pr.slug)) continue;
+          seen.add(pr.slug);
+          const nc = await fetchNeetcodeCpp(pr.slug);
+          if (!nc) continue;
+          const meta = await fetchProblem(pr.slug).catch(() => null);
+          if (meta?.isPaidOnly) {
+            premium++;
+            continue;
+          }
+          work.push({ pr, code: nc.code });
+        }
+      }
+      state.syncWork = work;
+      if (premium > 0) syncLog(`Skipping ${premium} Premium-only problem(s).`);
+      if (work.length === 0) {
+        syncLog("Nothing to push — everything with a solution is already Accepted.");
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      syncLog(`${work.length} problem(s) ready to submit (e.g. ${work.slice(0, 3).map((w) => w.pr.title).join(", ")}…).`);
+      state.sync.busy = false;
+      state.sync.confirmPush = work.length;
+    } catch (err) {
+      syncLog(`push planning failed: ${err instanceof Error ? err.message : String(err)}`);
+      state.sync.busy = false;
+    }
+    render();
+  };
+
+  // Push step 2: after confirmation, submit each solution, paced + backoff.
+  const syncPushRun = async (): Promise<void> => {
+    if (!state.sync) return;
+    const auth = resolveLeetCodeAuth(await loadConfig());
+    const work = state.syncWork ?? [];
+    state.sync.confirmPush = null;
+    state.sync.busy = true;
+    if (!auth || work.length === 0) {
+      state.sync.busy = false;
+      render();
+      return;
+    }
+    let accepted = 0;
+    let failed = 0;
+    for (let i = 0; i < work.length; i++) {
+      const { pr, code } = work[i]!;
+      syncLog(`[${i + 1}/${work.length}] ${pr.title}…`);
+      try {
+        const v = await submitSolution(auth, pr.slug, code, { lang: "cpp" });
+        if (v.accepted) {
+          accepted++;
+          state.completed.add(pr.id);
+          await saveCompleted(state.completed);
+          recompute(state);
+        } else {
+          failed++;
+        }
+        state.sync.lines[state.sync.lines.length - 1] =
+          `[${i + 1}/${work.length}] ${pr.title} — ${v.accepted ? "Accepted" : v.statusMsg}`;
+        render();
+      } catch (err) {
+        failed++;
+        state.sync.lines[state.sync.lines.length - 1] =
+          `[${i + 1}/${work.length}] ${pr.title} — error: ${err instanceof Error ? err.message : String(err)}`;
+        render();
+      }
+      if (i < work.length - 1) await new Promise((r) => setTimeout(r, 12_000));
+    }
+    syncLog(`Done: ${accepted} accepted, ${failed} not accepted.`);
+    state.sync.busy = false;
+    render();
+  };
+
+  const runSyncAction = (action: SyncAction): void => {
+    if (!state.sync || state.sync.busy) return;
+    if (action === "auth") void syncAuth();
+    else if (action === "pull") void syncPull();
+    else if (action === "push") void syncPushPlan();
+  };
+
   const activateMenu = (action: MenuAction): void => {
     switch (action) {
       case "filter":
@@ -1217,6 +1431,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
       case "import":
         state.input = { kind: "import", value: "" };
         break;
+      case "sync":
+        openSync();
+        return;
       case "config":
         void openConfig();
         return;
@@ -1342,6 +1559,51 @@ export async function runTui(list?: ProblemList): Promise<void> {
             cfg.editing = true;
             cfg.draft = cfg.working[field.key] ?? "";
             break;
+        }
+        render();
+        return;
+      }
+
+      // ── sync overlay ──
+      if (state.sync) {
+        const sync = state.sync;
+        // Push confirmation gate: y submits, n/Esc cancels.
+        if (sync.confirmPush !== null) {
+          if (key === "y" || key === "Y") {
+            void syncPushRun();
+          } else if (key === "n" || key === "N" || key === "\x1b") {
+            sync.confirmPush = null;
+            syncLog("push cancelled.");
+          } else if (key === "\x03") {
+            finish();
+            return;
+          }
+          render();
+          return;
+        }
+        if (key === "\x03") {
+          finish();
+          return;
+        }
+        // While an action runs, only allow Ctrl-C (handled above); ignore others.
+        if (sync.busy) return;
+        switch (key) {
+          case "q":
+          case "\x1b":
+            state.sync = null;
+            break;
+          case "k":
+          case "\x1b[A":
+            sync.index = Math.max(0, sync.index - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            sync.index = Math.min(SYNC_ACTIONS.length - 1, sync.index + 1);
+            break;
+          case "\r":
+          case "\n":
+            runSyncAction(SYNC_ACTIONS[sync.index]!.key);
+            return;
         }
         render();
         return;

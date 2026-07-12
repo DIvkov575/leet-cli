@@ -33,11 +33,10 @@ import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
-import { verifySession, fetchSolvedSlugs } from "./leetcode-progress.ts";
+import { fetchSolvedSlugs } from "./leetcode-progress.ts";
 import { submitSolution } from "./leetcode-submit.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
-import { readChromeCookies } from "./chrome-cookies.ts";
-import { readFirefoxCookies } from "./firefox-cookies.ts";
+import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
 
 const HELP = `leet — browse bundled LeetCode company lists from the terminal
@@ -341,44 +340,15 @@ async function cmdAuth(p: Parsed): Promise<void> {
   const sources: Array<"firefox" | "chrome"> =
     onlyChrome ? ["chrome"] : onlyFirefox ? ["firefox"] : ["firefox", "chrome"];
 
-  let found: { session: string; csrf?: string; from: string } | null = null;
-  const notes: string[] = [];
-  for (const src of sources) {
-    try {
-      const reader = src === "firefox" ? readFirefoxCookies : readChromeCookies;
-      const c = await reader("leetcode.com", ["LEETCODE_SESSION", "csrftoken"]);
-      const session = c.get("LEETCODE_SESSION");
-      if (session) {
-        found = { session, csrf: c.get("csrftoken"), from: src };
-        break;
-      }
-      notes.push(`${src}: no LeetCode session (are you logged in there?)`);
-    } catch (err) {
-      notes.push(`${src}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  if (!found) {
-    throw new UserError(
-      "couldn't find a LeetCode session in a local browser:\n  " +
-        notes.join("\n  ") +
-        "\n\nLog into leetcode.com in Firefox or Chrome, then re-run `leet auth`. " +
-        "Or set it manually:  export LEETCODE_SESSION=<cookie from devtools>",
+  try {
+    const { username, from } = await authFromBrowser(sources);
+    console.log(
+      `saved LeetCode session for "${username}" (from ${from}). ` +
+        `Run \`leet import --adapter leetcode\` to sync your solved problems.`,
     );
+  } catch (err) {
+    throw new UserError(err instanceof Error ? err.message : String(err));
   }
-
-  // Verify the cookie really authenticates before saving it.
-  console.error(`found a session in ${found.from}; verifying with LeetCode…`);
-  const username = await verifySession({ session: found.session, csrf: found.csrf });
-
-  const cfg = await loadConfig();
-  cfg.leetcodeSession = found.session;
-  if (found.csrf) cfg.leetcodeCsrf = found.csrf;
-  await saveConfig(cfg);
-  console.log(
-    `saved LeetCode session for "${username}" (from ${found.from}). ` +
-      `Run \`leet import --adapter leetcode\` to sync your solved problems.`,
-  );
 }
 
 async function cmdTui(p: Parsed): Promise<void> {

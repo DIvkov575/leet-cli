@@ -155,6 +155,7 @@ describe("MENU_ITEMS", () => {
       "open",
       "refresh",
       "import",
+      "sync",
       "config",
       "help",
     ]);
@@ -197,6 +198,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     status: "",
     input: null,
     config: null,
+    sync: null,
     help: false,
     prefetch: null,
     suggestSetup: false,
@@ -363,5 +365,30 @@ describe("renderFrame config overlay", () => {
     });
     const joined = strip(renderFrame(s, 14, 70).join("\n"));
     expect(joined).toContain("mysols▏");
+  });
+});
+
+describe("renderFrame sync overlay", () => {
+  test("shows the three sync actions and running output", () => {
+    const s = makeState({
+      sync: { index: 0, busy: false, lines: ["Signed in as tester."], confirmPush: null },
+    });
+    const f = renderFrame(s, 16, 80);
+    for (const line of f) expect(strip(line).length).toBe(80);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("LeetCode Sync");
+    expect(joined).toContain("Authenticate");
+    expect(joined).toContain("Pull solved from LeetCode");
+    expect(joined).toContain("Push solutions to LeetCode");
+    expect(joined).toContain("Signed in as tester.");
+  });
+
+  test("push confirmation prompt gates the destructive action", () => {
+    const s = makeState({
+      sync: { index: 2, busy: false, lines: [], confirmPush: 12 },
+    });
+    const joined = strip(renderFrame(s, 16, 80).join("\n"));
+    expect(joined).toContain("push 12 solution(s)");
+    expect(joined).toContain("y = submit");
   });
 });
