@@ -648,17 +648,24 @@ async function cmdPush(p: Parsed): Promise<void> {
     return;
   }
 
-  // Real submissions: rate-limited, verdict per problem, saved done on Accept.
+  // Real submissions: one at a time, conservatively paced, with per-submit 429
+  // backoff+retry inside submitSolution. `--delay <sec>` overrides the gap.
+  const delayMs = p.values.delay ? Math.max(0, Number(p.values.delay) * 1000) : 12_000;
   let accepted = 0;
   let failed = 0;
   for (let i = 0; i < work.length; i++) {
     const { pr, code } = work[i]!;
     process.stderr.write(`[${i + 1}/${work.length}] submitting ${pr.id} ${pr.title}… `);
     try {
-      const v = await submitSolution(auth, pr.slug, code, { lang: "cpp" });
+      const v = await submitSolution(auth, pr.slug, code, {
+        lang: "cpp",
+        onRetry: (attempt, waitMs) =>
+          process.stderr.write(`(rate-limited; backing off ${Math.round(waitMs / 1000)}s, retry ${attempt})… `),
+      });
       if (v.accepted) {
         accepted++;
         completed.add(pr.id);
+        await saveCompleted(completed); // persist incrementally so a stop keeps progress
         console.error(`Accepted (${v.passed ?? "?"}/${v.total ?? "?"})`);
       } else {
         failed++;
@@ -668,10 +675,9 @@ async function cmdPush(p: Parsed): Promise<void> {
       failed++;
       console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     }
-    // Rate-limit between submissions to stay well under LeetCode's limits.
-    if (i < work.length - 1) await new Promise((r) => setTimeout(r, 4000));
+    // Space submissions well apart to stay under LeetCode's limiter.
+    if (i < work.length - 1) await new Promise((r) => setTimeout(r, delayMs));
   }
-  await saveCompleted(completed);
   console.error(`\ndone: ${accepted} accepted, ${failed} not accepted. ${completed.size} done total.`);
 }
 
@@ -1014,6 +1020,7 @@ async function main(): Promise<number> {
           "dry-run": { type: "boolean" },
           yes: { type: "boolean", short: "y" },
           limit: { type: "string", short: "n" },
+          delay: { type: "string" }, // seconds between submissions (default 12)
           "only-unsolved": { type: "boolean" },
         }),
       );

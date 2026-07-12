@@ -62,4 +62,41 @@ describe("submitSolution", () => {
       submitSolution(auth, "two-sum", "code", { sleep: noSleep, timeoutMs: 5, pollMs: 1 }),
     ).rejects.toThrow(/timed out/i);
   });
+
+  test("retries on 429 then succeeds, reporting each backoff", async () => {
+    let submitCalls = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "42" } } }), { status: 200 });
+      }
+      if (url.endsWith("/submit/")) {
+        submitCalls++;
+        if (submitCalls < 3) return new Response("", { status: 429 }); // rate-limited twice
+        return new Response(JSON.stringify({ submission_id: 1 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ state: "SUCCESS", status_msg: "Accepted" }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const backoffs: number[] = [];
+    const v = await submitSolution(auth, "two-sum", "code", {
+      sleep: noSleep,
+      retryBaseMs: 10,
+      onRetry: (_a, waitMs) => backoffs.push(waitMs),
+    });
+    expect(v.accepted).toBe(true);
+    expect(submitCalls).toBe(3); // two 429s + one success
+    expect(backoffs).toEqual([10, 20]); // exponential backoff
+  });
+
+  test("gives up after maxRetries 429s", async () => {
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "42" } } }), { status: 200 });
+      }
+      return new Response("", { status: 429 }); // always rate-limited
+    }) as unknown as typeof fetch;
+    await expect(
+      submitSolution(auth, "two-sum", "code", { sleep: noSleep, maxRetries: 2, retryBaseMs: 1 }),
+    ).rejects.toThrow(/after 2 retries/i);
+  });
 });

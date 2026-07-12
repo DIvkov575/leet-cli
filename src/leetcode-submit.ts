@@ -61,15 +61,32 @@ export interface SubmitOptions {
   timeoutMs?: number;
   /** Sleep between polls in ms (default 1.5s). */
   pollMs?: number;
+  /** Retries when LeetCode rate-limits the submit (429). Default 4. */
+  maxRetries?: number;
+  /** Base backoff in ms for 429 retries; doubles each attempt. Default 15s. */
+  retryBaseMs?: number;
+  /** Called before a 429 backoff sleep, so callers can report the wait. */
+  onRetry?: (attempt: number, waitMs: number) => void;
   /** Injectable sleeper (tests). */
   sleep?: (ms: number) => Promise<void>;
 }
 
 const defaultSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Parse a Retry-After header (seconds or HTTP date) into ms, if present. */
+function retryAfterMs(res: Response): number | null {
+  const h = res.headers.get("retry-after");
+  if (!h) return null;
+  const secs = Number(h);
+  if (Number.isFinite(secs)) return secs * 1000;
+  const when = Date.parse(h);
+  return Number.isFinite(when) ? Math.max(0, when - Date.now()) : null;
+}
+
 /**
- * Submit `code` for `slug` and wait for the judge verdict. Throws on auth /
- * network errors or if the judge doesn't finish within the timeout.
+ * Submit `code` for `slug` and wait for the judge verdict. Retries on 429 with
+ * exponential backoff (honoring Retry-After); throws on auth/network errors or
+ * if the judge doesn't finish within the timeout.
  */
 export async function submitSolution(
   auth: LeetCodeAuth,
@@ -79,20 +96,35 @@ export async function submitSolution(
 ): Promise<SubmitVerdict> {
   const lang = opts.lang ?? "cpp";
   const sleep = opts.sleep ?? defaultSleep;
+  const maxRetries = opts.maxRetries ?? 4;
+  const retryBaseMs = opts.retryBaseMs ?? 15_000;
   const qid = await questionId(auth, slug);
 
-  const res = await fetch(`${BASE}/problems/${slug}/submit/`, {
-    method: "POST",
-    headers: authHeaders(auth, slug),
-    body: JSON.stringify({ lang, question_id: qid, typed_code: code }),
-  });
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("LeetCode rejected the submission (401/403) — session/CSRF expired; re-run `leet auth`");
+  // Submit, backing off and retrying while LeetCode rate-limits us.
+  let submissionId = "";
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}/problems/${slug}/submit/`, {
+      method: "POST",
+      headers: authHeaders(auth, slug),
+      body: JSON.stringify({ lang, question_id: qid, typed_code: code }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("LeetCode rejected the submission (401/403) — session/CSRF expired; re-run `leet auth`");
+    }
+    if (res.status === 429) {
+      if (attempt >= maxRetries) {
+        throw new Error(`LeetCode rate-limited the submission (429) after ${maxRetries} retries`);
+      }
+      const wait = retryAfterMs(res) ?? retryBaseMs * 2 ** attempt;
+      opts.onRetry?.(attempt + 1, wait);
+      await sleep(wait);
+      continue;
+    }
+    if (!res.ok) throw new Error(`submit failed for ${slug}: ${res.status} ${res.statusText}`);
+    const submitJson = (await res.json()) as { submission_id?: number | string };
+    submissionId = String(submitJson.submission_id ?? "");
+    break;
   }
-  if (res.status === 429) throw new Error("LeetCode rate-limited the submission (429) — wait and retry");
-  if (!res.ok) throw new Error(`submit failed for ${slug}: ${res.status} ${res.statusText}`);
-  const submitJson = (await res.json()) as { submission_id?: number | string };
-  const submissionId = String(submitJson.submission_id ?? "");
   if (!submissionId) throw new Error(`submit for ${slug} returned no submission id`);
 
   // Poll the checker until the judge finishes.
