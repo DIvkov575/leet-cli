@@ -119,4 +119,29 @@ describe("submitSolution", () => {
     expect(v.accepted).toBe(true);
     expect(submitCalls).toBe(2); // one HTML throttle + one success
   });
+
+  test("backoff is capped by retryMaxMs so long batches stay patient, not exploding", async () => {
+    let submitCalls = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "42" } } }), { status: 200 });
+      }
+      if (url.endsWith("/submit/")) {
+        submitCalls++;
+        if (submitCalls < 5) return new Response("", { status: 429 });
+        return new Response(JSON.stringify({ submission_id: 1 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ state: "SUCCESS", status_msg: "Accepted" }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const backoffs: number[] = [];
+    await submitSolution(auth, "two-sum", "code", {
+      sleep: noSleep,
+      retryBaseMs: 10,
+      retryMaxMs: 30,
+      onRetry: (_a, waitMs) => backoffs.push(waitMs),
+    });
+    // 10, 20, then capped at 30, 30 (would be 40, 80 uncapped).
+    expect(backoffs).toEqual([10, 20, 30, 30]);
+  });
 });

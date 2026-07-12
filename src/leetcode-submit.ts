@@ -61,11 +61,13 @@ export interface SubmitOptions {
   timeoutMs?: number;
   /** Sleep between polls in ms (default 1.5s). */
   pollMs?: number;
-  /** Retries when LeetCode rate-limits the submit (429). Default 4. */
+  /** Retries when LeetCode rate-limits the submit (429/throttle). Default 6. */
   maxRetries?: number;
-  /** Base backoff in ms for 429 retries; doubles each attempt. Default 15s. */
+  /** Base backoff in ms for retries; doubles each attempt. Default 10s. */
   retryBaseMs?: number;
-  /** Called before a 429 backoff sleep, so callers can report the wait. */
+  /** Cap on a single backoff wait, so it stays patient without exploding. Default 60s. */
+  retryMaxMs?: number;
+  /** Called before a backoff sleep, so callers can report the wait. */
   onRetry?: (attempt: number, waitMs: number) => void;
   /** Injectable sleeper (tests). */
   sleep?: (ms: number) => Promise<void>;
@@ -96,8 +98,9 @@ export async function submitSolution(
 ): Promise<SubmitVerdict> {
   const lang = opts.lang ?? "cpp";
   const sleep = opts.sleep ?? defaultSleep;
-  const maxRetries = opts.maxRetries ?? 4;
-  const retryBaseMs = opts.retryBaseMs ?? 15_000;
+  const maxRetries = opts.maxRetries ?? 6;
+  const retryBaseMs = opts.retryBaseMs ?? 10_000;
+  const retryMaxMs = opts.retryMaxMs ?? 60_000; // cap a single backoff wait
   const qid = await questionId(auth, slug);
 
   // Submit, backing off and retrying while LeetCode rate-limits us. A soft
@@ -128,7 +131,7 @@ export async function submitSolution(
         const why = res.status === 429 ? "429" : "throttled (non-JSON response)";
         throw new Error(`LeetCode rate-limited the submission (${why}) after ${maxRetries} retries`);
       }
-      const wait = retryAfterMs(res) ?? retryBaseMs * 2 ** attempt;
+      const wait = retryAfterMs(res) ?? Math.min(retryMaxMs, retryBaseMs * 2 ** attempt);
       opts.onRetry?.(attempt + 1, wait);
       await sleep(wait);
       continue;
