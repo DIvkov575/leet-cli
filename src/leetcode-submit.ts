@@ -100,7 +100,9 @@ export async function submitSolution(
   const retryBaseMs = opts.retryBaseMs ?? 15_000;
   const qid = await questionId(auth, slug);
 
-  // Submit, backing off and retrying while LeetCode rate-limits us.
+  // Submit, backing off and retrying while LeetCode rate-limits us. A soft
+  // rate-limit shows up as an HTML "slow down" page (200/4xx, non-JSON body)
+  // rather than a clean 429, so treat unparseable bodies as retryable too.
   let submissionId = "";
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${BASE}/problems/${slug}/submit/`, {
@@ -111,9 +113,20 @@ export async function submitSolution(
     if (res.status === 401 || res.status === 403) {
       throw new Error("LeetCode rejected the submission (401/403) — session/CSRF expired; re-run `leet auth`");
     }
-    if (res.status === 429) {
+
+    const body = await res.text();
+    let parsed: { submission_id?: number | string } | null = null;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = null; // non-JSON → almost always a throttle/error HTML page
+    }
+
+    // 429, or a non-JSON body (soft throttle) → back off and retry.
+    if (res.status === 429 || parsed === null) {
       if (attempt >= maxRetries) {
-        throw new Error(`LeetCode rate-limited the submission (429) after ${maxRetries} retries`);
+        const why = res.status === 429 ? "429" : "throttled (non-JSON response)";
+        throw new Error(`LeetCode rate-limited the submission (${why}) after ${maxRetries} retries`);
       }
       const wait = retryAfterMs(res) ?? retryBaseMs * 2 ** attempt;
       opts.onRetry?.(attempt + 1, wait);
@@ -121,8 +134,7 @@ export async function submitSolution(
       continue;
     }
     if (!res.ok) throw new Error(`submit failed for ${slug}: ${res.status} ${res.statusText}`);
-    const submitJson = (await res.json()) as { submission_id?: number | string };
-    submissionId = String(submitJson.submission_id ?? "");
+    submissionId = String(parsed.submission_id ?? "");
     break;
   }
   if (!submissionId) throw new Error(`submit for ${slug} returned no submission id`);
@@ -136,15 +148,20 @@ export async function submitSolution(
       headers: authHeaders(auth, slug),
     });
     if (!chk.ok) continue;
-    const d = (await chk.json()) as {
+    let d: {
       state?: string;
       status_msg?: string;
       total_correct?: number;
       total_testcases?: number;
       runtime_error?: string;
       compile_error?: string;
-    };
-    if (d.state === "SUCCESS") {
+    } | null = null;
+    try {
+      d = JSON.parse(await chk.text());
+    } catch {
+      continue; // transient non-JSON (throttle page); keep polling
+    }
+    if (d && d.state === "SUCCESS") {
       const statusMsg = d.status_msg ?? "Unknown";
       return {
         statusMsg,
