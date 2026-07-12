@@ -33,7 +33,7 @@ import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
-import { verifySession } from "./leetcode-progress.ts";
+import { verifySession, fetchSolvedSlugs } from "./leetcode-progress.ts";
 import { submitSolution } from "./leetcode-submit.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { readChromeCookies } from "./chrome-cookies.ts";
@@ -592,13 +592,21 @@ async function cmdPush(p: Parsed): Promise<void> {
 
   const sourceKind = (p.values.source as string | undefined) ?? "neetcode";
   const dryRun = Boolean(p.values["dry-run"]) || !p.values.yes;
-  const onlyUnsolved = Boolean(p.values["only-unsolved"]);
   const limit = p.values.limit ? Math.max(1, Number(p.values.limit)) : Infinity;
   const config = await loadConfig();
   const dir = resolveSolutionsDir(p.values.dir as string | undefined, config);
 
-  // Candidate problems: every bundled problem (deduped), optionally only those
-  // not already marked done locally.
+  // `push` gets problems Accepted *on LeetCode*, so the "already solved" filter
+  // must be your LeetCode account — not local tracking, which also counts
+  // NeetCode-only solves that were never submitted (the very ones to push).
+  // Fetch the live solved set once and skip those; --all re-submits everything.
+  const includeSolved = Boolean(p.values.all);
+  let remoteSolved = new Set<string>();
+  if (!includeSolved) {
+    console.error("checking which problems you've already solved on LeetCode…");
+    remoteSolved = new Set(await fetchSolvedSlugs(auth));
+  }
+
   const completed = await loadCompleted();
   const seen = new Set<string>();
   const candidates: Problem[] = [];
@@ -606,7 +614,7 @@ async function cmdPush(p: Parsed): Promise<void> {
     for (const pr of (await loadList(name)).problems) {
       if (seen.has(pr.slug)) continue;
       seen.add(pr.slug);
-      if (onlyUnsolved && completed.has(pr.id)) continue;
+      if (remoteSolved.has(pr.slug)) continue; // already Accepted on LeetCode
       candidates.push(pr);
     }
   }
@@ -1021,7 +1029,7 @@ async function main(): Promise<number> {
           yes: { type: "boolean", short: "y" },
           limit: { type: "string", short: "n" },
           delay: { type: "string" }, // seconds between submissions (default 12)
-          "only-unsolved": { type: "boolean" },
+          all: { type: "boolean" }, // re-submit even problems already Accepted on LeetCode
         }),
       );
       return 0;

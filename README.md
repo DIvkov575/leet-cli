@@ -258,11 +258,16 @@ community repo; or `--source dir` to submit your own `<id>-<slug>.cpp` files fro
 the solutions dir), submits it, and waits for the judge's verdict.
 
 ```sh
-leet push --only-unsolved --limit 5          # dry run: show what would be submitted
-leet push --only-unsolved --limit 5 --yes    # actually submit (5 real submissions)
-leet push --source dir --yes                 # submit your own solution files
-leet push --only-unsolved --yes --delay 20   # go slower (20s between submissions)
+leet push --limit 5          # dry run: show what would be submitted
+leet push --limit 5 --yes    # actually submit (5 real submissions)
+leet push --yes              # submit every problem not yet Accepted on LeetCode
+leet push --source dir --yes # submit your own solution files
+leet push --yes --delay 20   # go slower (20s between submissions)
 ```
+
+It skips problems **already Accepted on your LeetCode account** (checked live,
+not from local tracking — so problems you only marked done via `import` are still
+pushed). Use `--all` to re-submit everything regardless.
 
 It **writes to your LeetCode account**, so it defaults to a dry run and does
 nothing until you pass `--yes`. It submits **one at a time**, spaced ~12s apart
