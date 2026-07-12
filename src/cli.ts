@@ -630,13 +630,30 @@ async function cmdPush(p: Parsed): Promise<void> {
     return nc?.code ?? null;
   };
 
-  // Build the work list (problems we actually have a solution for), capped.
+  // Build the work list (problems we have a solution for), capped. Premium
+  // problems can't be submitted without a subscription — LeetCode serves an
+  // HTML paywall, not the judge — so skip them up front with an honest note
+  // rather than burning retries on a "throttle" that never clears.
   console.error(`resolving solutions from ${sourceKind}…`);
   const work: { pr: Problem; code: string }[] = [];
+  let premiumSkipped = 0;
   for (const pr of candidates) {
     if (work.length >= limit) break;
     const code = await getSolution(pr);
-    if (code) work.push({ pr, code });
+    if (!code) continue;
+    try {
+      const meta = await fetchProblem(pr.slug);
+      if (meta.isPaidOnly) {
+        premiumSkipped++;
+        continue;
+      }
+    } catch {
+      // If the metadata check fails, fall through and let the submit attempt decide.
+    }
+    work.push({ pr, code });
+  }
+  if (premiumSkipped > 0) {
+    console.error(`skipped ${premiumSkipped} Premium-only problem(s) — can't submit without LeetCode Premium.`);
   }
 
   if (work.length === 0) {
