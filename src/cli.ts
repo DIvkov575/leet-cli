@@ -34,6 +34,8 @@ import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
 import { verifySession } from "./leetcode-progress.ts";
+import { submitSolution } from "./leetcode-submit.ts";
+import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { readChromeCookies } from "./chrome-cookies.ts";
 import { readFirefoxCookies } from "./firefox-cookies.ts";
 import { runTui } from "./tui.ts";
@@ -48,6 +50,7 @@ Usage:
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
+  leet push [--source neetcode|dir] Submit solutions to LeetCode to mark them Accepted (--yes to apply)
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
@@ -571,6 +574,107 @@ async function cmdTest(p: Parsed): Promise<void> {
   if (code !== 0) throw new UserError(`test binary exited ${code}`);
 }
 
+/**
+ * `leet push` — submit your solutions to LeetCode so they're marked Accepted.
+ * Sources a C++ solution per problem (default: the neetcode-gh community repo;
+ * or --source dir to read <id>-<slug>.cpp from your solutions dir), submits it,
+ * and reports the judge verdict.
+ *
+ * This WRITES to your LeetCode account, so it defaults to a dry run: it prints
+ * the plan and does nothing until you pass --yes. Submissions are rate-limited.
+ */
+async function cmdPush(p: Parsed): Promise<void> {
+  const auth = resolveLeetCodeAuth(await loadConfig());
+  if (!auth) throw new UserError("no LeetCode session — run `leet auth` first.");
+  if (!auth.csrf) {
+    throw new UserError("no CSRF token saved — re-run `leet auth` (submitting requires it).");
+  }
+
+  const sourceKind = (p.values.source as string | undefined) ?? "neetcode";
+  const dryRun = Boolean(p.values["dry-run"]) || !p.values.yes;
+  const onlyUnsolved = Boolean(p.values["only-unsolved"]);
+  const limit = p.values.limit ? Math.max(1, Number(p.values.limit)) : Infinity;
+  const config = await loadConfig();
+  const dir = resolveSolutionsDir(p.values.dir as string | undefined, config);
+
+  // Candidate problems: every bundled problem (deduped), optionally only those
+  // not already marked done locally.
+  const completed = await loadCompleted();
+  const seen = new Set<string>();
+  const candidates: Problem[] = [];
+  for (const name of await availableLists()) {
+    for (const pr of (await loadList(name)).problems) {
+      if (seen.has(pr.slug)) continue;
+      seen.add(pr.slug);
+      if (onlyUnsolved && completed.has(pr.id)) continue;
+      candidates.push(pr);
+    }
+  }
+
+  // Resolve a C++ solution for each candidate from the chosen source.
+  const getSolution = async (pr: Problem): Promise<string | null> => {
+    if (sourceKind === "dir") {
+      const path = `${dir}/${scaffoldFilename(pr.id, pr.slug)}`;
+      const f = Bun.file(path);
+      return (await f.exists()) ? f.text() : null;
+    }
+    const nc = await fetchNeetcodeCpp(pr.slug);
+    return nc?.code ?? null;
+  };
+
+  // Build the work list (problems we actually have a solution for), capped.
+  console.error(`resolving solutions from ${sourceKind}…`);
+  const work: { pr: Problem; code: string }[] = [];
+  for (const pr of candidates) {
+    if (work.length >= limit) break;
+    const code = await getSolution(pr);
+    if (code) work.push({ pr, code });
+  }
+
+  if (work.length === 0) {
+    console.error(`no solutions found from "${sourceKind}" for the candidate problems.`);
+    return;
+  }
+
+  console.log(`${work.length} problem(s) have a solution to submit:`);
+  for (const { pr } of work.slice(0, 30)) console.log(`  ${pr.id}  ${pr.title}`);
+  if (work.length > 30) console.log(`  … and ${work.length - 30} more`);
+
+  if (dryRun) {
+    console.error(
+      `\n(dry run — nothing submitted. This will make ${work.length} real submission(s) to your ` +
+        `LeetCode account. Re-run with --yes to submit.)`,
+    );
+    return;
+  }
+
+  // Real submissions: rate-limited, verdict per problem, saved done on Accept.
+  let accepted = 0;
+  let failed = 0;
+  for (let i = 0; i < work.length; i++) {
+    const { pr, code } = work[i]!;
+    process.stderr.write(`[${i + 1}/${work.length}] submitting ${pr.id} ${pr.title}… `);
+    try {
+      const v = await submitSolution(auth, pr.slug, code, { lang: "cpp" });
+      if (v.accepted) {
+        accepted++;
+        completed.add(pr.id);
+        console.error(`Accepted (${v.passed ?? "?"}/${v.total ?? "?"})`);
+      } else {
+        failed++;
+        console.error(`${v.statusMsg}${v.detail ? ` — ${v.detail.split("\n")[0]}` : ""}`);
+      }
+    } catch (err) {
+      failed++;
+      console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // Rate-limit between submissions to stay well under LeetCode's limits.
+    if (i < work.length - 1) await new Promise((r) => setTimeout(r, 4000));
+  }
+  await saveCompleted(completed);
+  console.error(`\ndone: ${accepted} accepted, ${failed} not accepted. ${completed.size} done total.`);
+}
+
 /** Run a command, throwing with stderr on non-zero exit. */
 async function run(cmd: string[], cwd?: string): Promise<string> {
   const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -901,6 +1005,18 @@ async function main(): Promise<number> {
       return 0;
     case "test":
       await cmdTest(parse(rest, { dir: { type: "string" } }));
+      return 0;
+    case "push":
+      await cmdPush(
+        parse(rest, {
+          source: { type: "string" }, // "neetcode" (default) or "dir"
+          dir: { type: "string" },
+          "dry-run": { type: "boolean" },
+          yes: { type: "boolean", short: "y" },
+          limit: { type: "string", short: "n" },
+          "only-unsolved": { type: "boolean" },
+        }),
+      );
       return 0;
     case "sync":
       await cmdSync(
