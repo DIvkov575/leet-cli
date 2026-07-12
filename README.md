@@ -261,12 +261,16 @@ the solutions dir), submits it, and waits for the judge's verdict.
 leet push --only-unsolved --limit 5          # dry run: show what would be submitted
 leet push --only-unsolved --limit 5 --yes    # actually submit (5 real submissions)
 leet push --source dir --yes                 # submit your own solution files
+leet push --only-unsolved --yes --delay 20   # go slower (20s between submissions)
 ```
 
 It **writes to your LeetCode account**, so it defaults to a dry run and does
-nothing until you pass `--yes`; submissions are rate-limited (~4s apart) and
-capped with `--limit`. Requires `leet auth` first (submitting needs the CSRF
-token, not just the session). Accepted problems are also marked done locally.
+nothing until you pass `--yes`. It submits **one at a time**, spaced ~12s apart
+(`--delay <sec>` to change), and on a rate-limit (HTTP 429) it backs off
+exponentially (honoring `Retry-After`) and retries rather than skipping the
+problem. Progress is saved incrementally, so a stop keeps what's already
+Accepted. Cap a run with `--limit`. Requires `leet auth` first (submitting needs
+the CSRF token, not just the session).
 
 > Note: submitting community solutions backfills your profile with code you
 > didn't write, and some solutions may not match LeetCode's exact problem
