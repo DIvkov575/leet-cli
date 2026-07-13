@@ -1,7 +1,7 @@
 {
   "name": "leet-cli",
-  "version": "0.2.2",
-  "description": "Browse bundled LeetCode company lists (uber, nvidia, ...) from the terminal, with optional live refresh from LeetCode's public GraphQL.",
+  "version": "0.3.0",
+  "description": "A terminal workflow for LeetCode company problem lists: browse, solve, test, and sync solved status with your LeetCode account.",
   "type": "module",
   "bin": {
     "leet": "src/cli.ts"

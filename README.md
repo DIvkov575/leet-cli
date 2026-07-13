@@ -1,8 +1,15 @@
 # leet-cli
 
-Browse bundled LeetCode company problem lists from the terminal, with optional
-live refresh from LeetCode's public GraphQL API. Built with [Bun](https://bun.sh)
-(native TypeScript, no build step).
+A terminal workflow for LeetCode company problem lists. Built with
+[Bun](https://bun.sh) (native TypeScript, no build step).
+
+- **Browse** bundled company lists (Uber, Google, Meta, Citadel, …) plus
+  NeetCode 250, in a four-panel TUI — Lists │ Problems │ Preview │ Logs.
+- **Solve & test** — scaffold a C++ file with an embedded test harness, compile
+  and run it, all from the keyboard.
+- **Track** what you've done, locally and in sync with your LeetCode account.
+- **Sync with LeetCode** — pull your solved problems down, or push solutions up
+  to mark them Accepted (from the CLI or the interactive **Sync** menu).
 
 ## Install
 
@@ -70,12 +77,22 @@ leet ls <list> [filters]         # print a list as a table
 leet show <id|slug> [--live]     # show one problem (--live fetches the statement)
 leet open <id|slug> [list]       # open a problem in the browser
 leet random [list] [filters]     # print one random problem
+leet solve <id|slug> [-o]        # scaffold a C++ file (cache-first); -o opens it
+leet test <id|slug>              # compile the scaffolded solution and run its harness
 leet done [id|slug ...]          # mark problems done, or list what's done
 leet undone <id|slug ...>        # unmark problems as done
-leet import <path|owner/repo>    # mark done from an external source (e.g. NeetCode)
+leet import <path|owner/repo>    # mark done from NeetCode (or --adapter leetcode)
+leet auth                        # grab your LeetCode session from a local browser
+leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them Accepted
+leet sync <owner/repo> [list...] # package problems into a private GitHub repo
+leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
-leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx)
+leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend)
 ```
+
+Every command has a one-line summary in `leet help`; the LeetCode-account
+features (`auth`, `import --adapter leetcode`, `push`) are documented in detail
+below and are also reachable from the interactive **Sync** menu.
 
 ## Configuration
 
@@ -295,27 +312,47 @@ failures degrade gracefully to the bundled data.
 
 ```
 src/
-  types.ts      shared Problem / ProblemList types
-  parse.ts      slugify + raw-list parser (LeetCode's slug scheme)
-  lib.ts        load / filter / sort / find — the reusable library surface
-  leetcode.ts   public GraphQL client (fetch one / many with bounded concurrency)
-  progress.ts   completion tracking (completed.json outside the repo)
-  adapters.ts   import adapters (NeetCode sync layout + slug alias maps)
-  import.ts     source acquisition (local path / GitHub via gh) + slug resolution
-  render.ts     table + single-problem terminal rendering, minimal HTML->text
-  tui.ts        interactive full-screen browser (raw-mode input, live preview)
-  cli.ts        argument parsing and command dispatch
+  types.ts            shared Problem / ProblemList types
+  parse.ts            slugify + raw-list parser (LeetCode's slug scheme)
+  lib.ts              load / filter / sort / find over embedded + downloaded lists
+  lists.generated.ts  bundled lists embedded into the binary (from gen-embed.ts)
+  leetcode.ts         public GraphQL client (fetch one / many, bounded concurrency)
+  leetcode-progress.ts authenticated "my solved problems" fetch (session cookie)
+  leetcode-submit.ts  authenticated submit + judge polling (retry/backoff)
+  auth.ts             grab the session cookie from a local browser
+  chrome-cookies.ts   decrypt Chrome's cookie store (Keychain-derived key)
+  firefox-cookies.ts  read Firefox's plaintext cookie store
+  progress.ts         completion tracking (completed.json outside the repo)
+  config.ts           user settings + LeetCode session (config.json)
+  adapters.ts         import adapters (NeetCode layout, LeetCode account)
+  import.ts           source acquisition + slug resolution against bundled lists
+  recommend.ts        modular "recommended problems" ranking strategies
+  scaffold.ts         C++ solution file scaffolding
+  harness.ts          generate the embedded C++ test harness
+  runner.ts           compile + run a solution, capture output (Logs panel)
+  cache.ts / repo.ts / prefetch.ts   local solution cache + repo/live prefetch
+  setup.ts            proactive study-set pre-caching
+  sync.ts             package problems into a GitHub repo (leet sync)
+  package.ts          per-problem artifacts (md / cpp / tests) for sync
+  render.ts           table + single-problem rendering, minimal HTML->text
+  tui.ts              interactive four-panel browser (raw-mode input, live preview)
+  cli.ts              argument parsing and command dispatch
 scripts/
-  build-data.ts parse data/raw/*.txt into data/*.json
+  build-data.ts       parse data/raw/*.txt into data/*.json
+  gen-embed.ts        regenerate src/lists.generated.ts from data/*.json
+  gen-formula.ts      render the Homebrew formula from a release's checksums
+  setup.ts            postinstall / `bun run setup` pre-cache entry point
+.github/workflows/
+  release.yml         build + attach cross-platform binaries on v* tags
 data/
-  raw/*.txt     source lists in the raw pasted format
-  *.json        generated, bundled problem data
+  raw/*.txt           source lists in the raw pasted format
+  *.json              generated, bundled problem data
 ```
 
-Regenerate the bundled JSON after editing `data/raw/*.txt`:
+Regenerate the bundled JSON (and the embedded copy) after editing `data/raw/*.txt`:
 
 ```sh
-bun run build:data
+bun run build:data      # parse raw → json, then re-embed
 ```
 
 ## Tests
@@ -324,5 +361,8 @@ bun run build:data
 bun test
 ```
 
-Covers slug generation, raw parsing, filtering, and sorting. The live GraphQL
-path is isolated in `leetcode.ts` so unit tests never hit the network.
+184 tests covering the pure logic (slugify, parsing, filtering, sorting, TUI
+layout/rendering, recommendation ranking, cookie decryption) and the network
+layers with injected fetches (submit retry/backoff, solved-set pagination). The
+live GraphQL and browser/Keychain paths are isolated so unit tests never hit the
+network or your machine's real cookies.
