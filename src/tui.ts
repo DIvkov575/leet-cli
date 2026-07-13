@@ -19,10 +19,13 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   CONFIG_FIELDS,
+  toggleSelection,
   type Config,
+  type ConfigField,
+  type ConfigKey,
 } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
-import { recommendProblems, type Recommendation } from "./recommend.ts";
+import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
 import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
@@ -270,6 +273,12 @@ interface ConfigState {
   editing: boolean;
   draft: string;
   working: Config;
+  /**
+   * Open checkbox submenu for a `multiselect` field, or null when the settings
+   * list itself has focus. `choices` is supplied by the caller (the bundled
+   * list names) so config.ts stays free of any knowledge of what lists exist.
+   */
+  picker: { key: ConfigKey; choices: string[]; index: number } | null;
 }
 
 /** The Sync overlay's three actions, in menu order. */
@@ -775,14 +784,31 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
   return [header, ...lines, footer];
 }
 
+/**
+ * The set value of a field as a display string, or "" when unset. Multiselect
+ * fields summarise as "citadel, sig (2 skipped)" rather than dumping an array.
+ */
+export function configValueCell(field: ConfigField, working: Config): string {
+  const set = working[field.key];
+  if (field.kind === "multiselect") {
+    const picked = (set as string[] | undefined) ?? [];
+    if (picked.length === 0) return "";
+    return `${picked.join(", ")}  (${picked.length} skipped)`;
+  }
+  return (set as string | undefined) ?? "";
+}
+
 /** Render the settings overlay: one row per editable field, showing current value or fallback. */
 function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
+  // The checkbox submenu takes over the whole overlay while it's open.
+  if (cfg.picker) return renderConfigPicker(cfg, cfg.picker, rows, cols);
+
   const labelW = CONFIG_FIELDS.reduce((w, f) => Math.max(w, f.label.length), 0);
   const content: string[] = ["  Settings", ""];
   CONFIG_FIELDS.forEach((f, i) => {
     const selected = i === cfg.index;
     const marker = selected ? "▸ " : "  ";
-    const set = cfg.working[f.key];
+    const set = configValueCell(f, cfg.working);
     let valueCell: string;
     if (selected && cfg.editing) {
       valueCell = `${cfg.draft}▏`;
@@ -801,10 +827,47 @@ function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
       content.push(`  ${marker}${f.label.padEnd(labelW)}   ` + paint(`(unset — ${f.fallback})`, "dim"));
     }
   });
+  const selectedField = CONFIG_FIELDS[cfg.index];
+  const openVerb = selectedField?.kind === "multiselect" ? "choose" : "edit";
   const hint = cfg.editing
     ? " editing  (Enter save field · Esc cancel edit)"
-    : " settings  (↑↓ move · Enter edit · x clear · Esc save & close)";
+    : ` settings  (↑↓ move · Enter ${openVerb} · x clear · Esc save & close)`;
   return renderOverlay(content, rows, cols, hint);
+}
+
+/**
+ * The checkbox submenu behind a `multiselect` field. A ticked box means the
+ * list is *skipped* — de-selected from the recommendation pool — so the header
+ * spells that out; an inverted checklist is exactly the kind of thing people
+ * misread.
+ */
+function renderConfigPicker(
+  cfg: ConfigState,
+  picker: NonNullable<ConfigState["picker"]>,
+  rows: number,
+  cols: number,
+): string[] {
+  const skipped = new Set(((cfg.working[picker.key] as string[] | undefined) ?? []).map((n) => n.toLowerCase()));
+  const content: string[] = [
+    "  Skip lists in ★ Recommended",
+    "",
+    paint("  Ticked lists stop counting toward Recommended.", "dim"),
+    paint("  They stay browsable in the Lists panel.", "dim"),
+    "",
+  ];
+  picker.choices.forEach((name, i) => {
+    const on = skipped.has(name.toLowerCase());
+    const marker = i === picker.index ? "▸ " : "  ";
+    const row = `  ${marker}${on ? "[x]" : "[ ]"} ${name}`;
+    if (i === picker.index) content.push(paint(fit(row, cols), "rev"));
+    else if (on) content.push(row);
+    else content.push(paint(row, "dim"));
+  });
+  if (picker.choices.length > 0 && skipped.size === picker.choices.length) {
+    content.push("");
+    content.push(paint("  every list is skipped — Recommended will be empty", "yellow"));
+  }
+  return renderOverlay(content, rows, cols, " skip lists  (↑↓ move · space toggle · a none · Esc back)");
 }
 
 /** Render the Sync overlay: the action menu, then the running/last action's log. */
@@ -855,7 +918,14 @@ function previewHeaderLines(s: State, width: number): string[] {
 
   // Explain the cross-list popularity — why it's recommended, and where it shows
   // up. Wrapped so long membership lists don't overflow the preview pane.
-  const inLists = listsContaining(s, p.id);
+  //
+  // In the ★ Recommended view this line is the *justification* for the ranking,
+  // so it must be drawn from the same (possibly filtered) pool the ranking used
+  // — otherwise a skipped list would still be cited as a reason the problem is
+  // recommended. Browsing a real list is a different question ("where else does
+  // this appear?"), which is a fact about the whole corpus, so it stays global.
+  const rec = s.showingRecommended ? s.recommended.find((r) => r.problem.id === p.id) : undefined;
+  const inLists = rec ? rec.lists : listsContaining(s, p.id);
   if (inLists.length > 0) {
     const lead = s.showingRecommended
       ? `Recommended — appears in ${inLists.length} list${inLists.length === 1 ? "" : "s"}:`
@@ -911,11 +981,17 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   const completed = await loadCompleted();
   const config = await loadConfig();
-  const recommended = recommendProblems(allLists, config.recommend, {
-    completed,
-    excludeDone: true,
-    limit: 100,
-  });
+  // De-selected lists are dropped from the pool before ranking, so the
+  // popularity counts (and the "appears in N lists" line in the preview)
+  // reflect only the lists the user actually cares about.
+  const rankRecommended = (cfg: Config, done: Set<number>): Recommendation[] =>
+    recommendProblems(excludeLists(allLists, cfg.recommendExclude), cfg.recommend, {
+      completed: done,
+      excludeDone: true,
+      limit: 100,
+    });
+
+  const recommended = rankRecommended(config, completed);
   // First run: suggest pre-caching, opt-in (only when opening bare, no list arg).
   const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
 
@@ -1097,7 +1173,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   const openConfig = async (): Promise<void> => {
     const cfg = await loadConfig();
-    state.config = { index: 0, editing: false, draft: "", working: { ...cfg } };
+    state.config = { index: 0, editing: false, draft: "", working: { ...cfg }, picker: null };
     render();
   };
 
@@ -1219,6 +1295,14 @@ export async function runTui(list?: ProblemList): Promise<void> {
     const working = state.config.working;
     state.config = null;
     await saveConfig(working);
+
+    // Ranking settings feed the ★ Recommended pseudo-list, which was computed at
+    // startup. Re-rank on close so a change lands immediately instead of waiting
+    // for a restart. If the user is *looking* at Recommended, re-point the panel
+    // at the new set so the cursor can't dangle past the end of a shorter list.
+    state.recommended = rankRecommended(working, state.completed);
+    if (state.showingRecommended) await selectListRow(state, RECOMMENDED_LIST);
+
     state.status = "settings saved.";
     render();
   };
@@ -1515,10 +1599,51 @@ export async function runTui(list?: ProblemList): Promise<void> {
       if (state.config) {
         const cfg = state.config;
         const field = CONFIG_FIELDS[cfg.index]!;
+
+        // Checkbox submenu for a multiselect field (e.g. lists to skip in
+        // Recommended). Owns all input while open; Esc drops back to Settings.
+        if (cfg.picker) {
+          const pick = cfg.picker;
+          switch (key) {
+            case "\x03":
+              finish();
+              return;
+            case "q":
+            case "\x1b":
+              cfg.picker = null;
+              break;
+            case "k":
+            case "\x1b[A":
+              pick.index = Math.max(0, pick.index - 1);
+              break;
+            case "j":
+            case "\x1b[B":
+              pick.index = Math.min(pick.choices.length - 1, pick.index + 1);
+              break;
+            case " ":
+            case "\r":
+            case "\n": {
+              const name = pick.choices[pick.index];
+              if (name) {
+                const next = toggleSelection(cfg.working[pick.key] as string[] | undefined, name);
+                if (next.length > 0) (cfg.working[pick.key] as string[]) = next;
+                else delete cfg.working[pick.key];
+              }
+              break;
+            }
+            case "a": // clear every tick — back to "all lists count"
+              delete cfg.working[pick.key];
+              break;
+          }
+          render();
+          return;
+        }
+
         if (cfg.editing) {
           if (key === "\r" || key === "\n") {
             const v = cfg.draft.trim();
-            if (v) cfg.working[field.key] = v;
+            // Only text fields ever enter edit mode; multiselect opens the picker.
+            if (v) (cfg.working[field.key] as string) = v;
             else delete cfg.working[field.key];
             cfg.editing = false;
           } else if (key === "\x1b") {
@@ -1556,8 +1681,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
             break;
           case "\r":
           case "\n":
-            cfg.editing = true;
-            cfg.draft = cfg.working[field.key] ?? "";
+            if (field.kind === "multiselect") {
+              // Choices come from the loaded lists, not from config.ts.
+              cfg.picker = { key: field.key, choices: [...state.listNames], index: 0 };
+            } else {
+              cfg.editing = true;
+              cfg.draft = (cfg.working[field.key] as string | undefined) ?? "";
+            }
             break;
         }
         render();

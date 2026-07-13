@@ -58,7 +58,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
 
 Filters (for ls / random):
@@ -267,7 +267,13 @@ async function cmdLs(p: Parsed): Promise<void> {
 
 /**
  * `leet config` — show settings; `leet config <key> <value>` sets one;
- * `leet config <key> --unset` clears it. Keys: editor, solutionsDir, cxx, recommend.
+ * `leet config <key> --unset` clears it.
+ *
+ * Keys: editor, solutionsDir, cxx, recommend, recommendExclude. The last takes
+ * a comma-separated set of list names to skip when ranking ★ Recommended:
+ *
+ *   leet config recommendExclude citadel,sig
+ *   leet config recommendExclude --unset      # back to counting every list
  */
 async function cmdConfig(p: Parsed): Promise<void> {
   const cfg = await loadConfig();
@@ -275,8 +281,9 @@ async function cmdConfig(p: Parsed): Promise<void> {
 
   if (!key) {
     for (const f of CONFIG_FIELDS) {
-      const v = cfg[f.key];
-      console.log(`${f.key.padEnd(14)} ${v ? v : `(unset — ${f.fallback})`}`);
+      const raw = cfg[f.key];
+      const v = Array.isArray(raw) ? raw.join(", ") : raw;
+      console.log(`${f.key.padEnd(18)} ${v ? v : `(unset — ${f.fallback})`}`);
     }
     return;
   }
@@ -295,12 +302,36 @@ async function cmdConfig(p: Parsed): Promise<void> {
 
   const value = valueParts.join(" ").trim();
   if (!value) throw new UserError(`usage: leet config ${field.key} <value>   (or --unset)`);
+
+  // Multiselect fields take a comma-separated set and are stored as an array;
+  // assigning the raw string would be silently dropped when the config is
+  // sanitized on save. Unknown list names are rejected here rather than being
+  // written and quietly ignored at rank time.
+  if (field.kind === "multiselect") {
+    const names = value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const known = await availableLists();
+    const byLower = new Map(known.map((n) => [n.toLowerCase(), n]));
+    const resolved: string[] = [];
+    for (const n of names) {
+      const hit = byLower.get(n.toLowerCase());
+      if (!hit) throw new UserError(`unknown list "${n}" (lists: ${known.join(", ")})`);
+      if (!resolved.includes(hit)) resolved.push(hit);
+    }
+    (cfg[field.key] as string[]) = resolved;
+    await saveConfig(cfg);
+    console.log(`${field.key} = ${resolved.join(", ") || "(none)"}`);
+    return;
+  }
+
   if (field.key === "recommend" && !RECOMMEND_STRATEGIES[value]) {
     throw new UserError(
       `unknown recommend strategy "${value}" (options: ${Object.keys(RECOMMEND_STRATEGIES).join(", ")})`,
     );
   }
-  cfg[field.key] = value;
+  (cfg[field.key] as string) = value;
   await saveConfig(cfg);
   console.log(`${field.key} = ${value}`);
 }

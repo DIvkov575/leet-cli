@@ -87,7 +87,7 @@ leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them A
 leet sync <owner/repo> [list...] # package problems into a private GitHub repo
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
-leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend)
+leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
 ```
 
 Every command has a one-line summary in `leet help`; the LeetCode-account
@@ -100,27 +100,47 @@ Settings persist to `config.json` in the data dir (`$XDG_DATA_HOME/leet-cli`, or
 `~/.local/share/leet-cli`). Each is optional and layers over the matching
 environment variable, then a built-in default:
 
-| Key            | Overrides            | Used by             | Default              |
-|----------------|----------------------|---------------------|----------------------|
-| `editor`       | `$VISUAL`/`$EDITOR`  | `solve -o`          | nvim/vim/vi if found |
-| `solutionsDir` | —                    | `solve` / `test`    | `solutions`          |
-| `cxx`          | `$CXX`               | `test`              | `c++`                |
-| `recommend`    | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
+| Key                | Overrides            | Used by             | Default              |
+|--------------------|----------------------|---------------------|----------------------|
+| `editor`           | `$VISUAL`/`$EDITOR`  | `solve -o`          | nvim/vim/vi if found |
+| `solutionsDir`     | —                    | `solve` / `test`    | `solutions`          |
+| `cxx`              | `$CXX`               | `test`              | `c++`                |
+| `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
+| `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
 
 ```sh
-leet config                          # show all settings
-leet config editor "code -w"         # set the editor
-leet config recommend acceptance     # change the recommendation ranking
-leet config cxx --unset              # clear a setting
+leet config                              # show all settings
+leet config editor "code -w"             # set the editor
+leet config recommend acceptance         # change the recommendation ranking
+leet config recommendExclude citadel,sig # don't let these lists count
+leet config recommendExclude --unset     # back to counting every list
+leet config cxx --unset                  # clear a setting
 ```
 
 The `recommend` strategy is modular — `popularity` ranks by how many company
 lists a problem appears in (most-asked first); `acceptance` ranks the most
 approachable unsolved problems first.
 
+### Tuning ★ Recommended
+
+`popularity` treats every bundled list as one vote, which is only useful if you
+care about every company. `recommendExclude` de-selects the lists that shouldn't
+get a vote — if you're not interviewing at a quant shop, drop them and the
+ranking stops being skewed by them:
+
+```sh
+leet config recommendExclude citadel,jane-street,two-sigma,sig
+```
+
+Excluded lists stay **fully browsable** — they simply stop contributing to the
+cross-list popularity signal, and stop being cited in the preview's
+"appears in N lists" line. Skipping *every* list just leaves ★ Recommended empty.
+
 Inside the interactive browser, open the settings screen with **`c`** (from any
 panel, or the **Config** menu item). Enter edits the selected field, `x` clears
-it, Esc saves and closes.
+it, Esc saves and closes. **Recommend: skip lists** opens a checkbox picker —
+`space` toggles a list, `a` clears every tick. Changes re-rank ★ Recommended
+immediately, without a restart.
 
 ### Filters (for `ls` / `random`)
 
