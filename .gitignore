@@ -2,3 +2,9 @@ node_modules/
 leet
 *.log
 .DS_Store
+
+# `bun build --compile` scratch file
+*.bun-build
+
+# default solutionsDir — your own solutions, if you run `leet solve` in the clone
+solutions/

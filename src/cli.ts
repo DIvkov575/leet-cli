@@ -38,8 +38,9 @@ import { submitSolution } from "./leetcode-submit.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
+import { version as VERSION } from "../package.json";
 
-const HELP = `leet — browse bundled LeetCode company lists from the terminal
+const HELP = `leet ${VERSION} — browse bundled LeetCode company lists from the terminal
 
 Usage:
   leet                             Open the interactive browser (pick lists, filter, preview…)
@@ -60,6 +61,7 @@ Usage:
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
   leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
+  leet version                     Print the version (also --version, -v)
 
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
@@ -75,7 +77,7 @@ Examples:
   leet ls uber --search tree --limit 20
   leet ls uber --todo              # what's left to do in the uber list
   leet done 42 two-sum             # mark problems as completed
-  leet import DIvkov575/neetcode-submissions-zkag82uy   # mark done from a NeetCode GitHub sync
+  leet import you/neetcode-submissions-xxxx            # mark done from a NeetCode GitHub sync
   leet import ~/code/neetcode --dry-run                 # preview from a local clone
   LEETCODE_SESSION=… leet import --adapter leetcode     # resync solved from your LeetCode account
   leet random uber -d medium
@@ -251,9 +253,10 @@ async function openInEditor(path: string): Promise<void> {
 
 async function cmdLists(): Promise<void> {
   const names = await availableLists();
+  const width = Math.max(0, ...names.map((n) => n.length));
   for (const name of names) {
     const list = await loadList(name);
-    console.log(`${name.padEnd(16)} ${String(list.problems.length).padStart(4)}  ${list.title}`);
+    console.log(`${name.padEnd(width)} ${String(list.problems.length).padStart(4)}  ${list.title}`);
   }
 }
 
@@ -975,6 +978,11 @@ async function main(): Promise<number> {
     case "-h":
     case "--help":
       console.log(HELP);
+      return 0;
+    case "version":
+    case "-v":
+    case "--version":
+      console.log(VERSION);
       return 0;
     case "lists":
       await cmdLists();
