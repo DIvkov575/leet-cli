@@ -10,6 +10,7 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   CONFIG_FIELDS,
+  toggleSelection,
   type Config,
 } from "./config.ts";
 
@@ -88,7 +89,13 @@ describe("resolveCxx: config > $CXX > default", () => {
 
 describe("CONFIG_FIELDS metadata", () => {
   test("describes the editable settings (credentials excluded)", () => {
-    expect(CONFIG_FIELDS.map((f) => f.key)).toEqual(["editor", "solutionsDir", "cxx", "recommend"]);
+    expect(CONFIG_FIELDS.map((f) => f.key)).toEqual([
+      "editor",
+      "solutionsDir",
+      "cxx",
+      "recommend",
+      "recommendExclude",
+    ]);
     // The session cookie is a credential and must not be a TUI-editable field.
     expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
   });
@@ -116,5 +123,75 @@ describe("credential persists through save/load (hidden but stored)", () => {
     const cfg = await loadConfig();
     expect(cfg.leetcodeSession).toBe("abc123");
     expect(cfg.editor).toBe("vim");
+  });
+});
+
+describe("recommendExclude (list de-selection)", () => {
+  test("round-trips as a string array", async () => {
+    await saveConfig({ recommendExclude: ["citadel", "sig"] });
+    expect((await loadConfig()).recommendExclude).toEqual(["citadel", "sig"]);
+  });
+
+  test("survives alongside the string settings", async () => {
+    await saveConfig({ editor: "vim", recommendExclude: ["uber"] });
+    const cfg = await loadConfig();
+    expect(cfg.editor).toBe("vim");
+    expect(cfg.recommendExclude).toEqual(["uber"]);
+  });
+
+  test("an empty selection is not persisted (file stays minimal)", async () => {
+    await saveConfig({ editor: "vim", recommendExclude: [] });
+    expect(await loadConfig()).toEqual({ editor: "vim" });
+  });
+
+  test("junk entries and wrong types are rejected", async () => {
+    await Bun.write(
+      join(dir, "config.json"),
+      JSON.stringify({ recommendExclude: ["uber", 5, "", "  ", null, "sig"] }),
+    );
+    expect((await loadConfig()).recommendExclude).toEqual(["uber", "sig"]);
+
+    await Bun.write(join(dir, "config.json"), JSON.stringify({ recommendExclude: "uber" }));
+    expect((await loadConfig()).recommendExclude).toBeUndefined();
+  });
+
+  test("is a TUI-editable field, declared as a multiselect", () => {
+    const field = CONFIG_FIELDS.find((f) => f.key === "recommendExclude");
+    expect(field).toBeDefined();
+    expect(field!.kind).toBe("multiselect");
+  });
+
+  test("every other field stays plain text", () => {
+    for (const f of CONFIG_FIELDS) {
+      if (f.key !== "recommendExclude") expect(f.kind).toBe("text");
+    }
+  });
+});
+
+describe("toggleSelection", () => {
+  test("adds a name that isn't selected yet", () => {
+    expect(toggleSelection(undefined, "uber")).toEqual(["uber"]);
+    expect(toggleSelection(["citadel"], "uber")).toEqual(["citadel", "uber"]);
+  });
+
+  test("removes a name that is already selected", () => {
+    expect(toggleSelection(["citadel", "uber"], "citadel")).toEqual(["uber"]);
+    expect(toggleSelection(["uber"], "uber")).toEqual([]);
+  });
+
+  test("removal is case-insensitive (hand-edited config still toggles off)", () => {
+    expect(toggleSelection(["Citadel"], "citadel")).toEqual([]);
+    expect(toggleSelection([" sig "], "SIG")).toEqual([]);
+  });
+
+  test("never mutates the input", () => {
+    const before = ["uber"];
+    toggleSelection(before, "citadel");
+    expect(before).toEqual(["uber"]);
+  });
+
+  test("toggling twice is a no-op", () => {
+    const once = toggleSelection(["a"], "b");
+    expect(toggleSelection(once, "b")).toEqual(["a"]);
   });
 });

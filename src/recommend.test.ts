@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { recommendProblems, getStrategy, popularityStrategy, DEFAULT_STRATEGY } from "./recommend.ts";
+import {
+  recommendProblems,
+  getStrategy,
+  popularityStrategy,
+  excludeLists,
+  DEFAULT_STRATEGY,
+} from "./recommend.ts";
 import type { ProblemList, Difficulty } from "./types.ts";
 
 function P(id: number, acc: number | null, diff: Difficulty = "Medium") {
@@ -63,5 +69,47 @@ describe("recommendProblems", () => {
   test("acceptance strategy ranks most-approachable first", () => {
     const recs = recommendProblems(lists, "acceptance", { limit: 1 });
     expect(recs[0]!.problem.id).toBe(3); // 70% is highest acceptance
+  });
+});
+
+describe("excludeLists", () => {
+  test("no exclusions -> every list is considered", () => {
+    expect(excludeLists(lists, []).map((l) => l.name)).toEqual(["a", "b", "c"]);
+    expect(excludeLists(lists, undefined).map((l) => l.name)).toEqual(["a", "b", "c"]);
+  });
+
+  test("drops the named lists from consideration", () => {
+    expect(excludeLists(lists, ["b"]).map((l) => l.name)).toEqual(["a", "c"]);
+    expect(excludeLists(lists, ["a", "c"]).map((l) => l.name)).toEqual(["b"]);
+  });
+
+  test("matching is case-insensitive and tolerates unknown names", () => {
+    expect(excludeLists(lists, ["B", "  c  "]).map((l) => l.name)).toEqual(["a"]);
+    expect(excludeLists(lists, ["nonexistent"]).map((l) => l.name)).toEqual(["a", "b", "c"]);
+  });
+
+  test("excluding everything yields an empty pool (no crash)", () => {
+    expect(excludeLists(lists, ["a", "b", "c"])).toEqual([]);
+    expect(popularityStrategy(excludeLists(lists, ["a", "b", "c"]), {})).toEqual([]);
+  });
+});
+
+describe("recommendations reflect only the included lists", () => {
+  test("excluding a list lowers listCount and can drop a problem entirely", () => {
+    // p3 lives only in list "a"; excluding "a" must remove it from the pool.
+    const recs = popularityStrategy(excludeLists(lists, ["a"]), {});
+    expect(recs.some((r) => r.problem.id === 3)).toBe(false);
+
+    // p1 was in 3 lists; with "a" gone it is only in b + c.
+    const p1 = recs.find((r) => r.problem.id === 1)!;
+    expect(p1.listCount).toBe(2);
+    expect(p1.lists).toEqual(["b", "c"]);
+  });
+
+  test("the popularity ranking itself changes when a list is excluded", () => {
+    // Excluding b and c leaves only list "a", where all three are tied at 1 list,
+    // so acceptance breaks the tie: p3(70) > p2(60) > p1(50).
+    const recs = popularityStrategy(excludeLists(lists, ["b", "c"]), {});
+    expect(recs.map((r) => r.problem.id)).toEqual([3, 2, 1]);
   });
 });

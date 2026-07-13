@@ -18,6 +18,12 @@ export interface Config {
   /** Ranking strategy for the recommended-problems panel (e.g. "popularity", "acceptance"). */
   recommend?: string;
   /**
+   * List names de-selected from the recommended-problems pool. Excluded lists
+   * stay fully browsable — they simply stop contributing to the cross-list
+   * popularity signal. Unset/empty means every bundled list is considered.
+   */
+  recommendExclude?: string[];
+  /**
    * LeetCode session cookie for `import --adapter leetcode`. Deliberately NOT in
    * CONFIG_FIELDS so it's never shown/edited in the TUI (it's a credential);
    * set it via the LEETCODE_SESSION env var, or hand-edit config.json.
@@ -30,20 +36,61 @@ export interface Config {
 /** A settings key that keeps the same discipline as an env fallback. */
 export type ConfigKey = keyof Config;
 
+/**
+ * How a setting is edited in the TUI. `text` fields are typed in freehand;
+ * `multiselect` fields open a checkbox submenu over a set of choices supplied
+ * by the caller (the bundled list names, for `recommendExclude`).
+ */
+export type ConfigFieldKind = "text" | "multiselect";
+
 /** Describes each editable setting for the config UI (order = display order). */
 export interface ConfigField {
   key: ConfigKey;
   label: string;
+  kind: ConfigFieldKind;
   /** What an unset value falls back to, shown as the placeholder. */
   fallback: string;
 }
 
 export const CONFIG_FIELDS: readonly ConfigField[] = [
-  { key: "editor", label: "Editor command", fallback: "$VISUAL / $EDITOR, else nvim/vim/vi" },
-  { key: "solutionsDir", label: "Solutions directory", fallback: "solutions" },
-  { key: "cxx", label: "C++ compiler", fallback: "$CXX, else c++" },
-  { key: "recommend", label: "Recommend ranking", fallback: "popularity (or: acceptance)" },
+  {
+    key: "editor",
+    label: "Editor command",
+    kind: "text",
+    fallback: "$VISUAL / $EDITOR, else nvim/vim/vi",
+  },
+  { key: "solutionsDir", label: "Solutions directory", kind: "text", fallback: "solutions" },
+  { key: "cxx", label: "C++ compiler", kind: "text", fallback: "$CXX, else c++" },
+  {
+    key: "recommend",
+    label: "Recommend ranking",
+    kind: "text",
+    fallback: "popularity (or: acceptance)",
+  },
+  {
+    key: "recommendExclude",
+    label: "Recommend: skip lists",
+    kind: "multiselect",
+    fallback: "none — every list counts",
+  },
 ] as const;
+
+/** The keys that hold a string array rather than a string. */
+const LIST_KEYS: ConfigKey[] = ["recommendExclude"];
+
+/**
+ * Add/remove `name` from a multiselect field's value. Pure, so the TUI's
+ * checkbox submenu is a thin shell over it. Comparison is case-insensitive to
+ * match `excludeLists`; the stored casing is whatever the caller passed in.
+ * Returns a new array — never mutates.
+ */
+export function toggleSelection(current: readonly string[] | undefined, name: string): string[] {
+  const items = current ?? [];
+  const key = name.trim().toLowerCase();
+  const without = items.filter((n) => n.trim().toLowerCase() !== key);
+  // Present -> removing it. Absent -> adding it.
+  return without.length < items.length ? without : [...items, name];
+}
 
 /** Directory holding user state. Honors LEET_DATA_DIR (used by tests), then XDG. */
 function dataDir(): string {
@@ -61,13 +108,26 @@ function configPath(): string {
 // so they aren't in CONFIG_FIELDS; keep them across load/save explicitly.
 const EXTRA_STRING_KEYS: ConfigKey[] = ["leetcodeSession", "leetcodeCsrf"];
 
-/** Keep only known string keys with non-empty values. */
+/**
+ * Keep only known keys with meaningful values. String keys must be non-blank;
+ * list keys must be arrays of non-blank strings (junk entries are dropped, and
+ * an empty result is omitted entirely so the file stays minimal).
+ */
 function sanitize(raw: Record<string, unknown>): Config {
   const cfg: Config = {};
   const keys = [...CONFIG_FIELDS.map((f) => f.key), ...EXTRA_STRING_KEYS];
   for (const key of keys) {
     const v = raw[key];
-    if (typeof v === "string" && v.trim() !== "") cfg[key] = v.trim();
+    if (LIST_KEYS.includes(key)) {
+      if (!Array.isArray(v)) continue;
+      const items = v
+        .filter((x): x is string => typeof x === "string")
+        .map((x) => x.trim())
+        .filter((x) => x !== "");
+      if (items.length > 0) (cfg[key] as string[]) = items;
+    } else if (typeof v === "string" && v.trim() !== "") {
+      (cfg[key] as string) = v.trim();
+    }
   }
   return cfg;
 }
