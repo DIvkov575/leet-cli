@@ -22,7 +22,7 @@ import { collectTargets, syncTargets, missingManifest } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
 import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
-import { loadCompleted, saveCompleted } from "./progress.ts";
+import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
   loadConfig,
   saveConfig,
@@ -1050,9 +1050,12 @@ async function cmdMarkSolved(p: Parsed): Promise<void> {
       (dryRun ? "\n(dry run — nothing saved)" : ""),
   );
   if (!dryRun && newIds.length > 0) {
-    for (const id of newIds) completed.add(id);
-    await saveCompleted(completed);
-    console.error(`${completed.size} done total.`);
+    // Merge under the lock so a concurrent done/import doesn't clobber this.
+    const total = await updateCompleted((c) => {
+      for (const id of result.matchedIds) c.add(id);
+      return c;
+    });
+    console.error(`${total.size} done total.`);
   }
 }
 
@@ -1097,38 +1100,48 @@ async function cmdDone(p: Parsed): Promise<void> {
     return;
   }
 
-  await setDone(p.positionals, completed, true);
+  await setDone(p.positionals, true);
 }
 
 async function cmdUndone(p: Parsed): Promise<void> {
   if (p.positionals.length === 0) throw new UserError("usage: leet undone <id|slug ...>");
-  await setDone(p.positionals, await loadCompleted(), false);
+  await setDone(p.positionals, false);
 }
 
-/** Resolve keys to problem ids and flip their completion state. */
-async function setDone(keys: string[], completed: Set<number>, done: boolean): Promise<void> {
-  let changed = 0;
+/**
+ * Resolve keys to problem ids, then flip their completion state under the file
+ * lock so concurrent `leet done/undone` runs can't clobber each other. Key
+ * resolution (possibly slow) happens before the lock; only the read-modify-save
+ * is serialized.
+ */
+async function setDone(keys: string[], done: boolean): Promise<void> {
+  // Resolve keys to problems up front (outside the lock).
+  const found: Problem[] = [];
   for (const key of keys) {
-    const found = await findProblemAnywhere(key);
-    if (!found) {
-      console.error(`  skipped "${key}": not found in bundled lists`);
-      continue;
-    }
-    const already = completed.has(found.id);
-    if (done && !already) {
-      completed.add(found.id);
-      changed++;
-      console.log(`  ✓ ${found.id}. ${found.title}`);
-    } else if (!done && already) {
-      completed.delete(found.id);
-      changed++;
-      console.log(`  ✗ ${found.id}. ${found.title}`);
-    } else {
-      console.log(`  · ${found.id}. ${found.title} (already ${done ? "done" : "not done"})`);
-    }
+    const p = await findProblemAnywhere(key);
+    if (!p) console.error(`  skipped "${key}": not found in bundled lists`);
+    else found.push(p);
   }
-  if (changed > 0) await saveCompleted(completed);
-  console.error(`${changed} problem(s) ${done ? "marked done" : "unmarked"}, ${completed.size} done total.`);
+
+  let changed = 0;
+  const total = await updateCompleted((completed) => {
+    for (const p of found) {
+      const already = completed.has(p.id);
+      if (done && !already) {
+        completed.add(p.id);
+        changed++;
+        console.log(`  ✓ ${p.id}. ${p.title}`);
+      } else if (!done && already) {
+        completed.delete(p.id);
+        changed++;
+        console.log(`  ✗ ${p.id}. ${p.title}`);
+      } else {
+        console.log(`  · ${p.id}. ${p.title} (already ${done ? "done" : "not done"})`);
+      }
+    }
+    return completed;
+  });
+  console.error(`${changed} problem(s) ${done ? "marked done" : "unmarked"}, ${total.size} done total.`);
 }
 
 async function cmdImport(p: Parsed): Promise<void> {
@@ -1193,9 +1206,15 @@ async function cmdImport(p: Parsed): Promise<void> {
   const newProblems = result.matched.filter((pr) => newIds.includes(pr.id));
   if (newProblems.length > 0) console.log(renderTable(newProblems, result.matchedIds));
 
+  let total = completed.size;
   if (!dryRun && newIds.length > 0) {
-    for (const id of newIds) completed.add(id);
-    await saveCompleted(completed);
+    // Merge under the lock so a concurrent mutation isn't clobbered.
+    total = (
+      await updateCompleted((c) => {
+        for (const id of result.matchedIds) c.add(id);
+        return c;
+      })
+    ).size;
   }
 
   const verb = dryRun ? "would mark" : "marked";
@@ -1203,7 +1222,7 @@ async function cmdImport(p: Parsed): Promise<void> {
     `\n${result.matched.length} of ${result.totalSolved} solved problems are in bundled lists; ` +
       `${verb} ${newIds.length} new, ${result.matched.length - newIds.length} already done. ` +
       `${result.unmatched.length} not in any bundled list.` +
-      (dryRun ? "\n(dry run — nothing saved; re-run without --dry-run to apply)" : ` ${completed.size} done total.`),
+      (dryRun ? "\n(dry run — nothing saved; re-run without --dry-run to apply)" : ` ${total} done total.`),
   );
 }
 
