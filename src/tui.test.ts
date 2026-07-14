@@ -12,11 +12,38 @@ import {
   renderFrame,
   solveCommand,
   filterRepoSuggestions,
+  menuWindow,
   MENU_ITEMS,
 } from "./tui.ts";
 
 const RESET = "\x1b[0m";
 const REV = "\x1b[7m";
+
+describe("menuWindow", () => {
+  // 11 items each 8 cols wide, like the real bar's cell lengths.
+  const lens = Array.from({ length: 11 }, () => 8);
+
+  test("everything fits -> full range", () => {
+    expect(menuWindow(lens, 0, 200)).toEqual({ start: 0, end: 11 });
+  });
+
+  test("narrow: selected item is inside the window", () => {
+    const { start, end } = menuWindow(lens, 5, 40);
+    expect(5).toBeGreaterThanOrEqual(start);
+    expect(5).toBeLessThan(end);
+    expect(end).toBeLessThanOrEqual(11);
+  });
+
+  test("selecting the last item scrolls it into view", () => {
+    const { start, end } = menuWindow(lens, 10, 40);
+    expect(end).toBe(11);
+    expect(10).toBeGreaterThanOrEqual(start);
+  });
+
+  test("empty menu -> empty range", () => {
+    expect(menuWindow([], 0, 80)).toEqual({ start: 0, end: 0 });
+  });
+});
 
 describe("filterRepoSuggestions", () => {
   const repos = [
@@ -258,6 +285,20 @@ describe("renderFrame layout", () => {
     expect(strip(f[0]!)).toContain("Filter");
     expect(strip(f[0]!)).toContain("Sort");
     expect(strip(f[0]!)).toContain("Import");
+  });
+
+  test("focused menu highlights the selected item even on a narrow terminal", () => {
+    // 60 cols can't fit all 11 items; the selected one must still be visible +
+    // highlighted (reverse-video), which the old full-bar-only render dropped.
+    const bar = renderFrame(makeState({ focus: "menu", menuIndex: 2 }), 12, 60)[0]!;
+    expect(strip(bar)).toContain("Sort"); // selected item is in the window
+    if (bar.includes("\x1b[")) expect(bar).toContain("\x1b[7m"); // reverse-video present
+  });
+
+  test("selecting a far item keeps it visible (windowed)", () => {
+    const bar = strip(renderFrame(makeState({ focus: "menu", menuIndex: 10 }), 12, 60)[0]!);
+    expect(bar).toContain("Help"); // last item scrolled into view
+    expect(bar).toContain("‹"); // overflow marker on the left
   });
 
   test("Problems panel header shows view name, count, and settings", () => {

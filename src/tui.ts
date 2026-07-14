@@ -839,19 +839,65 @@ function distributeWidths(panels: PanelName[], avail: number): number[] {
   return widths;
 }
 
+/**
+ * The contiguous run of menu items [start, end) to show so that item `sel` is
+ * visible and the row (cells joined by single spaces, plus optional ‹/› overflow
+ * markers) fits within `cols`. Grows outward from `sel`, preferring to reveal
+ * following items first, so the highlighted item is never clipped on a narrow
+ * terminal. Pure, so it's unit-tested.
+ */
+export function menuWindow(cellLens: number[], sel: number, cols: number): { start: number; end: number } {
+  const n = cellLens.length;
+  if (n === 0) return { start: 0, end: 0 };
+  const sepAndMarkers = 4; // slack for a leading "‹ " and trailing " ›"
+  const budget = Math.max(1, cols - sepAndMarkers);
+  let start = Math.max(0, Math.min(sel, n - 1));
+  let end = start + 1;
+  let used = cellLens[start]!;
+  // Alternate expanding right then left until we run out of room.
+  let grow = true;
+  while (grow) {
+    grow = false;
+    if (end < n && used + 1 + cellLens[end]! <= budget) {
+      used += 1 + cellLens[end]!;
+      end++;
+      grow = true;
+    }
+    if (start > 0 && used + 1 + cellLens[start - 1]! <= budget) {
+      start--;
+      used += 1 + cellLens[start]!;
+      grow = true;
+    }
+  }
+  return { start, end };
+}
+
 /** Render the menu bar to exactly `cols`, highlighting the focused item. */
 function renderMenuBar(s: State, cols: number): string {
   const cells = MENU_ITEMS.map((it) => ` ${it.label} `);
   const plainLen = cells.reduce((n, c) => n + c.length, 0) + (cells.length - 1);
 
-  if (s.focus === "menu" && plainLen <= cols) {
+  // When not in the menu, just show the (possibly truncated) dim bar.
+  if (s.focus !== "menu") return paint(fit(cells.join(" "), cols), "dim");
+
+  // In the menu: if everything fits, highlight in place; otherwise show a
+  // horizontal window around the selection so the highlight is always visible.
+  if (plainLen <= cols) {
     const styled = cells
       .map((c, i) => (i === s.menuIndex ? paint(c, "rev", "bold") : c))
       .join(" ");
     return styled + " ".repeat(cols - plainLen);
   }
-  const plain = cells.join(" ");
-  return paint(fit(plain, cols), s.focus === "menu" ? "bold" : "dim");
+
+  const { start, end } = menuWindow(cells.map((c) => c.length), s.menuIndex, cols);
+  const parts = cells
+    .slice(start, end)
+    .map((c, i) => (start + i === s.menuIndex ? paint(c, "rev", "bold") : paint(c, "bold")));
+  let bar = parts.join(" ");
+  if (start > 0) bar = paint("‹", "dim") + " " + bar;
+  if (end < cells.length) bar = bar + " " + paint("›", "dim");
+  // Pad/truncate to the exact width (fit() ignores the ANSI codes).
+  return fit(bar, cols);
 }
 
 /** Render a full-screen overlay from content lines. */
