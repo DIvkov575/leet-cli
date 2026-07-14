@@ -469,6 +469,51 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
  * code, print the problem statement, and embed a runnable test harness built
  * from the example cases. `--quiet` skips printing the statement.
  */
+/**
+ * Non-destructively add the problem-statement comment block to an existing
+ * solution file that predates description-embedding. `freshContent` is a
+ * freshly-scaffolded version of the same problem (which does carry the block).
+ *
+ * Both files open with a run of `//` header lines. A file that already has the
+ * statement contains a bare `//` separator line in that run; if the existing
+ * file has one, it's already up to date. Otherwise we lift the freshly-generated
+ * header's statement block (everything from its bare `//` separator to the end
+ * of its `//` run) and splice it into the existing file right after its header,
+ * leaving all code below untouched.
+ *
+ * Returns "added" if the statement was inserted, "already" if the file already
+ * had it, or "cannot" if there's no statement block to lift (e.g. a premium
+ * problem with no content).
+ */
+async function addStatementToExistingFile(
+  path: string,
+  freshContent: string,
+): Promise<"added" | "already" | "cannot"> {
+  const existing = await Bun.file(path).text();
+  const exLines = existing.split("\n");
+  const frLines = freshContent.split("\n");
+
+  const headerEnd = (lines: string[]): number => {
+    let i = 0;
+    while (i < lines.length && lines[i]!.startsWith("//")) i++;
+    return i;
+  };
+  const exEnd = headerEnd(exLines);
+  const frEnd = headerEnd(frLines);
+
+  // Already has an embedded statement (bare "//" separator in the header)?
+  if (exLines.slice(0, exEnd).some((l) => l === "//")) return "already";
+  // Fresh content has no statement block to lift (e.g. premium/no-content)?
+  const frSep = frLines.slice(0, frEnd).findIndex((l) => l === "//");
+  if (frSep === -1) return "cannot";
+
+  // The block is the fresh header's separator line through the end of its // run.
+  const block = frLines.slice(frSep, frEnd);
+  const merged = [...exLines.slice(0, exEnd), ...block, ...exLines.slice(exEnd)];
+  await Bun.write(path, merged.join("\n"));
+  return "added";
+}
+
 async function cmdSolve(p: Parsed): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet] [--fresh]");
@@ -510,6 +555,20 @@ async function cmdSolve(p: Parsed): Promise<void> {
 
   const path = `${dir}/${scaffoldFilename(id, slug)}`;
   if (!p.values.force && (await Bun.file(path).exists())) {
+    // The file exists. Rather than refuse outright (and rather than overwrite
+    // and destroy any solution code), try to non-destructively add the problem
+    // statement to it if it's an older file that predates description-embedding.
+    const outcome = await addStatementToExistingFile(path, content);
+    if (outcome === "added") {
+      console.log(`added the problem statement to ${path} (your code was kept)`);
+      if (p.values.open) await openInEditor(path);
+      return;
+    }
+    if (outcome === "already") {
+      console.log(`${path} already exists and has the problem statement.`);
+      if (p.values.open) await openInEditor(path);
+      return;
+    }
     throw new UserError(`${path} already exists (pass --force to overwrite)`);
   }
   await Bun.write(path, content);
