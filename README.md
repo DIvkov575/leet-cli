@@ -354,8 +354,10 @@ leet sync-repo                                # show the configured repo
 leet sync-repo unset                          # clear it
 ```
 
-You can also set it in the interactive **Config** menu (the *Sync repo* field),
-via the `LEET_SYNC_REPO` env var, or by hand in `config.json` (`syncRepo`).
+You can also set it in the interactive **Config** menu (the *Sync repo* field —
+which autocompletes against your GitHub repos as you type: `↑↓` to pick, `Tab`
+to complete), via the `LEET_SYNC_REPO` env var, or by hand in `config.json`
+(`syncRepo`).
 
 With a repo registered, three commands work with no repo argument:
 

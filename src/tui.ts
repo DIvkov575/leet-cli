@@ -11,6 +11,7 @@ import {
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { resolveDescription } from "./description.ts";
+import { listUserRepos } from "./repo.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import {
@@ -285,6 +286,14 @@ interface ConfigState {
    * list names) so config.ts stays free of any knowledge of what lists exist.
    */
   picker: { key: ConfigKey; choices: string[]; index: number } | null;
+  /**
+   * Autocomplete candidates for a text field (currently the sync repo — the
+   * user's GitHub repos, fetched once via `gh`). Filtered against `draft` at
+   * render time; `suggestIndex` highlights one for Tab-to-accept. Empty until
+   * the async fetch lands (or if `gh` is unavailable).
+   */
+  repoSuggestions: string[];
+  suggestIndex: number;
 }
 
 /** The Sync overlay's actions, in menu order. */
@@ -863,6 +872,38 @@ export function configValueCell(field: ConfigField, working: Config): string {
   return (set as string | undefined) ?? "";
 }
 
+/**
+ * Which config field (if any) offers repo autocomplete. Kept as a helper so the
+ * render and key handler agree on when suggestions are live.
+ */
+function fieldHasRepoSuggest(field: ConfigField | undefined): boolean {
+  return field?.key === "syncRepo";
+}
+
+/**
+ * Filter repo candidates against the typed draft: case-insensitive substring,
+ * ranked so prefix matches come first, then alphabetically. An empty draft
+ * shows everything (capped). Exact matches are dropped — no point suggesting
+ * what's already typed in full. Pure, so it's unit-tested.
+ */
+export function filterRepoSuggestions(
+  candidates: readonly string[],
+  draft: string,
+  limit = 8,
+): string[] {
+  const q = draft.trim().toLowerCase();
+  const hits = candidates.filter((r) => {
+    const lower = r.toLowerCase();
+    return lower.includes(q) && lower !== q;
+  });
+  hits.sort((a, b) => {
+    const ap = a.toLowerCase().startsWith(q) ? 0 : 1;
+    const bp = b.toLowerCase().startsWith(q) ? 0 : 1;
+    return ap !== bp ? ap - bp : a.localeCompare(b);
+  });
+  return hits.slice(0, limit);
+}
+
 /** Render the settings overlay: one row per editable field, showing current value or fallback. */
 function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
   // The checkbox submenu takes over the whole overlay while it's open.
@@ -894,8 +935,28 @@ function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
   });
   const selectedField = CONFIG_FIELDS[cfg.index];
   const openVerb = selectedField?.kind === "multiselect" ? "choose" : "edit";
+
+  // While editing the sync-repo field, list matching GitHub repos beneath the
+  // settings so the user can Tab-complete instead of typing the full owner/repo.
+  let repoSuggesting = false;
+  if (cfg.editing && fieldHasRepoSuggest(selectedField)) {
+    const matches = filterRepoSuggestions(cfg.repoSuggestions, cfg.draft);
+    repoSuggesting = matches.length > 0;
+    if (repoSuggesting) {
+      content.push("", paint("  matching repos:", "dim"));
+      matches.forEach((repo, i) => {
+        const row = `    ${repo}`;
+        content.push(i === cfg.suggestIndex ? paint(fit(row, cols), "rev") : row);
+      });
+    } else if (cfg.repoSuggestions.length === 0) {
+      content.push("", paint("  (type owner/repo — gh repo list unavailable)", "dim"));
+    }
+  }
+
   const hint = cfg.editing
-    ? " editing  (Enter save field · Esc cancel edit)"
+    ? repoSuggesting
+      ? " editing  (↑↓ pick · Tab complete · Enter save · Esc cancel)"
+      : " editing  (Enter save field · Esc cancel edit)"
     : ` settings  (↑↓ move · Enter ${openVerb} · x clear · Esc save & close)`;
   return renderOverlay(content, rows, cols, hint);
 }
@@ -1260,8 +1321,22 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   const openConfig = async (): Promise<void> => {
     const cfg = await loadConfig();
-    state.config = { index: 0, editing: false, draft: "", working: { ...cfg }, picker: null };
+    state.config = {
+      index: 0,
+      editing: false,
+      draft: "",
+      working: { ...cfg },
+      picker: null,
+      repoSuggestions: [],
+      suggestIndex: 0,
+    };
     render();
+    // Fetch the user's repos in the background for the sync-repo autocomplete;
+    // degrade silently to a plain text field if gh isn't available.
+    void listUserRepos().then((repos) => {
+      if (state.config) state.config.repoSuggestions = repos;
+      render();
+    });
   };
 
   // Scaffold the current problem's C++ file (cache-first) into the solutions
@@ -1764,6 +1839,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
         }
 
         if (cfg.editing) {
+          // Live repo autocomplete on the sync-repo field: the current matches
+          // for the typed draft, so ↑↓/Tab operate on what's on screen.
+          const suggests = fieldHasRepoSuggest(field)
+            ? filterRepoSuggestions(cfg.repoSuggestions, cfg.draft)
+            : [];
           if (key === "\r" || key === "\n") {
             const v = cfg.draft.trim();
             // Only text fields ever enter edit mode; multiselect opens the picker.
@@ -1772,13 +1852,22 @@ export async function runTui(list?: ProblemList): Promise<void> {
             cfg.editing = false;
           } else if (key === "\x1b") {
             cfg.editing = false; // cancel edit, keep prior value
+          } else if (suggests.length > 0 && key === "\t") {
+            // Tab accepts the highlighted suggestion into the draft.
+            cfg.draft = suggests[Math.min(cfg.suggestIndex, suggests.length - 1)]!;
+            cfg.suggestIndex = 0;
+          } else if (suggests.length > 0 && (key === "\x1b[A" || key === "\x1b[B")) {
+            const dir = key === "\x1b[A" ? -1 : 1;
+            cfg.suggestIndex = (cfg.suggestIndex + dir + suggests.length) % suggests.length;
           } else if (key === "\x7f" || key === "\b") {
             cfg.draft = cfg.draft.slice(0, -1);
+            cfg.suggestIndex = 0;
           } else if (key === "\x03") {
             finish();
             return;
           } else if (key >= " " && !key.startsWith("\x1b")) {
             cfg.draft += key;
+            cfg.suggestIndex = 0;
           }
           render();
           return;

@@ -11,11 +11,49 @@ import {
   wrapText,
   renderFrame,
   solveCommand,
+  filterRepoSuggestions,
   MENU_ITEMS,
 } from "./tui.ts";
 
 const RESET = "\x1b[0m";
 const REV = "\x1b[7m";
+
+describe("filterRepoSuggestions", () => {
+  const repos = [
+    "DIvkov575/leetcode-problems",
+    "DIvkov575/neetcode-submissions-zkag82uy",
+    "DIvkov575/leet-cli",
+    "someoneelse/leetcode",
+  ];
+
+  test("empty draft returns everything (capped)", () => {
+    expect(filterRepoSuggestions(repos, "")).toHaveLength(4);
+    expect(filterRepoSuggestions(repos, "", 2)).toHaveLength(2);
+  });
+
+  test("case-insensitive substring match", () => {
+    expect(filterRepoSuggestions(repos, "NEET")).toEqual([
+      "DIvkov575/neetcode-submissions-zkag82uy",
+    ]);
+  });
+
+  test("prefix matches rank before mid-string matches", () => {
+    const out = filterRepoSuggestions(repos, "leet");
+    // "someoneelse/leetcode" contains "leet" but doesn't start with it; the two
+    // "DIvkov575/leet*" repos aren't prefix either (owner prefix), so ranking is
+    // alphabetical among substring hits.
+    expect(out).toContain("DIvkov575/leetcode-problems");
+    expect(out).toContain("someoneelse/leetcode");
+  });
+
+  test("an exact full match is dropped (already fully typed)", () => {
+    expect(filterRepoSuggestions(repos, "DIvkov575/leet-cli")).toEqual([]);
+  });
+
+  test("no candidates -> empty", () => {
+    expect(filterRepoSuggestions([], "anything")).toEqual([]);
+  });
+});
 
 describe("solveCommand", () => {
   test("is a short, non-truncating scaffold+open command", () => {

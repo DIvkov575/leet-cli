@@ -10,6 +10,26 @@ export function repoSlug(): string {
   return process.env.LEET_REPO ?? "DIvkov575/leetcode-problems";
 }
 
+/**
+ * List the current user's GitHub repos as "owner/repo", via the authenticated
+ * `gh` CLI, for the sync-repo autocomplete. Returns [] on any failure (gh not
+ * installed, not logged in) so the caller degrades to a plain text field rather
+ * than erroring. Capped at `limit`.
+ */
+export async function listUserRepos(limit = 200): Promise<string[]> {
+  try {
+    const proc = Bun.spawn(
+      ["gh", "repo", "list", "--limit", String(limit), "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"],
+      { stdout: "pipe", stderr: "ignore" },
+    );
+    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    if (code !== 0) return [];
+    return out.split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /** Branch the raw files are served from, overridable via LEET_REPO_BRANCH. */
 function repoBranch(): string {
   return process.env.LEET_REPO_BRANCH ?? "main";
