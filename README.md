@@ -376,8 +376,18 @@ leet sync                  # package the bundled problems (desc + stub + tests) 
   Folders for problems not in any bundled list are reported and skipped (local
   completion is keyed to bundled-list problems).
 
-The same actions live in the TUI **Sync** menu (*Mark solved from sync repo*),
-alongside authenticate / pull / push.
+The TUI **Sync** menu (Tab → Sync) has the full set:
+
+1. **Authenticate** — grab your LeetCode session from a browser.
+2. **Pull solved from LeetCode** — mark done what you've solved on your account.
+3. **Mark solved from sync repo** — mark done from the folders in your sync repo.
+4. **Pull my solutions → repo** — fetch LeetCode-solved problems missing from
+   your sync repo and push them (suspends the TUI, shows live progress, returns
+   on any key).
+5. **Commit + push solutions dir** — git add/commit/push your local `./solutions`
+   files to the repo they live in.
+6. **Push solutions to LeetCode** — submit NeetCode solutions to mark Accepted
+   (with an in-panel confirm before any real submission).
 
 ## Live data
 

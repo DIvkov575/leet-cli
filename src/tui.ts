@@ -301,6 +301,8 @@ const SYNC_ACTIONS = [
   { key: "auth", label: "Authenticate", hint: "grab your LeetCode session from a browser" },
   { key: "pull", label: "Pull solved from LeetCode", hint: "mark done what you've solved on your account" },
   { key: "markRepo", label: "Mark solved from sync repo", hint: "mark done from the folders in your sync repo" },
+  { key: "pullSolutions", label: "Pull my solutions → repo", hint: "add LeetCode-solved problems missing from your sync repo" },
+  { key: "pushDir", label: "Commit + push solutions dir", hint: "git add/commit/push your ./solutions files to the sync repo" },
   { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
 ] as const;
 type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
@@ -317,6 +319,12 @@ interface SyncState {
   lines: string[];
   /** When set, push is awaiting y/n confirmation; holds the plan count. */
   confirmPush: number | null;
+  /**
+   * A generic pending confirmation for the git actions (pull-solutions / push
+   * dir), gated behind y/n like `confirmPush`. `prompt` is the footer question;
+   * `action` picks which runner fires on `y`.
+   */
+  confirm: { action: "pullSolutions" | "pushDir"; prompt: string } | null;
 }
 
 /**
@@ -1019,11 +1027,13 @@ function renderSync(sync: SyncState, rows: number, cols: number): string[] {
   if (sync.lines.length > 0) {
     content.push("", paint(fit("  ─ output ─", cols), "dim"), ...sync.lines.map((l) => `  ${l}`));
   }
-  const hint = sync.confirmPush !== null
+  const hint = sync.confirmPush != null
     ? ` push ${sync.confirmPush} solution(s) to your LeetCode account?  (y = submit · n/Esc = cancel)`
-    : sync.busy
-      ? " working…  (Esc when done)"
-      : " sync  (↑↓ move · Enter run · Esc close)";
+    : sync.confirm
+      ? ` ${sync.confirm.prompt}  (y = yes · n/Esc = cancel)`
+      : sync.busy
+        ? " working…  (Esc when done)"
+        : " sync  (↑↓ move · Enter run · Esc close)";
   return renderOverlay(content, rows, cols, hint);
 }
 
@@ -1490,7 +1500,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   // ── Sync overlay: auth / pull / push, all running in-panel ──
   const openSync = (): void => {
-    state.sync = { index: 0, busy: false, lines: [], confirmPush: null };
+    state.sync = { index: 0, busy: false, lines: [], confirmPush: null, confirm: null };
     render();
   };
   const syncLog = (line: string): void => {
@@ -1568,6 +1578,118 @@ export async function runTui(list?: ProblemList): Promise<void> {
       );
     } catch (err) {
       syncLog(`mark-solved failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  // Re-invoke `leet <args>` as a child process with the terminal handed over
+  // (suspending the alt-screen), so long git/network operations show their live
+  // output and can't corrupt the TUI frame. Works both compiled (a single
+  // executable argv[0]) and under `bun run` (argv = [bun, cli.ts, …]). Returns
+  // the child's exit code; -1 if it couldn't be spawned.
+  const runLeetInShell = async (args: string[]): Promise<number> => {
+    // process.argv[1] is cli.ts under `bun run`; undefined-ish when compiled.
+    const self = process.argv[1];
+    const cmd =
+      self && self.endsWith(".ts")
+        ? [process.execPath, self, ...args] // bun run src/cli.ts …
+        : [process.execPath, ...args]; // compiled standalone binary
+    // Detach the TUI's key handler while the child owns the terminal, so its
+    // stdin and our "press any key" prompt don't feed back into the frame.
+    process.stdin.removeListener("data", onData);
+    out.write("\x1b[?25h\x1b[?1049l"); // leave alt-screen, show cursor
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    let code = -1;
+    try {
+      const child = Bun.spawn(cmd, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+      code = await child.exited;
+      // Hold on the finished output until a key, so it isn't wiped instantly.
+      process.stdout.write("\n[done — press any key to return to leet] ");
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      await new Promise<void>((resolve) => process.stdin.once("data", () => resolve()));
+    } catch {
+      code = -1;
+    }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", onData); // re-attach the TUI key handler
+    out.write("\x1b[?1049h\x1b[?25l"); // re-enter alt-screen, hide cursor
+    return code;
+  };
+
+  // Pull-solutions: add LeetCode-solved problems missing from the sync repo.
+  // Runs the real `leet pull-solutions` in a suspended shell (it clones, fetches,
+  // and pushes with live progress), then refreshes local state.
+  const syncPullSolutions = async (): Promise<void> => {
+    if (!state.sync) return;
+    const repo = resolveSyncRepo(undefined, await loadConfig());
+    if (!repo) {
+      syncLog("No sync repo configured — set it in Config (Sync repo) first.");
+      return;
+    }
+    state.sync.busy = true;
+    render();
+    const code = await runLeetInShell(["pull-solutions", repo]);
+    syncLog(code === 0 ? `pull-solutions finished (${repo}).` : `pull-solutions exited ${code}.`);
+    state.sync.busy = false;
+    render();
+  };
+
+  // Run a git command in `cwd`, logging the trimmed output to the sync panel.
+  // Returns { code, out } so callers can branch on success and show detail.
+  const gitInDir = async (args: string[], cwd: string): Promise<{ code: number; out: string }> => {
+    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { code, out: (stdout + stderr).trim() };
+  };
+
+  // Commit + push the local solutions dir. It lives inside a git repo (the
+  // leet-cli checkout or wherever the user keeps solutions); this stages that
+  // dir, commits if there's anything new, and pushes — logging each step.
+  const syncPushDir = async (): Promise<void> => {
+    if (!state.sync) return;
+    const config = await loadConfig();
+    const dir = resolveSolutionsDir(undefined, config);
+    state.sync.busy = true;
+    state.sync.lines = [`Committing + pushing ${dir}…`];
+    render();
+    try {
+      // Resolve the git repo root that contains the solutions dir.
+      const root = await gitInDir(["rev-parse", "--show-toplevel"], dir);
+      if (root.code !== 0) {
+        syncLog(`${dir} is not inside a git repository — nothing to push.`);
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      const cwd = root.out;
+      await gitInDir(["add", "--", dir], cwd);
+      const status = await gitInDir(["status", "--porcelain", "--", dir], cwd);
+      if (status.out === "") {
+        syncLog("Nothing to commit — the solutions dir is already up to date.");
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      const commit = await gitInDir(["commit", "-m", `solutions: update ${dir} (leet-cli)`, "--", dir], cwd);
+      if (commit.code !== 0) {
+        syncLog(`commit failed: ${commit.out.split("\n")[0] ?? ""}`);
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      syncLog("committed; pushing…");
+      const push = await gitInDir(["push"], cwd);
+      syncLog(push.code === 0 ? "pushed." : `push failed: ${push.out.split("\n").slice(-1)[0] ?? ""}`);
+    } catch (err) {
+      syncLog(`push-dir failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     state.sync.busy = false;
     render();
@@ -1670,7 +1792,20 @@ export async function runTui(list?: ProblemList): Promise<void> {
     if (action === "auth") void syncAuth();
     else if (action === "pull") void syncPull();
     else if (action === "markRepo") void syncMarkRepo();
-    else if (action === "push") void syncPushPlan();
+    // The two outward-writing git actions gate behind a y/n confirm first.
+    else if (action === "pullSolutions") {
+      state.sync.confirm = {
+        action: "pullSolutions",
+        prompt: "pull your solved LeetCode problems into the sync repo and push?",
+      };
+      render();
+    } else if (action === "pushDir") {
+      state.sync.confirm = {
+        action: "pushDir",
+        prompt: "commit + push your local solutions dir?",
+      };
+      render();
+    } else if (action === "push") void syncPushPlan();
   };
 
   const activateMenu = (action: MenuAction): void => {
@@ -1917,6 +2052,23 @@ export async function runTui(list?: ProblemList): Promise<void> {
           } else if (key === "n" || key === "N" || key === "\x1b") {
             sync.confirmPush = null;
             syncLog("push cancelled.");
+          } else if (key === "\x03") {
+            finish();
+            return;
+          }
+          render();
+          return;
+        }
+        // Generic confirmation gate for the git actions: y runs, n/Esc cancels.
+        if (sync.confirm) {
+          if (key === "y" || key === "Y") {
+            const action = sync.confirm.action;
+            sync.confirm = null;
+            if (action === "pullSolutions") void syncPullSolutions();
+            else if (action === "pushDir") void syncPushDir();
+          } else if (key === "n" || key === "N" || key === "\x1b") {
+            sync.confirm = null;
+            syncLog("cancelled.");
           } else if (key === "\x03") {
             finish();
             return;

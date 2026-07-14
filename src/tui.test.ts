@@ -448,26 +448,43 @@ describe("renderFrame config overlay", () => {
 });
 
 describe("renderFrame sync overlay", () => {
-  test("shows the three sync actions and running output", () => {
+  test("shows the sync actions and running output", () => {
     const s = makeState({
-      sync: { index: 0, busy: false, lines: ["Signed in as tester."], confirmPush: null },
+      sync: { index: 0, busy: false, lines: ["Signed in as tester."], confirmPush: null, confirm: null },
     });
-    const f = renderFrame(s, 16, 80);
+    const f = renderFrame(s, 20, 80);
     for (const line of f) expect(strip(line).length).toBe(80);
     const joined = strip(f.join("\n"));
     expect(joined).toContain("LeetCode Sync");
     expect(joined).toContain("Authenticate");
     expect(joined).toContain("Pull solved from LeetCode");
+    expect(joined).toContain("Pull my solutions → repo");
+    expect(joined).toContain("Commit + push solutions dir");
     expect(joined).toContain("Push solutions to LeetCode");
     expect(joined).toContain("Signed in as tester.");
   });
 
   test("push confirmation prompt gates the destructive action", () => {
     const s = makeState({
-      sync: { index: 2, busy: false, lines: [], confirmPush: 12 },
+      sync: { index: 4, busy: false, lines: [], confirmPush: 12, confirm: null },
     });
-    const joined = strip(renderFrame(s, 16, 80).join("\n"));
+    const joined = strip(renderFrame(s, 20, 80).join("\n"));
     expect(joined).toContain("push 12 solution(s)");
     expect(joined).toContain("y = submit");
+  });
+
+  test("generic confirm gate shows its prompt", () => {
+    const s = makeState({
+      sync: {
+        index: 3,
+        busy: false,
+        lines: [],
+        confirmPush: null,
+        confirm: { action: "pushDir", prompt: "commit + push your local solutions dir?" },
+      },
+    });
+    const joined = strip(renderFrame(s, 20, 80).join("\n"));
+    expect(joined).toContain("commit + push your local solutions dir?");
+    expect(joined).toContain("y = yes");
   });
 });
