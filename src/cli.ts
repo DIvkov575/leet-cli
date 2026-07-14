@@ -30,6 +30,7 @@ import {
   resolveSolutionsDir,
   resolveCxx,
   resolveLeetCodeAuth,
+  resolveSyncRepo,
   CONFIG_FIELDS,
 } from "./config.ts";
 import { importSource } from "./import.ts";
@@ -59,8 +60,10 @@ Usage:
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet push [--source neetcode|dir] Submit solutions to LeetCode to mark them Accepted (--yes to apply)
-  leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
-  leet pull-solutions <owner/repo> Add LeetCode-solved problems missing from your NeetCode submissions repo
+  leet sync [owner/repo] [list...] Package all problems (desc + stub + tests) into a GitHub repo (default: sync repo)
+  leet sync-repo [create|adopt …]  Form/register your solution-sync repo (saved in config)
+  leet pull-solutions [owner/repo] Add LeetCode-solved problems missing from your sync repo
+  leet mark-solved [owner/repo]    Mark problems done locally from the folders present in a sync repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
@@ -753,13 +756,18 @@ async function run(cmd: string[], cwd?: string): Promise<string> {
  * staggered random delays, then commits and pushes.
  */
 async function cmdSync(p: Parsed): Promise<void> {
-  const repo = p.positionals[0];
-  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+  // First positional is the repo when it looks like owner/repo; otherwise fall
+  // back to the configured sync repo and treat every positional as a list name.
+  const looksRepo = p.positionals[0] && /^[\w.-]+\/[\w.-]+$/.test(p.positionals[0]);
+  const repo = resolveSyncRepo(looksRepo ? p.positionals[0] : undefined, await loadConfig());
+  if (!repo) {
     throw new UserError(
-      "usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push] [--force]",
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push] [--force]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet sync`)",
     );
   }
-  const listArgs = p.positionals.slice(1);
+  const listArgs = p.positionals.slice(looksRepo ? 1 : 0);
   const listNames = listArgs.length > 0 ? listArgs : undefined;
   const dryRun = Boolean(p.values["dry-run"]);
   const force = Boolean(p.values.force); // regenerate even if already present
@@ -850,13 +858,16 @@ async function cmdSync(p: Parsed): Promise<void> {
  * auth`) since submission source code is private. Read-only on LeetCode.
  */
 async function cmdPullSolutions(p: Parsed): Promise<void> {
-  const repo = p.positionals[0];
+  const cfg = await loadConfig();
+  const repo = resolveSyncRepo(p.positionals[0], cfg);
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
     throw new UserError(
-      "usage: leet pull-solutions <owner/repo> [--dry-run] [--no-push] [-n <limit>] [--delay <secs>]",
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet pull-solutions <owner/repo> [--dry-run] [--no-push] [-n <limit>] [--delay <secs>]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet pull-solutions`)",
     );
   }
-  const auth = resolveLeetCodeAuth(await loadConfig());
+  const auth = resolveLeetCodeAuth(cfg);
   if (!auth) {
     throw new UserError(
       "no LeetCode session — run `leet auth` (or set LEETCODE_SESSION) so your solutions can be fetched.",
@@ -940,6 +951,108 @@ async function cmdPullSolutions(p: Parsed): Promise<void> {
     console.error(`pushed ${result.written.length} solutions to ${repo}.`);
   } else {
     console.error(`committed locally in ${clone} (--no-push).`);
+  }
+}
+
+/**
+ * `leet sync-repo` — form or register the solution-sync GitHub repo saved in
+ * config as `syncRepo`. Subcommands:
+ *   (none)              show the configured repo
+ *   create <name>       gh repo create <name> --public, then save it
+ *   adopt <owner/repo>  save an existing repo as the sync repo
+ *   unset               clear the configured repo
+ *
+ * Populating the repo is deliberately separate (`leet pull-solutions`); this
+ * only forms/points at it.
+ */
+async function cmdSyncRepo(p: Parsed): Promise<void> {
+  const [action, target] = p.positionals;
+  const cfg = await loadConfig();
+
+  if (!action || action === "show") {
+    const repo = resolveSyncRepo(undefined, cfg);
+    console.log(repo ? `sync repo: ${repo}` : "no sync repo set (leet sync-repo create <name> | adopt <owner/repo>)");
+    return;
+  }
+
+  if (action === "unset") {
+    delete cfg.syncRepo;
+    await saveConfig(cfg);
+    console.log("cleared sync repo.");
+    return;
+  }
+
+  if (action === "adopt") {
+    if (!target || !/^[\w.-]+\/[\w.-]+$/.test(target)) {
+      throw new UserError("usage: leet sync-repo adopt <owner/repo>");
+    }
+    // Sanity-check it exists (and we can see it) before saving.
+    try {
+      await run(["gh", "repo", "view", target, "--json", "nameWithOwner"]);
+    } catch {
+      throw new UserError(`can't access "${target}" via gh — check the name and that you're logged in (gh auth login).`);
+    }
+    cfg.syncRepo = target;
+    await saveConfig(cfg);
+    console.log(`sync repo set to ${target}.`);
+    return;
+  }
+
+  if (action === "create") {
+    if (!target) throw new UserError("usage: leet sync-repo create <name|owner/repo>");
+    console.error(`creating ${target} (public)…`);
+    // gh prints the created repo's URL; --clone is skipped (populating is a
+    // separate step). Description mirrors your existing submissions repos.
+    const out = await run([
+      "gh", "repo", "create", target, "--public",
+      "--description", "My coding problem solutions (managed by leet-cli)",
+    ]);
+    // Resolve the canonical owner/repo from gh (handles bare <name> → owner/name).
+    const nameWithOwner = (await run(["gh", "repo", "view", target, "--json", "nameWithOwner", "--jq", ".nameWithOwner"])).trim();
+    cfg.syncRepo = nameWithOwner || target;
+    await saveConfig(cfg);
+    console.log(`${out.trim()}\ncreated and set sync repo to ${cfg.syncRepo}.`);
+    console.error("next: `leet pull-solutions` to populate it from your LeetCode account.");
+    return;
+  }
+
+  throw new UserError(`unknown sync-repo action "${action}" (create | adopt | unset | show)`);
+}
+
+/**
+ * `leet mark-solved [owner/repo]` — mark problems done *locally* based on the
+ * problem folders present in a NeetCode-style submissions repo (the configured
+ * sync repo by default). Reuses the neetcode import adapter, so folder slugs are
+ * mapped through the alias map to bundled-list problems. `--dry-run` previews.
+ */
+async function cmdMarkSolved(p: Parsed): Promise<void> {
+  const cfg = await loadConfig();
+  const repo = resolveSyncRepo(p.positionals[0], cfg);
+  if (!repo) {
+    throw new UserError(
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet mark-solved <owner/repo|path> [--dry-run]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet mark-solved`)",
+    );
+  }
+  const dryRun = Boolean(p.values["dry-run"]);
+  console.error(`reading solved problems from ${repo}…`);
+  const result = await importSource(repo, { adapter: "neetcode", ref: p.values.ref as string | undefined });
+
+  const completed = await loadCompleted();
+  const newIds = [...result.matchedIds].filter((id) => !completed.has(id));
+  const newProblems = result.matched.filter((pr) => newIds.includes(pr.id));
+  if (newProblems.length > 0) console.log(renderTable(newProblems, result.matchedIds));
+
+  console.error(
+    `${result.matched.length} of ${result.totalSolved} folders matched bundled problems; ` +
+      `${newIds.length} newly marked, ${result.unmatched.length} not in any bundled list.` +
+      (dryRun ? "\n(dry run — nothing saved)" : ""),
+  );
+  if (!dryRun && newIds.length > 0) {
+    for (const id of newIds) completed.add(id);
+    await saveCompleted(completed);
+    console.error(`${completed.size} done total.`);
   }
 }
 
@@ -1203,6 +1316,14 @@ async function main(): Promise<number> {
           limit: { type: "string", short: "n" },
           delay: { type: "string" }, // seconds between fetches (default 1)
         }),
+      );
+      return 0;
+    case "sync-repo":
+      await cmdSyncRepo(parse(rest));
+      return 0;
+    case "mark-solved":
+      await cmdMarkSolved(
+        parse(rest, { "dry-run": { type: "boolean" }, ref: { type: "string" } }),
       );
       return 0;
     case "open":

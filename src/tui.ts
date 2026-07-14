@@ -20,6 +20,7 @@ import {
   resolveSolutionsDir,
   resolveCxx,
   resolveLeetCodeAuth,
+  resolveSyncRepo,
   CONFIG_FIELDS,
   toggleSelection,
   type Config,
@@ -286,10 +287,11 @@ interface ConfigState {
   picker: { key: ConfigKey; choices: string[]; index: number } | null;
 }
 
-/** The Sync overlay's three actions, in menu order. */
+/** The Sync overlay's actions, in menu order. */
 const SYNC_ACTIONS = [
   { key: "auth", label: "Authenticate", hint: "grab your LeetCode session from a browser" },
   { key: "pull", label: "Pull solved from LeetCode", hint: "mark done what you've solved on your account" },
+  { key: "markRepo", label: "Mark solved from sync repo", hint: "mark done from the folders in your sync repo" },
   { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
 ] as const;
 type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
@@ -1465,6 +1467,37 @@ export async function runTui(list?: ProblemList): Promise<void> {
     render();
   };
 
+  // Mark problems done from the folders present in the configured sync repo
+  // (NeetCode-style layout). No LeetCode session needed — this only reads the
+  // repo's git tree via gh and marks matches done locally.
+  const syncMarkRepo = async (): Promise<void> => {
+    if (!state.sync) return;
+    const repo = resolveSyncRepo(undefined, await loadConfig());
+    if (!repo) {
+      syncLog("No sync repo configured — set `syncRepo` in Config (or `leet sync-repo adopt <owner/repo>`).");
+      return;
+    }
+    state.sync.busy = true;
+    state.sync.lines = [`Reading solved problems from ${repo}…`];
+    render();
+    try {
+      const result = await importSource(repo, { adapter: "neetcode" });
+      const before = state.completed.size;
+      for (const id of result.matchedIds) state.completed.add(id);
+      const added = state.completed.size - before;
+      await saveCompleted(state.completed);
+      recompute(state);
+      syncLog(
+        `${result.matched.length} of ${result.totalSolved} folders matched bundled problems; ` +
+          `marked ${added} new.`,
+      );
+    } catch (err) {
+      syncLog(`mark-solved failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
   // Push step 1: resolve the work list (unsolved-on-LeetCode with a solution),
   // then ask for confirmation before any real submission.
   const syncPushPlan = async (): Promise<void> => {
@@ -1561,6 +1594,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     if (!state.sync || state.sync.busy) return;
     if (action === "auth") void syncAuth();
     else if (action === "pull") void syncPull();
+    else if (action === "markRepo") void syncMarkRepo();
     else if (action === "push") void syncPushPlan();
   };
 

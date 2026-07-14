@@ -84,8 +84,10 @@ leet undone <id|slug ...>        # unmark problems as done
 leet import <path|owner/repo>    # mark done from NeetCode (or --adapter leetcode)
 leet auth                        # grab your LeetCode session from a local browser
 leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them Accepted
-leet sync <owner/repo> [list...] # package problems into a private GitHub repo
-leet pull-solutions <owner/repo> # add solved problems missing from your NeetCode submissions repo
+leet sync [owner/repo] [list...] # package problems into a GitHub repo (default: your sync repo)
+leet sync-repo [create|adopt …]  # form/register your solution-sync repo (saved in config)
+leet pull-solutions [owner/repo] # add solved problems missing from your sync repo
+leet mark-solved [owner/repo]    # mark problems done locally from the folders present in a sync repo
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
@@ -108,6 +110,7 @@ environment variable, then a built-in default:
 | `cxx`              | `$CXX`               | `test`              | `c++`                |
 | `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
 | `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
+| `syncRepo`         | `$LEET_SYNC_REPO`    | `sync` / `pull-solutions` / `mark-solved` | unset |
 
 ```sh
 leet config                              # show all settings
@@ -337,6 +340,43 @@ the CSRF token, not just the session).
 > didn't write, and some solutions may not match LeetCode's exact problem
 > variant (Wrong Answer). Use deliberately.
 
+## Your solution-sync repo
+
+leet-cli can keep a personal GitHub repo of your solutions (a NeetCode-style
+layout: `Data Structures & Algorithms/<slug>/submission-0.<ext>`) and treat it
+as the hub for completion tracking. Register it once and the sync commands
+default to it:
+
+```sh
+leet sync-repo adopt DIvkov575/my-solutions   # point at an existing repo
+leet sync-repo create my-solutions            # gh repo create (public), then save it
+leet sync-repo                                # show the configured repo
+leet sync-repo unset                          # clear it
+```
+
+You can also set it in the interactive **Config** menu (the *Sync repo* field),
+via the `LEET_SYNC_REPO` env var, or by hand in `config.json` (`syncRepo`).
+
+With a repo registered, three commands work with no repo argument:
+
+```sh
+leet pull-solutions        # fetch your LeetCode-solved problems missing from the repo and add them
+leet mark-solved           # mark problems done LOCALLY from the folders present in the repo
+leet sync                  # package the bundled problems (desc + stub + tests) into the repo
+```
+
+- **`pull-solutions`** reads your account (needs `leet auth`), finds solved
+  problems not yet in the repo, fetches your accepted source, and pushes them.
+- **`mark-solved`** is the reverse and needs no LeetCode session: it reads the
+  repo's folders, maps each through the NeetCode→LeetCode alias table, and marks
+  the matching bundled problems done locally. `--dry-run` previews. It's the same
+  resolution `leet import <repo>` uses, just defaulting to your configured repo.
+  Folders for problems not in any bundled list are reported and skipped (local
+  completion is keyed to bundled-list problems).
+
+The same actions live in the TUI **Sync** menu (*Mark solved from sync repo*),
+alongside authenticate / pull / push.
+
 ## Live data
 
 `--live` and `refresh` query LeetCode's public GraphQL endpoint
@@ -355,6 +395,8 @@ src/
   leetcode.ts         public GraphQL client (fetch one / many, bounded concurrency)
   leetcode-progress.ts authenticated "my solved problems" fetch (session cookie)
   leetcode-submit.ts  authenticated submit + judge polling (retry/backoff)
+  leetcode-submissions.ts authenticated submission-source fetch (pull-solutions)
+  pull-solutions.ts   add LeetCode-solved problems missing from your sync repo
   auth.ts             grab the session cookie from a local browser
   chrome-cookies.ts   decrypt Chrome's cookie store (Keychain-derived key)
   firefox-cookies.ts  read Firefox's plaintext cookie store

@@ -26,6 +26,13 @@ export interface Config {
    */
   recommendExclude?: string[];
   /**
+   * Your solution-sync GitHub repo, as "owner/repo" (e.g. a NeetCode-style
+   * submissions repo). Used as the default target for `sync` / `pull-solutions`
+   * and the source for `mark-solved`. Overridable per-command by an explicit
+   * repo argument, and via the LEET_SYNC_REPO env var.
+   */
+  syncRepo?: string;
+  /**
    * LeetCode session cookie for `import --adapter leetcode`. Deliberately NOT in
    * CONFIG_FIELDS so it's never shown/edited in the TUI (it's a credential);
    * set it via the LEETCODE_SESSION env var, or hand-edit config.json.
@@ -74,6 +81,12 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
     label: "Recommend: include lists",
     kind: "multiselect",
     fallback: "all lists included",
+  },
+  {
+    key: "syncRepo",
+    label: "Sync repo (owner/repo)",
+    kind: "text",
+    fallback: "$LEET_SYNC_REPO, else unset",
   },
 ] as const;
 
@@ -171,6 +184,18 @@ export function resolveSolutionsDir(flag: string | undefined, cfg: Config): stri
 /** C++ compiler: config `cxx` > $CXX > "c++". */
 export function resolveCxx(cfg: Config, env: Env = process.env): string {
   return cfg.cxx || env.CXX || "c++";
+}
+
+/**
+ * Solution-sync repo ("owner/repo"): explicit CLI arg > $LEET_SYNC_REPO >
+ * config `syncRepo` > null. Callers surface a clear "set one" message on null.
+ */
+export function resolveSyncRepo(
+  arg: string | undefined,
+  cfg: Config,
+  env: Env = process.env,
+): string | null {
+  return arg || env.LEET_SYNC_REPO || cfg.syncRepo || null;
 }
 
 /**
