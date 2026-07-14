@@ -26,6 +26,11 @@ function cachePath(slug: string): string {
   return join(cacheDir(), `${slug}.cpp`);
 }
 
+/** Cache file path for a slug's problem statement (plain text). */
+function descPath(slug: string): string {
+  return join(cacheDir(), `${slug}.md`);
+}
+
 /** Return the cached .cpp content for a slug, or null if not cached. */
 export async function getCached(slug: string): Promise<string | null> {
   const file = Bun.file(cachePath(slug));
@@ -42,4 +47,21 @@ export async function putCached(slug: string, content: string): Promise<void> {
 /** True if the slug is already cached. */
 export async function isCached(slug: string): Promise<boolean> {
   return Bun.file(cachePath(slug)).exists();
+}
+
+/**
+ * Return the cached problem statement (the plain-text description shown in the
+ * preview), or null if not cached. Stored separately from the .cpp so the
+ * preview never has to hit LeetCode once a description has been seen.
+ */
+export async function getCachedDescription(slug: string): Promise<string | null> {
+  const file = Bun.file(descPath(slug));
+  if (!(await file.exists())) return null;
+  return file.text();
+}
+
+/** Write a slug's problem statement (plain text) into the cache. */
+export async function putCachedDescription(slug: string, text: string): Promise<void> {
+  await mkdir(cacheDir(), { recursive: true });
+  await Bun.write(descPath(slug), text);
 }

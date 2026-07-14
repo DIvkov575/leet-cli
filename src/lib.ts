@@ -21,6 +21,15 @@ function listsDir(): string {
   return join(base, "lists");
 }
 
+/**
+ * Machine name of the synthetic "All Problems" list: the de-duplicated union of
+ * every real list. It's built on demand by `loadList("all")` rather than stored
+ * on disk, so it never appears in `availableLists()` (the real, individually
+ * excludable lists that sync/config/recommend operate on). `browsableLists()`
+ * prepends it for the browsing UIs.
+ */
+export const ALL_LIST_NAME = "all";
+
 export interface FilterOptions {
   difficulty?: Difficulty;
   /** Minimum acceptance rate (inclusive). Problems with null acceptance are excluded. */
@@ -58,10 +67,38 @@ export async function availableLists(): Promise<string[]> {
 }
 
 /**
- * Load one list by name. A downloaded copy on disk shadows the embedded one
- * (so `refresh`/downloads take effect); otherwise the embedded copy is used.
+ * Names shown in the browsing UIs: the synthetic "all" union first, then every
+ * real list. Distinct from `availableLists()`, which enumerates only the real,
+ * individually-addressable lists (used by sync/config/refresh, where "all"
+ * would be meaningless or would double-count).
+ */
+export async function browsableLists(): Promise<string[]> {
+  return [ALL_LIST_NAME, ...(await availableLists())];
+}
+
+/**
+ * De-duplicated union of every real list, as a synthetic ProblemList. A problem
+ * that appears in several lists is kept once (first occurrence wins); problems
+ * are ordered by id so the view is stable. Built in memory — never persisted.
+ */
+export async function loadAllProblems(): Promise<ProblemList> {
+  const byId = new Map<number, Problem>();
+  for (const name of await availableLists()) {
+    for (const p of (await loadList(name)).problems) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+  }
+  const problems = [...byId.values()].sort((a, b) => a.id - b.id);
+  return { name: ALL_LIST_NAME, title: "All Problems", problems };
+}
+
+/**
+ * Load one list by name. The synthetic "all" name yields the union of every
+ * list. Otherwise a downloaded copy on disk shadows the embedded one (so
+ * `refresh`/downloads take effect); failing that the embedded copy is used.
  */
 export async function loadList(name: string): Promise<ProblemList> {
+  if (name === ALL_LIST_NAME) return loadAllProblems();
   const file = Bun.file(join(listsDir(), `${name}.json`));
   if (await file.exists()) {
     return (await file.json()) as ProblemList;
@@ -77,6 +114,9 @@ export async function loadList(name: string): Promise<ProblemList> {
  * downloads). This shadows any embedded list of the same name on next load.
  */
 export async function saveList(list: ProblemList): Promise<void> {
+  if (list.name === ALL_LIST_NAME) {
+    throw new Error(`cannot save the synthetic "${ALL_LIST_NAME}" list`);
+  }
   await mkdir(listsDir(), { recursive: true });
   const path = join(listsDir(), `${list.name}.json`);
   await Bun.write(path, JSON.stringify(list, null, 2) + "\n");

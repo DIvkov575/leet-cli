@@ -32,23 +32,26 @@ export interface RecommendOptions {
 export type RecommendStrategy = (lists: ProblemList[], opts: RecommendOptions) => Recommendation[];
 
 /**
- * Drop de-selected lists from the recommendation pool. Everything downstream —
- * the popularity counts, the "appears in N lists" figure, the ranking itself —
- * is then computed as if those lists did not exist. Excluded lists remain
- * browsable in the UI; they just stop voting.
+ * Keep only the opted-in lists in the recommendation pool. Everything
+ * downstream — the popularity counts, the "appears in N lists" figure, the
+ * ranking itself — is then computed as if only those lists existed. Lists left
+ * out remain browsable in the UI; they just don't vote.
+ *
+ * This is opt-in: an unset/empty `include` means *no* list is selected, so the
+ * pool is empty and ★ Recommended shows nothing until the user picks lists.
  *
  * Names are compared case-insensitively and trimmed, so a hand-edited config
  * ("Citadel", " sig ") behaves the same as one written by the TUI. Unknown
- * names are ignored rather than treated as an error: a list can disappear
- * between releases, and that shouldn't wedge anyone's settings.
+ * names simply match nothing rather than being treated as an error: a list can
+ * disappear between releases, and that shouldn't wedge anyone's settings.
  */
-export function excludeLists(
+export function includeLists(
   lists: ProblemList[],
-  exclude: readonly string[] | undefined,
+  include: readonly string[] | undefined,
 ): ProblemList[] {
-  if (!exclude || exclude.length === 0) return lists;
-  const skip = new Set(exclude.map((n) => n.trim().toLowerCase()));
-  return lists.filter((l) => !skip.has(l.name.trim().toLowerCase()));
+  if (!include || include.length === 0) return [];
+  const keep = new Set(include.map((n) => n.trim().toLowerCase()));
+  return lists.filter((l) => keep.has(l.name.trim().toLowerCase()));
 }
 
 /** Aggregate every problem across lists, de-duped by id, with list membership. */

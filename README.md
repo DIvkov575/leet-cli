@@ -87,7 +87,7 @@ leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them A
 leet sync <owner/repo> [list...] # package problems into a private GitHub repo
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
-leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
+leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendInclude)
 ```
 
 Every command has a one-line summary in `leet help`; the LeetCode-account
@@ -106,14 +106,14 @@ environment variable, then a built-in default:
 | `solutionsDir`     | —                    | `solve` / `test`    | `solutions`          |
 | `cxx`              | `$CXX`               | `test`              | `c++`                |
 | `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
-| `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
+| `recommendInclude` | —                    | ★ Recommended list  | none — empty until you pick lists |
 
 ```sh
 leet config                              # show all settings
 leet config editor "code -w"             # set the editor
 leet config recommend acceptance         # change the recommendation ranking
-leet config recommendExclude citadel,sig # don't let these lists count
-leet config recommendExclude --unset     # back to counting every list
+leet config recommendInclude citadel,sig # only these lists feed ★ Recommended
+leet config recommendInclude --unset     # back to no recommendations
 leet config cxx --unset                  # clear a setting
 ```
 
@@ -123,18 +123,17 @@ approachable unsolved problems first.
 
 ### Tuning ★ Recommended
 
-`popularity` treats every bundled list as one vote, which is only useful if you
-care about every company. `recommendExclude` de-selects the lists that shouldn't
-get a vote — if you're not interviewing at a quant shop, drop them and the
-ranking stops being skewed by them:
+Recommendations are **opt-in**: `recommendInclude` names the lists that feed the
+★ Recommended pool, and with none selected the panel stays empty. Pick the lists
+you're actually interviewing against so the ranking reflects only those:
 
 ```sh
-leet config recommendExclude citadel,jane-street,two-sigma,sig
+leet config recommendInclude google,meta,uber
 ```
 
-Excluded lists stay **fully browsable** — they simply stop contributing to the
-cross-list popularity signal, and stop being cited in the preview's
-"appears in N lists" line. Skipping *every* list just leaves ★ Recommended empty.
+Lists you leave out stay **fully browsable** — they simply don't contribute to
+the cross-list popularity signal, and aren't cited in the preview's
+"appears in N lists" line.
 
 Inside the interactive browser, open the settings screen with **`c`** (from any
 panel, or the **Config** menu item). Enter edits the selected field, `x` clears
@@ -175,9 +174,11 @@ Just run **`leet`** to open the full-screen browser — this is the primary way
 to use the tool, and a front-end for everything the subcommands do. It's built
 around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
 
-- **Lists** — every bundled list with done/left/total counts, plus a
-  **★ Recommended** pseudo-list at the top that surfaces the highest-signal
-  unsolved problems across all lists (ranking set by `recommend` in config).
+- **Lists** — every bundled list with done/left/total counts, plus two views at
+  the top: **★ Recommended** (the highest-signal unsolved problems across the
+  lists you opted into — ranking set by `recommend` in config) and **all** (the
+  de-duplicated union of every list, so you can browse the whole catalog at
+  once). A bare `leet` opens on **all**.
 - **Problems** — the problems in the selected list (or the recommended set),
   filterable/sortable/searchable.
 - **Preview** — the selected problem's statement, links, and a copy-paste solve
@@ -190,6 +191,12 @@ around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
 logs); **`←` / `Esc` steps back out**. From the Problems or Preview panel,
 **`s`** branches off into *solve* (scaffold the C++ file cache-first and open it
 in your editor) and **`t`** into *test* (compile & run, output in Logs).
+
+Press **`F`** from Problems, Preview, or Logs to enter **fullscreen reading
+mode**: the statement (and, on a wide terminal, the test logs beside it) takes
+the whole screen so a long problem is comfortable to read. `Tab` flips focus
+between the description and the logs; `↑↓`/`PgUp`/`PgDn`/`g`/`G` scroll; `s`/`t`
+still solve/test; `F` or `Esc` leaves.
 
 Every action also lives in a **menu bar** across the top — press **Tab** to
 enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
@@ -212,6 +219,7 @@ Core keys:
 | `Space`          | toggle done (saved immediately)                   |
 | `s`              | solve — scaffold the C++ file and open it         |
 | `t`              | test — compile & run the harness (output in Logs) |
+| `F`              | fullscreen reading mode (description + logs)      |
 | `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 
@@ -220,9 +228,13 @@ Each menu item also has a direct shortcut, usable from any panel: `f` filter,
 refresh, `i` import, `c` config, `?` help. `s` is reserved for **solve** on the
 Problems/Preview panels. Press `?` in-app for the full reference.
 
-The preview fetches the statement lazily from LeetCode's public GraphQL API the
-first time you open it, so browsing stays offline until you ask. The one-shot
-subcommands below remain available for scripting and piping.
+The preview resolves each statement **cache-first**: it checks the local cache,
+then the packaged `.md` in your synced solutions repo, and only falls back to a
+live LeetCode fetch for a problem that has never been synced or seen. Whatever a
+network step returns is written back to the cache, so any given problem hits
+LeetCode at most once — after a `leet sync` or `leet setup`, browsing and
+previewing are effectively offline. The one-shot subcommands below remain
+available for scripting and piping.
 
 ## Tracking completed problems
 
@@ -347,6 +359,7 @@ src/
   adapters.ts         import adapters (NeetCode layout, LeetCode account)
   import.ts           source acquisition + slug resolution against bundled lists
   recommend.ts        modular "recommended problems" ranking strategies
+  description.ts      resolve a statement cache-first (cache → repo .md → live)
   scaffold.ts         C++ solution file scaffolding
   harness.ts          generate the embedded C++ test harness
   runner.ts           compile + run a solution, capture output (Logs panel)

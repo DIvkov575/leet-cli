@@ -94,7 +94,7 @@ describe("CONFIG_FIELDS metadata", () => {
       "solutionsDir",
       "cxx",
       "recommend",
-      "recommendExclude",
+      "recommendInclude",
     ]);
     // The session cookie is a credential and must not be a TUI-editable field.
     expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
@@ -126,44 +126,44 @@ describe("credential persists through save/load (hidden but stored)", () => {
   });
 });
 
-describe("recommendExclude (list de-selection)", () => {
+describe("recommendInclude (list de-selection)", () => {
   test("round-trips as a string array", async () => {
-    await saveConfig({ recommendExclude: ["citadel", "sig"] });
-    expect((await loadConfig()).recommendExclude).toEqual(["citadel", "sig"]);
+    await saveConfig({ recommendInclude: ["citadel", "sig"] });
+    expect((await loadConfig()).recommendInclude).toEqual(["citadel", "sig"]);
   });
 
   test("survives alongside the string settings", async () => {
-    await saveConfig({ editor: "vim", recommendExclude: ["uber"] });
+    await saveConfig({ editor: "vim", recommendInclude: ["uber"] });
     const cfg = await loadConfig();
     expect(cfg.editor).toBe("vim");
-    expect(cfg.recommendExclude).toEqual(["uber"]);
+    expect(cfg.recommendInclude).toEqual(["uber"]);
   });
 
   test("an empty selection is not persisted (file stays minimal)", async () => {
-    await saveConfig({ editor: "vim", recommendExclude: [] });
+    await saveConfig({ editor: "vim", recommendInclude: [] });
     expect(await loadConfig()).toEqual({ editor: "vim" });
   });
 
   test("junk entries and wrong types are rejected", async () => {
     await Bun.write(
       join(dir, "config.json"),
-      JSON.stringify({ recommendExclude: ["uber", 5, "", "  ", null, "sig"] }),
+      JSON.stringify({ recommendInclude: ["uber", 5, "", "  ", null, "sig"] }),
     );
-    expect((await loadConfig()).recommendExclude).toEqual(["uber", "sig"]);
+    expect((await loadConfig()).recommendInclude).toEqual(["uber", "sig"]);
 
-    await Bun.write(join(dir, "config.json"), JSON.stringify({ recommendExclude: "uber" }));
-    expect((await loadConfig()).recommendExclude).toBeUndefined();
+    await Bun.write(join(dir, "config.json"), JSON.stringify({ recommendInclude: "uber" }));
+    expect((await loadConfig()).recommendInclude).toBeUndefined();
   });
 
   test("is a TUI-editable field, declared as a multiselect", () => {
-    const field = CONFIG_FIELDS.find((f) => f.key === "recommendExclude");
+    const field = CONFIG_FIELDS.find((f) => f.key === "recommendInclude");
     expect(field).toBeDefined();
     expect(field!.kind).toBe("multiselect");
   });
 
   test("every other field stays plain text", () => {
     for (const f of CONFIG_FIELDS) {
-      if (f.key !== "recommendExclude") expect(f.kind).toBe("text");
+      if (f.key !== "recommendInclude") expect(f.kind).toBe("text");
     }
   });
 });

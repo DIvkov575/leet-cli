@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import {
   availableLists,
+  browsableLists,
   filterProblems,
   findProblem,
   findProblemAnywhere,
@@ -9,6 +10,7 @@ import {
   pickRandom,
   saveList,
   sortProblems,
+  ALL_LIST_NAME,
   type Difficulty,
   type FilterOptions,
   type Problem,
@@ -18,6 +20,7 @@ import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { collectTargets, syncTargets, missingManifest } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
+import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import {
@@ -58,7 +61,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendInclude)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
 
 Filters (for ls / random):
@@ -250,8 +253,8 @@ async function openInEditor(path: string): Promise<void> {
 }
 
 async function cmdLists(): Promise<void> {
-  const names = await availableLists();
-  for (const name of names) {
+  // Lead with the synthetic "all" union, then every real list.
+  for (const name of await browsableLists()) {
     const list = await loadList(name);
     console.log(`${name.padEnd(16)} ${String(list.problems.length).padStart(4)}  ${list.title}`);
   }
@@ -269,11 +272,12 @@ async function cmdLs(p: Parsed): Promise<void> {
  * `leet config` — show settings; `leet config <key> <value>` sets one;
  * `leet config <key> --unset` clears it.
  *
- * Keys: editor, solutionsDir, cxx, recommend, recommendExclude. The last takes
- * a comma-separated set of list names to skip when ranking ★ Recommended:
+ * Keys: editor, solutionsDir, cxx, recommend, recommendInclude. The last takes
+ * a comma-separated set of list names to *include* when ranking ★ Recommended
+ * (opt-in: with none set, Recommended is empty):
  *
- *   leet config recommendExclude citadel,sig
- *   leet config recommendExclude --unset      # back to counting every list
+ *   leet config recommendInclude citadel,sig
+ *   leet config recommendInclude --unset      # back to no recommendations
  */
 async function cmdConfig(p: Parsed): Promise<void> {
   const cfg = await loadConfig();
@@ -430,8 +434,24 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
     return;
   }
   if (!local) throw new UserError(`"${key}" not found in bundled lists (try --live)`);
-  if (p.values.json) console.log(JSON.stringify(local, null, 2));
-  else console.log(renderProblem(local, undefined, completed.has(local.id)));
+  if (p.values.json) {
+    console.log(JSON.stringify(local, null, 2));
+    return;
+  }
+  // Show the statement from the local cache or synced repo when available, so a
+  // plain `show` reads the description without a live LeetCode call. Falls back
+  // to the metadata-only view if the problem was never synced/seen.
+  let statement: string | undefined;
+  try {
+    const { text } = await resolveDescription(local);
+    statement = text;
+  } catch {
+    statement = undefined;
+  }
+  // resolveDescription returns already-plain text; renderProblem expects HTML,
+  // so print the header then the statement ourselves.
+  console.log(renderProblem(local, undefined, completed.has(local.id)));
+  if (statement) console.log("\n" + statement);
 }
 
 /**
@@ -967,6 +987,10 @@ async function cmdRefresh(p: Parsed): Promise<void> {
   const all = Boolean(p.values.all);
   const names = all ? await availableLists() : p.positionals.slice(0, 1);
   if (names.length === 0) throw new UserError("usage: leet refresh <list|--all>");
+  // The synthetic "all" union isn't a real, savable list; refresh the real ones.
+  if (names.includes(ALL_LIST_NAME)) {
+    throw new UserError(`"${ALL_LIST_NAME}" is a synthetic list — use \`leet refresh --all\` to refresh every real list`);
+  }
 
   for (const name of names) {
     const list = await loadList(name);

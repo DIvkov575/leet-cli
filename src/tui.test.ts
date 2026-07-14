@@ -192,7 +192,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     focus: "problems",
     lastPanel: "problems",
     menuIndex: 0,
-    preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    preview: { slug: null, status: "idle", text: "", scroll: 0 },
     logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: 3,
     status: "",
@@ -202,6 +202,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     help: false,
     prefetch: null,
     suggestSetup: false,
+    fullscreen: false,
     ...overrides,
   };
   return s;
@@ -229,6 +230,46 @@ describe("renderFrame layout", () => {
     expect(joined).toContain("3/3");
     expect(joined).toContain("todo");
     expect(joined).toContain("acc↓");
+  });
+});
+
+describe("fullscreen reading mode", () => {
+  const fsState = (overrides: any = {}) =>
+    makeState({
+      fullscreen: true,
+      focus: "preview",
+      lastPanel: "preview",
+      preview: {
+        slug: "two-sum",
+        status: "loaded",
+        text: "Given an array of integers…\n\nExample 1:",
+        scroll: 0,
+        source: "repo",
+      },
+      ...overrides,
+    });
+
+  test("fills the whole screen with the description; header names the problem", () => {
+    const f = renderFrame(fsState(), 14, 120);
+    expect(f).toHaveLength(14);
+    for (const line of f) expect(strip(line).length).toBe(120);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Easy One"); // header (from current problem)
+    expect(joined).toContain("Given an array of integers");
+    // No Lists/Problems chrome, no menu bar in fullscreen.
+    expect(joined).not.toContain("Filter");
+  });
+
+  test("wide terminal shows Preview and Logs side by side", () => {
+    const joined = strip(renderFrame(fsState(), 14, 130).join("\n"));
+    expect(joined).toContain("Preview");
+    expect(joined).toContain("Logs");
+  });
+
+  test("narrow terminal shows only the focused panel", () => {
+    const joined = strip(renderFrame(fsState(), 14, 70).join("\n"));
+    expect(joined).toContain("Given an array of integers"); // preview body
+    expect(joined).not.toContain("Logs"); // no room for the logs column
   });
 });
 

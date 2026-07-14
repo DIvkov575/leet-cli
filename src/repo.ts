@@ -20,21 +20,47 @@ export function repoCppPath(id: number, slug: string): string {
   return `${id}-${slug}.cpp`;
 }
 
+/** Repo-relative filename for a problem's packaged .md description. */
+export function repoMdPath(id: number, slug: string): string {
+  return `${id}-${slug}.md`;
+}
+
+/** Raw CDN URL for a repo-relative file. */
+export function repoRawUrlFor(path: string): string {
+  return `https://raw.githubusercontent.com/${repoSlug()}/${repoBranch()}/${path}`;
+}
+
 /** Raw CDN URL for a problem's packaged .cpp. */
 export function repoRawUrl(id: number, slug: string): string {
-  return `https://raw.githubusercontent.com/${repoSlug()}/${repoBranch()}/${repoCppPath(id, slug)}`;
+  return repoRawUrlFor(repoCppPath(id, slug));
 }
 
 /**
- * Fetch a problem's packaged .cpp from the repo, or null if it isn't there
- * (404) — e.g. premium/SQL problems that never synced. Throws on other errors
- * (network, 5xx) so the caller can surface them.
+ * GET a repo-relative file over the raw CDN, returning its text or null if it
+ * isn't there (404, or empty). Throws on other errors (network, 5xx) so the
+ * caller can surface them.
  */
-export async function fetchFromRepo(id: number, slug: string): Promise<string | null> {
-  const url = repoRawUrl(id, slug);
-  const res = await fetch(url, { headers: { "User-Agent": "leet-cli" } });
+async function fetchRepoFile(path: string, slug: string): Promise<string | null> {
+  const res = await fetch(repoRawUrlFor(path), { headers: { "User-Agent": "leet-cli" } });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`repo fetch failed for ${slug}: ${res.status} ${res.statusText}`);
   const text = await res.text();
   return text.length > 0 ? text : null;
+}
+
+/**
+ * Fetch a problem's packaged .cpp from the repo, or null if it isn't there
+ * (404) — e.g. premium/SQL problems that never synced.
+ */
+export async function fetchFromRepo(id: number, slug: string): Promise<string | null> {
+  return fetchRepoFile(repoCppPath(id, slug), slug);
+}
+
+/**
+ * Fetch a problem's packaged .md description from the repo, or null if it isn't
+ * there. This is how the preview and `show` avoid a live LeetCode call once the
+ * problem has been synced.
+ */
+export async function fetchMarkdownFromRepo(id: number, slug: string): Promise<string | null> {
+  return fetchRepoFile(repoMdPath(id, slug), slug);
 }

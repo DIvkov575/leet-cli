@@ -18,11 +18,12 @@ export interface Config {
   /** Ranking strategy for the recommended-problems panel (e.g. "popularity", "acceptance"). */
   recommend?: string;
   /**
-   * List names de-selected from the recommended-problems pool. Excluded lists
-   * stay fully browsable — they simply stop contributing to the cross-list
-   * popularity signal. Unset/empty means every bundled list is considered.
+   * List names opted *in* to the recommended-problems pool. Only these lists
+   * contribute to the cross-list popularity signal; every list stays fully
+   * browsable regardless. This is opt-in: unset/empty means the ★ Recommended
+   * panel is empty until the user picks at least one list.
    */
-  recommendExclude?: string[];
+  recommendInclude?: string[];
   /**
    * LeetCode session cookie for `import --adapter leetcode`. Deliberately NOT in
    * CONFIG_FIELDS so it's never shown/edited in the TUI (it's a credential);
@@ -39,7 +40,7 @@ export type ConfigKey = keyof Config;
 /**
  * How a setting is edited in the TUI. `text` fields are typed in freehand;
  * `multiselect` fields open a checkbox submenu over a set of choices supplied
- * by the caller (the bundled list names, for `recommendExclude`).
+ * by the caller (the bundled list names, for `recommendInclude`).
  */
 export type ConfigFieldKind = "text" | "multiselect";
 
@@ -68,20 +69,20 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
     fallback: "popularity (or: acceptance)",
   },
   {
-    key: "recommendExclude",
-    label: "Recommend: skip lists",
+    key: "recommendInclude",
+    label: "Recommend: include lists",
     kind: "multiselect",
-    fallback: "none — every list counts",
+    fallback: "none — Recommended is empty until you pick lists",
   },
 ] as const;
 
 /** The keys that hold a string array rather than a string. */
-const LIST_KEYS: ConfigKey[] = ["recommendExclude"];
+const LIST_KEYS: ConfigKey[] = ["recommendInclude"];
 
 /**
  * Add/remove `name` from a multiselect field's value. Pure, so the TUI's
  * checkbox submenu is a thin shell over it. Comparison is case-insensitive to
- * match `excludeLists`; the stored casing is whatever the caller passed in.
+ * match `includeLists`; the stored casing is whatever the caller passed in.
  * Returns a new array — never mutates.
  */
 export function toggleSelection(current: readonly string[] | undefined, name: string): string[] {

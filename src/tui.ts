@@ -1,14 +1,16 @@
 import type { Difficulty, Problem, ProblemList } from "./types.ts";
 import {
   availableLists,
+  browsableLists,
   filterProblems,
   loadList,
   saveList,
   sortProblems,
+  ALL_LIST_NAME,
   type SortKey,
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
-import { htmlToText } from "./render.ts";
+import { resolveDescription } from "./description.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import {
@@ -25,7 +27,7 @@ import {
   type ConfigKey,
 } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
-import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
+import { recommendProblems, includeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
 import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
@@ -253,9 +255,12 @@ function diffColor(d: Difficulty): keyof typeof C {
 interface PreviewState {
   slug: string | null;
   status: "idle" | "loading" | "loaded" | "error";
-  lines: string[];
+  /** Unwrapped statement text; wrapped to the panel width at render time. */
+  text: string;
   scroll: number;
   error?: string;
+  /** Where a loaded statement came from: cache / repo / live LeetCode. */
+  source?: "cache" | "repo" | "live";
 }
 
 /** A single-line text prompt (search / import). */
@@ -372,17 +377,26 @@ interface State {
   prefetch: string | null;
   /** First-run: offer to pre-cache the study set (shown once). */
   suggestSetup: boolean;
+  /**
+   * Fullscreen reading mode: the Preview and Logs panels take the whole screen
+   * (split when there's room), hiding Lists/Problems. Focus stays on preview or
+   * logs; F toggles it, Esc/← leaves it.
+   */
+  fullscreen: boolean;
 }
 
-/** The Lists panel's rows: the recommended sentinel followed by every list name. */
+/**
+ * The Lists panel's rows: the ★ Recommended sentinel, then the synthetic "all"
+ * union, then every real list name.
+ */
 function listRows(s: State): string[] {
-  return [RECOMMENDED_LIST, ...s.listNames];
+  return [RECOMMENDED_LIST, ALL_LIST_NAME, ...s.listNames];
 }
 
-/** Row index of a list name within listRows() (sentinel occupies index 0). */
-function listRows0(names: string[], name: string): number {
-  const i = names.indexOf(name);
-  return i < 0 ? 0 : i + 1;
+/** Row index of a Lists-panel entry, or 0 (★ Recommended) if not found. */
+function listRows0(s: State, name: string): number {
+  const i = listRows(s).indexOf(name);
+  return i < 0 ? 0 : i;
 }
 
 /** Problems currently shown in the Problems panel (recommended set or the list). */
@@ -444,7 +458,7 @@ async function selectListRow(s: State, name: string): Promise<void> {
   }
   s.cursor = 0;
   s.top = 0;
-  s.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+  s.preview = { slug: null, status: "idle", text: "", scroll: 0 };
   recompute(s);
 }
 
@@ -467,6 +481,7 @@ const HELP_LINES = [
   "    ↑ ↓ / j k     move within the focused panel",
   "    → / Enter     drill in (list → problems → preview → logs)",
   "    p             preview the selected problem (handy in the narrow view)",
+    "    F             fullscreen the description + logs (Tab flips, Esc exits)",
   "    ← / Esc       step back out",
   "    g / G         jump to top / bottom",
   "    PgUp / PgDn   page up / down (Problems)",
@@ -509,11 +524,11 @@ function footerLine(s: State, cols: number): string {
     s.focus === "lists"
       ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
       : s.focus === "problems"
-        ? " ↑↓ move · p/Enter/→ preview · s solve · t test · Space done · ← lists"
+        ? " ↑↓ move · p/Enter/→ preview · F fullscreen · s solve · t test · Space done · ← lists"
         : s.focus === "preview"
-          ? " ↑↓ scroll · s solve · t test · →/Enter logs · o open · ← back"
+          ? " ↑↓ scroll · F fullscreen · s solve · t test · →/Enter logs · o open · ← back"
           : s.focus === "logs"
-            ? " ↑↓ scroll · t re-run · s solve · Space done · ← preview · Tab menu"
+            ? " ↑↓ scroll · F fullscreen · t re-run · s solve · Space done · ← preview · Tab menu"
             : " ←→ move · Enter fire · Esc back to panel";
   return paint(fit(hint, cols), "dim");
 }
@@ -730,6 +745,7 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.config) return renderConfig(s.config, rows, cols);
   if (s.sync) return renderSync(s.sync, rows, cols);
+  if (s.fullscreen) return renderFullscreen(s, rows, cols);
 
   const menuBar = renderMenuBar(s, cols);
   const footer = footerLine(s, cols);
@@ -742,6 +758,51 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   const blocks = panels.map((name, i) => renderPanelByName(s, name, widths[i]!, bodyH));
   const body = joinColumns(blocks, bodyH, widths);
   return [menuBar, ...body, footer];
+}
+
+/**
+ * Fullscreen reading mode: the Preview (problem description) and Logs (test
+ * results) fill the whole terminal — the Lists/Problems chrome is hidden so the
+ * statement gets the full width to reflow into. On a wide terminal both panels
+ * show side by side; otherwise only the focused one is shown. The header names
+ * the current problem; the footer keeps the reading-mode shortcuts in view.
+ */
+function renderFullscreen(s: State, rows: number, cols: number): string[] {
+  const bodyH = rows - 2; // header + footer
+  const p = current(s);
+  const title = p ? `${p.id}. ${p.title}  [${p.difficulty}]` : "Preview";
+  const header = paint(fit(`  ⛶ ${title}`, cols), "bold", "cyan");
+
+  // Both panels side by side when there's room; else just the focused panel so
+  // the description isn't squeezed into an unreadable column.
+  const both = cols >= 100;
+  const focusIsLogs = s.focus === "logs";
+  let body: string[];
+  if (both) {
+    const sepCount = 1;
+    const previewW = Math.max(20, Math.floor((cols - sepCount) * 0.62));
+    const logsW = cols - sepCount - previewW;
+    const blocks = [
+      previewPanel(s, previewW, bodyH, !focusIsLogs),
+      logsPanel(s, logsW, bodyH, focusIsLogs),
+    ];
+    body = joinColumns(blocks, bodyH, [previewW, logsW]);
+  } else {
+    body = focusIsLogs
+      ? logsPanel(s, cols, bodyH, true)
+      : previewPanel(s, cols, bodyH, true);
+  }
+
+  const footer = paint(
+    fit(
+      focusIsLogs
+        ? " ↑↓ scroll · t re-run · Tab preview · F/Esc exit fullscreen · q quit"
+        : " ↑↓ scroll · s solve · t test · Tab logs · F/Esc exit fullscreen · q quit",
+      cols,
+    ),
+    "dim",
+  );
+  return [header, ...body.slice(0, bodyH), footer];
 }
 
 /** Column widths for the visible panels: Lists gets ~22%, others split evenly. */
@@ -945,7 +1006,9 @@ function previewBody(s: State, width: number): string[] {
   if (pv.status === "idle") return [paint(fit("Press Enter to load the statement.", width), "dim")];
   if (pv.status === "loading") return [paint(fit("Loading…", width), "dim")];
   if (pv.status === "error") return [paint(fit(`error: ${pv.error ?? "failed"}`, width), "red")];
-  return pv.lines;
+  // Wrap the raw statement to the current panel width at render time, so the
+  // fullscreen view and terminal resizes reflow correctly without re-fetching.
+  return wrapText(pv.text, Math.max(10, width));
 }
 
 // ─── runtime ───────────────────────────────────────────────────────────────
@@ -970,14 +1033,16 @@ export async function runTui(list?: ProblemList): Promise<void> {
   }
 
   const listNames = await availableLists();
-  const initial = list ?? (await loadList(listNames[0]!));
+  // The Lists panel opens on the synthetic "all" list unless a specific list
+  // was requested; the picker (Lists panel) switches from there.
+  const initial = list ?? (await loadList(ALL_LIST_NAME));
 
-  // Preload every list once: powers the Lists panel counts and recommendations.
-  const allLists = await Promise.all(
-    listNames.map((name) => (name === initial.name ? Promise.resolve(initial) : loadList(name))),
-  );
+  // Preload every real list once: powers the Lists panel counts and rankings.
+  const allLists = await Promise.all(listNames.map((name) => loadList(name)));
   const listMeta = new Map<string, number[]>();
   for (const l of allLists) listMeta.set(l.name, l.problems.map((p) => p.id));
+  // The synthetic "all" list's counts come from the de-duped union of every id.
+  listMeta.set(ALL_LIST_NAME, [...new Set(allLists.flatMap((l) => l.problems.map((p) => p.id)))]);
 
   const completed = await loadCompleted();
   const config = await loadConfig();
@@ -985,7 +1050,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   // popularity counts (and the "appears in N lists" line in the preview)
   // reflect only the lists the user actually cares about.
   const rankRecommended = (cfg: Config, done: Set<number>): Recommendation[] =>
-    recommendProblems(excludeLists(allLists, cfg.recommendExclude), cfg.recommend, {
+    recommendProblems(includeLists(allLists, cfg.recommendInclude), cfg.recommend, {
       completed: done,
       excludeDone: true,
       limit: 100,
@@ -996,7 +1061,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
 
   // Bare launch focuses the Lists panel; an explicit list jumps into Problems.
-  const listCursor = list ? Math.max(0, listRows0(listNames, initial.name)) : 0;
+  const initialListName = initial.name;
 
   const state: State = {
     list: initial,
@@ -1013,12 +1078,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
     filtered: [],
     cursor: 0,
     top: 0,
-    listCursor,
+    listCursor: 0,
     listTop: 0,
     focus: list ? "problems" : "lists",
     lastPanel: list ? "problems" : "lists",
     menuIndex: 0,
-    preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    preview: { slug: null, status: "idle", text: "", scroll: 0 },
     logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
     status: "",
@@ -1028,7 +1093,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
     help: false,
     prefetch: null,
     suggestSetup,
+    fullscreen: false,
   };
+  // An explicit list arg starts with the Lists cursor on that row (bare launch
+  // leaves it on ★ Recommended at index 0).
+  if (list) state.listCursor = listRows0(state, initialListName);
   recompute(state);
 
   const out = process.stdout;
@@ -1038,32 +1107,31 @@ export async function runTui(list?: ProblemList): Promise<void> {
     out.write("\x1b[H" + renderFrame(state, rows, cols).join("\r\n") + "\x1b[J");
   };
 
-  const previewWidthForCols = (cols: number): number =>
-    cols >= 90 ? cols - Math.max(40, Math.floor(cols * 0.5)) - 1 : cols;
-
   // Rough width the Logs panel gets; used to pre-wrap captured output.
   const logsWidthForCols = (cols: number): number =>
     Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
 
+  // Resolve the statement cache-first (local cache → synced repo .md → live
+  // LeetCode), so a preview only ever hits LeetCode for a problem that has
+  // never been synced or seen. The raw text is stored and wrapped at render
+  // time, which lets the fullscreen view reflow to the full terminal width.
   const loadPreview = async (): Promise<void> => {
     const p = current(state);
     if (!p) return;
     if (state.preview.slug === p.slug && state.preview.status === "loaded") return;
-    state.preview = { slug: p.slug, status: "loading", lines: [], scroll: 0 };
+    state.preview = { slug: p.slug, status: "loading", text: "", scroll: 0 };
     render();
     try {
-      const remote = await fetchProblem(p.slug, { withContent: true });
-      const w = Math.max(10, previewWidthForCols(out.columns ?? 80));
-      const text = remote.contentHtml ? htmlToText(remote.contentHtml) : "(no statement available)";
+      const { text, source } = await resolveDescription(p);
       if (state.preview.slug === p.slug) {
-        state.preview = { slug: p.slug, status: "loaded", lines: wrapText(text, w), scroll: 0 };
+        state.preview = { slug: p.slug, status: "loaded", text, scroll: 0, source };
       }
     } catch (err) {
       if (state.preview.slug === p.slug) {
         state.preview = {
           slug: p.slug,
           status: "error",
-          lines: [],
+          text: "",
           scroll: 0,
           error: err instanceof Error ? err.message : String(err),
         };
@@ -1150,6 +1218,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
   };
 
   const refreshList = async (): Promise<void> => {
+    // The ★ Recommended pseudo-list and the synthetic "all" union aren't real,
+    // savable lists — refresh a concrete list instead.
+    if (state.showingRecommended || state.list.name === ALL_LIST_NAME) {
+      state.status = "pick a specific list to refresh (Recommended/All are computed views).";
+      render();
+      return;
+    }
     state.status = `refreshing ${state.list.name} (${state.list.problems.length}) from LeetCode…`;
     render();
     let failed = 0;
@@ -1552,7 +1627,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     const invalidateStalePreview = (): void => {
       const p = current(state);
       if (p && state.preview.slug !== p.slug && state.focus !== "preview") {
-        state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+        state.preview = { slug: null, status: "idle", text: "", scroll: 0 };
       }
       // The Logs panel is per-problem; reset it when the selection moves off it.
       if (p && state.logs.slug !== p.slug && state.focus !== "logs") {
@@ -1742,6 +1817,80 @@ export async function runTui(list?: ProblemList): Promise<void> {
       // ── help overlay ──
       if (state.help) {
         if (key === "?" || key === "\x1b" || key === "q") state.help = false;
+        render();
+        return;
+      }
+
+      // ── fullscreen reading mode ── (owns all input while active)
+      if (state.fullscreen) {
+        const maxLogScroll = Math.max(0, state.logs.lines.length - 1);
+        switch (key) {
+          case "\x03":
+          case "q":
+            finish();
+            return;
+          case "F":
+          case "\x1b": // Esc / ← leave fullscreen, restoring the panel layout
+          case "\x1b[D":
+            state.fullscreen = false;
+            break;
+          case "\t": // Tab / Shift-Tab flip between the description and the logs
+          case "\x1b[Z":
+            state.focus = state.focus === "logs" ? "preview" : "logs";
+            state.lastPanel = state.focus;
+            break;
+          case "k":
+          case "\x1b[A":
+            if (state.focus === "logs") state.logs.scroll = Math.max(0, state.logs.scroll - 1);
+            else state.preview.scroll = Math.max(0, state.preview.scroll - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            if (state.focus === "logs") state.logs.scroll = Math.min(maxLogScroll, state.logs.scroll + 1);
+            else
+              state.preview.scroll = Math.min(
+                Math.max(0, previewBodyLen() - 1),
+                state.preview.scroll + 1,
+              );
+            break;
+          case "\x1b[5~": // PgUp
+            if (state.focus === "logs") state.logs.scroll = Math.max(0, state.logs.scroll - pageStep());
+            else state.preview.scroll = Math.max(0, state.preview.scroll - pageStep());
+            break;
+          case "\x1b[6~": // PgDn
+            if (state.focus === "logs")
+              state.logs.scroll = Math.min(maxLogScroll, state.logs.scroll + pageStep());
+            else
+              state.preview.scroll = Math.min(
+                Math.max(0, previewBodyLen() - 1),
+                state.preview.scroll + pageStep(),
+              );
+            break;
+          case "g":
+            if (state.focus === "logs") state.logs.scroll = 0;
+            else state.preview.scroll = 0;
+            break;
+          case "G":
+            if (state.focus === "logs") state.logs.scroll = maxLogScroll;
+            else state.preview.scroll = Math.max(0, previewBodyLen() - 1);
+            break;
+          case " ":
+            void toggleDone();
+            return;
+          case "s":
+            void solveCurrent();
+            return;
+          case "t":
+            void runTest();
+            return;
+          case "o": {
+            const p = current(state);
+            if (p) void openUrl(p.url);
+            break;
+          }
+          default:
+            return;
+        }
         render();
         return;
       }
@@ -1936,6 +2085,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "t": // compile & run the test harness, show output in Logs
             void runTest();
             return;
+          case "F": // jump straight into fullscreen reading mode
+            state.focus = "preview";
+            state.lastPanel = "preview";
+            state.fullscreen = true;
+            void loadPreview();
+            return;
           case "P": // prefetch the current view into the local cache
             startPrefetch();
             return;
@@ -1982,6 +2137,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "t": // compile & run the harness → Logs
             void runTest();
             return;
+          case "F": // fullscreen reading mode (description + logs)
+            state.fullscreen = true;
+            void loadPreview();
+            break;
           case "o": {
             const p = current(state);
             if (p) void openUrl(p.url);
@@ -2027,6 +2186,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "s":
             void solveCurrent();
             return;
+          case "F": // fullscreen reading mode (description + logs)
+            state.fullscreen = true;
+            void loadPreview();
+            break;
           case " ":
             void toggleDone();
             return;
