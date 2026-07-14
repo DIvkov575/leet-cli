@@ -39,6 +39,8 @@ export function renderTable(problems: Problem[], completed?: Set<number>): strin
     title: p.title,
     acc: acc(p),
     diff: p.difficulty,
+    // A ~ marks an inferred (non-native) pattern; blank when untagged.
+    pattern: p.pattern ? p.pattern + (p.patternSource === "derived" ? " ~" : "") : "",
     p,
   }));
 
@@ -47,6 +49,9 @@ export function renderTable(problems: Problem[], completed?: Set<number>): strin
   const idW = Math.max(w((r) => r.id), 1);
   const titleW = w((r) => r.title);
   const accW = Math.max(w((r) => r.acc), 4);
+  const diffW = Math.max(w((r) => r.diff), "Difficulty".length);
+  const showPattern = rows.some((r) => r.pattern.length > 0);
+  const patternW = showPattern ? Math.max(w((r) => r.pattern), "Pattern".length) : 0;
 
   const statusHead = showStatus ? " " + "  " : "";
   const header =
@@ -57,7 +62,8 @@ export function renderTable(problems: Problem[], completed?: Set<number>): strin
     "  " +
     paint("Accept".padStart(accW), "bold", "dim") +
     "  " +
-    paint("Difficulty", "bold", "dim");
+    paint("Difficulty".padEnd(diffW), "bold", "dim") +
+    (showPattern ? "  " + paint("Pattern", "bold", "dim") : "");
 
   const lines = rows.map((r) => {
     const status = showStatus ? (r.done ? paint("✓", "green") : " ") + "  " : "";
@@ -69,7 +75,8 @@ export function renderTable(problems: Problem[], completed?: Set<number>): strin
       "  " +
       r.acc.padStart(accW) +
       "  " +
-      paint(r.diff, difficultyColor(r.p.difficulty))
+      paint(r.diff.padEnd(diffW), difficultyColor(r.p.difficulty)) +
+      (showPattern ? "  " + paint(r.pattern, "dim") : "")
     );
   });
 
@@ -84,6 +91,13 @@ export function renderProblem(p: Problem, contentHtml?: string, done?: boolean):
     `${paint(p.difficulty, difficultyColor(p.difficulty))}   ${paint("Acceptance:", "dim")} ${acc(p)}`,
     paint(p.url, "dim"),
   ];
+  if (p.pattern) {
+    const derived = p.patternSource === "derived";
+    lines.push(`${paint("Pattern:", "dim")} ${p.pattern}${derived ? paint(" ~", "dim") : ""}`);
+  }
+  if (p.topics && p.topics.length > 0) {
+    lines.push(`${paint("Topics:", "dim")} ${p.topics.join(", ")}`);
+  }
   if (contentHtml) {
     lines.push("", htmlToText(contentHtml));
   }

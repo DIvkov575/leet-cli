@@ -156,6 +156,7 @@ immediately, without a restart.
 | `--min-acc <n>`     | minimum acceptance %                      |
 | `--max-acc <n>`     | maximum acceptance %                      |
 | `--search, -s <q>`  | title substring match                     |
+| `--tag, -t <p,…>`   | NeetCode pattern(s), e.g. `Graphs` or `two-pointers,stack` |
 | `--done`            | only completed problems                   |
 | `--todo`            | only problems not yet completed           |
 | `--sort <key>`      | `id` \| `acc` \| `difficulty` \| `title`  |
@@ -174,6 +175,31 @@ leet random uber -d medium --todo
 leet show 42 --live
 leet refresh nvidia
 ```
+
+## Tags & the NeetCode roadmap
+
+Every bundled problem carries a **NeetCode pattern** (Arrays & Hashing, Two
+Pointers, Graphs, …) plus **LeetCode topic tags**. Where NeetCode categorizes a
+problem the pattern is authoritative; otherwise it's inferred from the LeetCode
+topics and shown with a `~` marker. `leet show` and `leet ls` display them, and
+`ls`/`random` accept `--tag`:
+
+```sh
+leet ls neetcode-250 --tag Graphs            # only Graphs-pattern problems
+leet ls all --tag "Two Pointers,Sliding Window" --todo
+```
+
+**Custom lists by tag** — save a filtered slice as a first-class list (shows up
+in `leet lists`, the TUI, and `leet ls <name>`):
+
+```sh
+leet make-list my-graphs --tag "Graphs,Advanced Graphs"
+leet make-list easy-dp --from neetcode-250 --tag "1-D Dynamic Programming" -d easy
+```
+
+In the **TUI**: press `T` for the pattern-filter checklist, or `m` to open the
+**roadmap** — the branching tree of all 18 patterns with per-pattern done/total
+counts; hit Enter on a pattern to filter the list to it.
 
 ## Interactive mode
 

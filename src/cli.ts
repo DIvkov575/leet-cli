@@ -23,6 +23,7 @@ import { getCached, putCached } from "./cache.ts";
 import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
+import { NEETCODE_PATTERNS } from "./tags.ts";
 import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
   loadConfig,
@@ -57,6 +58,7 @@ Usage:
   leet tui [list]                  Same, optionally starting on a specific list
   leet lists                       List the bundled problem lists
   leet ls <list> [filters]         Print a list as a table
+  leet make-list <name> [filters]  Save a custom list built from a filter (e.g. --tag Graphs)
   leet show <id|slug> [--live]     Show one problem (--live fetches the statement)
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
@@ -79,6 +81,7 @@ Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
   --min-acc <n>     minimum acceptance %        --max-acc <n>  maximum acceptance %
   --search, -s <q>  title substring match
+  --tag, -t <p,…>   NeetCode pattern(s), e.g. "Two Pointers,Stack" or arrays-hashing
   --done            only completed problems     --todo         only not-completed
   --sort <key>      id|acc|difficulty|title (default id)   --desc  reverse order
   --limit, -n <n>   cap the number of rows
@@ -88,6 +91,8 @@ Examples:
   leet ls nvidia -d hard --sort acc
   leet ls uber --search tree --limit 20
   leet ls uber --todo              # what's left to do in the uber list
+  leet ls neetcode-250 --tag Graphs         # only Graphs-pattern problems
+  leet make-list my-graphs --tag "Graphs,Advanced Graphs"   # save a custom tag list
   leet done 42 two-sum             # mark problems as completed
   leet import DIvkov575/neetcode-submissions-zkag82uy   # mark done from a NeetCode GitHub sync
   leet import ~/code/neetcode --dry-run                 # preview from a local clone
@@ -181,6 +186,7 @@ const FILTER_OPTIONS = {
   "min-acc": { type: "string" },
   "max-acc": { type: "string" },
   search: { type: "string", short: "s" },
+  tag: { type: "string", short: "t" }, // NeetCode pattern; repeatable / comma-separated
   done: { type: "boolean" },
   todo: { type: "boolean" },
   sort: { type: "string" },
@@ -220,9 +226,33 @@ function filtersFrom(values: Parsed["values"], completed?: Set<number>): FilterO
     minAcceptance: num(values["min-acc"], "--min-acc"),
     maxAcceptance: num(values["max-acc"], "--max-acc"),
     search: values.search as string | undefined,
+    patterns: parsePatterns(values.tag as string | undefined),
     completed,
     done,
   };
+}
+
+/**
+ * Parse a `--tag` value into a list of NeetCode patterns. Accepts a
+ * comma-separated list and is case/spacing-insensitive against the canonical
+ * pattern names, so `--tag "two pointers,stack"` and `--tag arrays-hashing`
+ * both resolve. Unknown names throw with the valid set.
+ */
+function parsePatterns(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const byNorm = new Map(NEETCODE_PATTERNS.map((p) => [norm(p), p]));
+  const out: string[] = [];
+  for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const match = byNorm.get(norm(part));
+    if (!match) {
+      throw new UserError(
+        `unknown tag "${part}". Valid patterns: ${NEETCODE_PATTERNS.join(", ")}`,
+      );
+    }
+    out.push(match);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function applyView(problems: Problem[], values: Parsed["values"], completed: Set<number>): Problem[] {
@@ -277,6 +307,41 @@ async function cmdLs(p: Parsed): Promise<void> {
   const list = await loadList(name);
   const completed = await loadCompleted();
   output(applyView(list.problems, p.values, completed), p.values, completed);
+}
+
+/**
+ * `leet make-list <name> [--from <list>] [filters]` — save a custom list built
+ * by filtering an existing list (default: "all"). The prime use is by tag:
+ *
+ *   leet make-list graphs --tag Graphs,Advanced Graphs
+ *   leet make-list my-easy-dp --from neetcode-250 --tag "1-D Dynamic Programming" -d Easy
+ *
+ * The result is a normal on-disk list, so it shows up in `leet lists`, the TUI
+ * Lists panel, `leet ls <name>`, etc. Re-running overwrites it.
+ */
+async function cmdMakeList(p: Parsed): Promise<void> {
+  const name = p.positionals[0];
+  if (!name) {
+    throw new UserError(
+      "usage: leet make-list <name> [--from <list>] [--tag <pattern,…>] [filters]",
+    );
+  }
+  if (name === ALL_LIST_NAME || /[^a-z0-9-]/.test(name)) {
+    throw new UserError(`invalid list name "${name}" (use lowercase letters, digits, and dashes)`);
+  }
+  const from = (p.values.from as string | undefined) ?? ALL_LIST_NAME;
+  const source = await loadList(from);
+  const completed = await loadCompleted();
+  // Reuse the same view pipeline as `ls`, minus the --limit truncation surprise
+  // (a saved list should be the full filtered set unless the user asked to cap).
+  const problems = applyView(source.problems, p.values, completed);
+  if (problems.length === 0) {
+    throw new UserError(`no problems matched — refusing to save an empty list "${name}".`);
+  }
+  const title = (p.values.title as string | undefined) ?? name;
+  await saveList({ name, title, problems });
+  console.log(`saved custom list "${name}" (${problems.length} problems) from ${from}.`);
+  console.log(`  browse it: leet ls ${name}   ·   in the TUI it appears in the Lists panel.`);
 }
 
 /**
@@ -1306,6 +1371,9 @@ async function main(): Promise<number> {
       return 0;
     case "ls":
       await cmdLs(parse(rest));
+      return 0;
+    case "make-list":
+      await cmdMakeList(parse(rest, { from: { type: "string" }, title: { type: "string" } }));
       return 0;
     case "tui":
       await cmdTui(parse(rest));

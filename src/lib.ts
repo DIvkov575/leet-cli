@@ -42,6 +42,11 @@ export interface FilterOptions {
   completed?: Set<number>;
   /** true -> only completed, false -> only not-completed, undefined -> all. */
   done?: boolean;
+  /**
+   * Keep only problems whose NeetCode `pattern` is in this set. Empty/undefined
+   * disables the filter. A problem with no `pattern` is excluded when set.
+   */
+  patterns?: string[];
 }
 
 export type SortKey = "id" | "acc" | "difficulty" | "title";
@@ -124,7 +129,9 @@ export async function saveList(list: ProblemList): Promise<void> {
 
 export function filterProblems(problems: Problem[], opts: FilterOptions = {}): Problem[] {
   const search = opts.search?.toLowerCase();
+  const patternSet = opts.patterns && opts.patterns.length > 0 ? new Set(opts.patterns) : null;
   return problems.filter((p) => {
+    if (patternSet && !(p.pattern && patternSet.has(p.pattern))) return false;
     if (opts.difficulty && p.difficulty !== opts.difficulty) return false;
     if (opts.minAcceptance !== undefined) {
       if (p.acceptance === null || p.acceptance < opts.minAcceptance) return false;

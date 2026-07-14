@@ -34,6 +34,8 @@ import { setupHasRun, markSetupDone } from "./setup.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { compileAndRun } from "./runner.ts";
+import { NEETCODE_PATTERNS } from "./tags.ts";
+import { roadmapRows } from "./roadmap.ts";
 import { authFromBrowser } from "./auth.ts";
 import { fetchSolvedSlugs } from "./leetcode-progress.ts";
 import { submitSolution } from "./leetcode-submit.ts";
@@ -201,9 +203,11 @@ export function wrapText(text: string, width: number): string[] {
 export type MenuAction =
   | "filter"
   | "diff"
+  | "tag"
   | "sort"
   | "search"
   | "list"
+  | "roadmap"
   | "open"
   | "refresh"
   | "import"
@@ -220,9 +224,11 @@ export interface MenuItem {
 export const MENU_ITEMS: readonly MenuItem[] = [
   { label: "Filter", action: "filter" },
   { label: "Difficulty", action: "diff" },
+  { label: "Tag", action: "tag" },
   { label: "Sort", action: "sort" },
   { label: "Search", action: "search" },
   { label: "List", action: "list" },
+  { label: "Roadmap", action: "roadmap" },
   { label: "Open", action: "open" },
   { label: "Refresh", action: "refresh" },
   { label: "Import", action: "import" },
@@ -362,6 +368,12 @@ interface State {
   completed: Set<number>;
   doneFilter: DoneFilter;
   diff: Difficulty | undefined;
+  /** Active NeetCode-pattern filter; empty = no tag filter. */
+  tagFilter: Set<string>;
+  /** Tag-picker overlay (checklist of patterns), or null. */
+  tagPicker: { index: number } | null;
+  /** Roadmap overlay (branching pattern tree), or null. */
+  roadmap: { cursor: number } | null;
   search: string;
   sortKey: SortKey;
   sortDesc: boolean;
@@ -433,6 +445,7 @@ function recompute(s: State): void {
     difficulty: s.diff,
     search: s.search || undefined,
     completed: s.completed,
+    patterns: s.tagFilter.size > 0 ? [...s.tagFilter] : undefined,
     done,
   });
   s.filtered = sortProblems(out, s.sortKey, s.sortDesc);
@@ -512,8 +525,13 @@ const HELP_LINES = [
   "    q             quit",
   "",
   "  Direct shortcuts (from any panel)",
-  "    f filter   d difficulty   S sort   / search   r random",
-  "    L lists    o open         R refresh   i import   c config   ? help",
+  "    f filter   d difficulty   T tag       S sort    / search",
+  "    m roadmap  L lists        o open      R refresh i import   c config   ? help",
+  "",
+  "  Tags & roadmap",
+  "    T             filter the list by NeetCode pattern (checklist)",
+  "    m             open the roadmap — a branching tree of the 18 patterns;",
+  "                  Enter on a pattern filters the list to it",
   "",
   "  Sync (menu bar → Sync): authenticate, pull solved from LeetCode,",
   "  and push solutions to your account (with a confirm before submitting).",
@@ -611,9 +629,16 @@ function styleProblemRow(s: State, p: Problem, selected: boolean, focused: boole
 
 /** The Problems panel: header (view + counts + filters) then the filtered rows. */
 function problemsPanel(s: State, width: number, height: number, focused: boolean): string[] {
+  const tagLabel =
+    s.tagFilter.size === 0
+      ? ""
+      : s.tagFilter.size === 1
+        ? `#${[...s.tagFilter][0]}`
+        : `#${s.tagFilter.size} tags`;
   const settings = [
     `${s.doneFilter}`,
     s.diff ?? "any",
+    tagLabel,
     `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`,
     s.search ? `"${s.search}"` : "",
   ]
@@ -764,6 +789,8 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.config) return renderConfig(s.config, rows, cols);
   if (s.sync) return renderSync(s.sync, rows, cols);
+  if (s.roadmap) return renderRoadmap(s, rows, cols);
+  if (s.tagPicker) return renderTagPicker(s, rows, cols);
   if (s.fullscreen) return renderFullscreen(s, rows, cols);
 
   const menuBar = renderMenuBar(s, cols);
@@ -958,6 +985,76 @@ export function filterRepoSuggestions(
   return hits.slice(0, limit);
 }
 
+/**
+ * Done/total problem counts per NeetCode pattern, computed over the current
+ * list's problems (the pool the Problems panel draws from). Patterns with no
+ * problems in the pool report zeros.
+ */
+function patternCounts(s: State): Map<string, { done: number; total: number }> {
+  const counts = new Map<string, { done: number; total: number }>();
+  const source = s.showingRecommended ? s.recommended.map((r) => r.problem) : s.list.problems;
+  for (const p of source) {
+    if (!p.pattern) continue;
+    const c = counts.get(p.pattern) ?? { done: 0, total: 0 };
+    c.total++;
+    if (s.completed.has(p.id)) c.done++;
+    counts.set(p.pattern, c);
+  }
+  return counts;
+}
+
+/**
+ * Tag-picker overlay: a checklist of the 18 NeetCode patterns (checked = in the
+ * active filter), with per-pattern done/total counts against the current list.
+ * `a` selects all, `n` clears, Space toggles, Enter/Esc closes.
+ */
+export function renderTagPicker(s: State, rows: number, cols: number): string[] {
+  const counts = patternCounts(s);
+  const patterns = NEETCODE_PATTERNS;
+  const sel = s.tagPicker!.index;
+  const content: string[] = ["  Filter by NeetCode pattern", ""];
+  patterns.forEach((pat, i) => {
+    const on = s.tagFilter.has(pat);
+    const box = on ? "[x]" : "[ ]";
+    const c = counts.get(pat) ?? { done: 0, total: 0 };
+    const tail = c.total > 0 ? `${c.done}/${c.total}` : "—";
+    const row = `  ${box} ${pat.padEnd(24)} ${tail}`;
+    content.push(i === sel ? paint(fit(row, cols), "rev") : fit(row, cols));
+  });
+  content.push("");
+  content.push(paint(fit("  Space toggle · a all · n none · Enter/Esc apply", cols), "dim"));
+  return renderOverlay(content, rows, cols, " Tag filter ");
+}
+
+/**
+ * Roadmap overlay: the NeetCode pattern DAG as an indented tree, with per-pattern
+ * done/total counts. The cursor selects a pattern; Enter filters the Problems
+ * panel to it and closes. Repeat rows (shared prerequisites) are shown dimmed.
+ */
+export function renderRoadmap(s: State, rows: number, cols: number): string[] {
+  const counts = patternCounts(s);
+  const treeRows = roadmapRows();
+  const cursor = s.roadmap!.cursor;
+  const content: string[] = ["  NeetCode roadmap — pick a pattern to study", ""];
+  treeRows.forEach((r, i) => {
+    const indent = "  ".repeat(r.depth);
+    const branch = r.depth === 0 ? "" : "└─ ";
+    const c = counts.get(r.pattern) ?? { done: 0, total: 0 };
+    const tail = r.repeat ? "↗" : c.total > 0 ? ` ${c.done}/${c.total}` : " —";
+    const text = `  ${indent}${branch}${r.pattern}${tail}`;
+    if (i === cursor) content.push(paint(fit(text, cols), "rev"));
+    else if (r.repeat) content.push(paint(fit(text, cols), "dim"));
+    else {
+      // Tint a fully-solved pattern green, an untouched one plain.
+      const done = c.total > 0 && c.done === c.total;
+      content.push(done ? paint(fit(text, cols), "green") : fit(text, cols));
+    }
+  });
+  content.push("");
+  content.push(paint(fit("  ↑↓ move · Enter study this pattern · Esc close", cols), "dim"));
+  return renderOverlay(content, rows, cols, " Roadmap ");
+}
+
 /** Render the settings overlay: one row per editable field, showing current value or fallback. */
 function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
   // The checkbox submenu takes over the whole overlay while it's open.
@@ -1106,6 +1203,21 @@ function previewHeaderLines(s: State, width: number): string[] {
     paint(fit(`$ ${solveCommand(p.id, p.slug)}`, width), "green"),
   ];
 
+  // Tags: the NeetCode pattern (with a ~ marker + dim styling when inferred
+  // rather than native) plus the LeetCode topic tags. Wrapped to the pane width.
+  if (p.pattern || (p.topics && p.topics.length > 0)) {
+    lines.push("");
+    if (p.pattern) {
+      const derived = p.patternSource === "derived";
+      const label = `Pattern: ${p.pattern}${derived ? " ~" : ""}`;
+      lines.push(paint(fit(label, width), derived ? "dim" : "yellow"));
+    }
+    if (p.topics && p.topics.length > 0) {
+      const wrapped = wrapText(`Topics: ${p.topics.join(", ")}`, Math.max(1, width));
+      for (const w of wrapped) lines.push(paint(fit(w, width), "dim"));
+    }
+  }
+
   // Explain the cross-list popularity — why it's recommended, and where it shows
   // up. Wrapped so long membership lists don't overflow the preview pane.
   //
@@ -1201,6 +1313,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
     completed,
     doneFilter: "all",
     diff: undefined,
+    tagFilter: new Set<string>(),
+    tagPicker: null,
+    roadmap: null,
     search: "",
     sortKey: "id",
     sortDesc: false,
@@ -1872,6 +1987,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
         state.diff = cycleDifficulty(state.diff);
         recompute(state);
         break;
+      case "tag":
+        state.tagPicker = { index: 0 };
+        break;
+      case "roadmap":
+        state.roadmap = { cursor: 0 };
+        break;
       case "sort": {
         const next = cycleSortState(state.sortKey, state.sortDesc);
         state.sortKey = next.key;
@@ -2096,6 +2217,99 @@ export async function runTui(list?: ProblemList): Promise<void> {
         return;
       }
 
+      // ── tag-picker overlay ── (checklist of NeetCode patterns)
+      if (state.tagPicker) {
+        const tp = state.tagPicker;
+        const patterns = NEETCODE_PATTERNS;
+        switch (key) {
+          case "\x03":
+            finish();
+            return;
+          case "\x1b":
+          case "\r":
+          case "\n":
+          case "q":
+            state.tagPicker = null;
+            recompute(state);
+            break;
+          case "k":
+          case "\x1b[A":
+            tp.index = Math.max(0, tp.index - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            tp.index = Math.min(patterns.length - 1, tp.index + 1);
+            break;
+          case " ": {
+            const pat = patterns[tp.index]!;
+            if (state.tagFilter.has(pat)) state.tagFilter.delete(pat);
+            else state.tagFilter.add(pat);
+            recompute(state);
+            break;
+          }
+          case "a":
+            for (const p of patterns) state.tagFilter.add(p);
+            recompute(state);
+            break;
+          case "n":
+            state.tagFilter.clear();
+            recompute(state);
+            break;
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
+      // ── roadmap overlay ── (branching pattern tree; Enter studies a pattern)
+      if (state.roadmap) {
+        const rm = state.roadmap;
+        const treeRows = roadmapRows();
+        switch (key) {
+          case "\x03":
+            finish();
+            return;
+          case "\x1b":
+          case "q":
+            state.roadmap = null;
+            break;
+          case "k":
+          case "\x1b[A":
+            rm.cursor = Math.max(0, rm.cursor - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            rm.cursor = Math.min(treeRows.length - 1, rm.cursor + 1);
+            break;
+          case "g":
+            rm.cursor = 0;
+            break;
+          case "G":
+            rm.cursor = treeRows.length - 1;
+            break;
+          case "\r":
+          case "\n":
+          case "\x1b[C":
+          case "l": {
+            // Study this pattern: set the tag filter to just it, close, focus Problems.
+            const pat = treeRows[rm.cursor]!.pattern;
+            state.tagFilter = new Set([pat]);
+            state.roadmap = null;
+            state.focus = "problems";
+            state.lastPanel = "problems";
+            state.cursor = 0;
+            state.top = 0;
+            recompute(state);
+            break;
+          }
+          default:
+            return;
+        }
+        render();
+        return;
+      }
+
       // ── sync overlay ──
       if (state.sync) {
         const sync = state.sync;
@@ -2305,6 +2519,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
       const accel: Record<string, MenuAction> = {
         f: "filter",
         d: "diff",
+        T: "tag",
+        m: "roadmap",
         S: "sort",
         "/": "search",
         L: "list",
