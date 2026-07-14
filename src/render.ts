@@ -98,7 +98,14 @@ export function renderProblem(p: Problem, contentHtml?: string, done?: boolean):
  * block entirely rather than emit an empty comment.
  */
 export function statementCommentLines(contentHtml: string, marker: string): string[] {
-  const text = htmlToText(contentHtml);
+  return commentLinesFromText(htmlToText(contentHtml), marker);
+}
+
+/**
+ * Turn already-plain statement text into comment lines prefixed with `marker`
+ * (blank lines become the bare, trimmed marker). Returns [] for empty text.
+ */
+export function commentLinesFromText(text: string, marker: string): string[] {
   if (!text) return [];
   return text
     .split("\n")

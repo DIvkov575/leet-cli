@@ -22,6 +22,7 @@ import { collectTargets, syncTargets, missingManifest } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
 import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
+import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
   loadConfig,
@@ -469,51 +470,6 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
  * code, print the problem statement, and embed a runnable test harness built
  * from the example cases. `--quiet` skips printing the statement.
  */
-/**
- * Non-destructively add the problem-statement comment block to an existing
- * solution file that predates description-embedding. `freshContent` is a
- * freshly-scaffolded version of the same problem (which does carry the block).
- *
- * Both files open with a run of `//` header lines. A file that already has the
- * statement contains a bare `//` separator line in that run; if the existing
- * file has one, it's already up to date. Otherwise we lift the freshly-generated
- * header's statement block (everything from its bare `//` separator to the end
- * of its `//` run) and splice it into the existing file right after its header,
- * leaving all code below untouched.
- *
- * Returns "added" if the statement was inserted, "already" if the file already
- * had it, or "cannot" if there's no statement block to lift (e.g. a premium
- * problem with no content).
- */
-async function addStatementToExistingFile(
-  path: string,
-  freshContent: string,
-): Promise<"added" | "already" | "cannot"> {
-  const existing = await Bun.file(path).text();
-  const exLines = existing.split("\n");
-  const frLines = freshContent.split("\n");
-
-  const headerEnd = (lines: string[]): number => {
-    let i = 0;
-    while (i < lines.length && lines[i]!.startsWith("//")) i++;
-    return i;
-  };
-  const exEnd = headerEnd(exLines);
-  const frEnd = headerEnd(frLines);
-
-  // Already has an embedded statement (bare "//" separator in the header)?
-  if (exLines.slice(0, exEnd).some((l) => l === "//")) return "already";
-  // Fresh content has no statement block to lift (e.g. premium/no-content)?
-  const frSep = frLines.slice(0, frEnd).findIndex((l) => l === "//");
-  if (frSep === -1) return "cannot";
-
-  // The block is the fresh header's separator line through the end of its // run.
-  const block = frLines.slice(frSep, frEnd);
-  const merged = [...exLines.slice(0, exEnd), ...block, ...exLines.slice(exEnd)];
-  await Bun.write(path, merged.join("\n"));
-  return "added";
-}
-
 async function cmdSolve(p: Parsed): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet solve <id|slug> [--force] [--quiet] [--fresh]");
@@ -522,21 +478,24 @@ async function cmdSolve(p: Parsed): Promise<void> {
   const dir = resolveSolutionsDir(p.values.dir as string | undefined, await loadConfig());
   const fresh = Boolean(p.values.fresh);
 
-  // Cache-first: a prior live fetch (or prefetch) already packaged this file.
-  const cached = fresh ? null : await getCached(slug);
-  let content: string;
-  let id: number;
-  let statement: { title: string; difficulty: string; html: string } | null = null;
-
-  if (cached !== null) {
-    content = cached;
-    // Recover id from the cached header comment: "// <id>. <title> [..]".
-    const m = cached.match(/^\/\/\s*(\d+)\./);
-    id = m ? Number(m[1]) : (local?.id ?? 0);
-  } else {
+  // Build the guaranteed-statement content via the shared builder. On --fresh
+  // we bypass any cached copy and package straight from LeetCode. `problem` is
+  // needed for statement resolution; fill it from the bundled list when known,
+  // else from the live fetch performed by the scaffold closure.
+  let problem: Problem | null = local ?? null;
+  let src: "cached" | "fetched" = "cached";
+  const scaffoldFresh = async (): Promise<string> => {
+    src = "fetched";
     const remote = await fetchProblem(slug, { withSnippets: true, withContent: true });
-    id = remote.id;
-    content = scaffoldContent({
+    problem = {
+      id: remote.id,
+      title: remote.title,
+      slug: remote.slug,
+      url: `https://leetcode.com/problems/${remote.slug}/`,
+      acceptance: remote.acceptance,
+      difficulty: remote.difficulty,
+    };
+    return scaffoldContent({
       id: remote.id,
       title: remote.title,
       slug: remote.slug,
@@ -547,49 +506,52 @@ async function cmdSolve(p: Parsed): Promise<void> {
       exampleTestcases: remote.exampleTestcases,
       contentHtml: remote.contentHtml,
     });
-    await putCached(slug, content); // populate cache for next time
-    if (remote.contentHtml) {
-      statement = { title: remote.title, difficulty: remote.difficulty, html: remote.contentHtml };
+  };
+
+  let content: string;
+  if (fresh) {
+    content = await scaffoldFresh();
+    await putCached(slug, content);
+  } else {
+    // buildSolutionFile is cache-first and heals a statement-less cached file.
+    content = await buildSolutionFile(
+      // A placeholder Problem is fine when `local` is unknown: buildSolutionFile
+      // only touches it on a cache hit that needs healing, and resolveDescription
+      // keys off slug/id. On a cache miss the closure sets the real `problem`.
+      local ?? { id: 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" },
+      scaffoldFresh,
+    );
+    // If the cache was healed for an unknown-list problem, re-key by the real id.
+    if (problem === null) {
+      const m = content.match(/^\/\/\s*(\d+)\./);
+      problem = { id: m ? Number(m[1]) : 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" };
     }
   }
+  const id = problem?.id || Number(content.match(/^\/\/\s*(\d+)\./)?.[1] ?? 0);
 
   const path = `${dir}/${scaffoldFilename(id, slug)}`;
-  if (!p.values.force && (await Bun.file(path).exists())) {
-    // The file exists. Rather than refuse outright (and rather than overwrite
-    // and destroy any solution code), try to non-destructively add the problem
-    // statement to it if it's an older file that predates description-embedding.
-    const outcome = await addStatementToExistingFile(path, content);
-    if (outcome === "added") {
-      console.log(`added the problem statement to ${path} (your code was kept)`);
-      if (p.values.open) await openInEditor(path);
-      return;
+  if (await Bun.file(path).exists()) {
+    if (p.values.force) {
+      await Bun.write(path, content); // regenerate wholesale
+      console.log(`wrote ${path} (--force overwrote existing) [${src}]`);
+    } else {
+      // Don't clobber solution code: add the statement in place if it's missing.
+      const existing = await Bun.file(path).text();
+      if (hasStatementBlock(existing)) {
+        console.log(`${path} already exists and has the problem statement.`);
+      } else {
+        const stmt = await resolveDescription(problem!).then((r) => r.text).catch(() => "");
+        await Bun.write(path, withStatement(existing, stmt));
+        console.log(`added the problem statement to ${path} (your code was kept)`);
+      }
     }
-    if (outcome === "already") {
-      console.log(`${path} already exists and has the problem statement.`);
-      if (p.values.open) await openInEditor(path);
-      return;
-    }
-    throw new UserError(`${path} already exists (pass --force to overwrite)`);
+    if (p.values.open) await openInEditor(path);
+    return;
   }
+
   await Bun.write(path, content);
-
-  // -o hands off to the editor, so skip dumping the statement first.
-  if (!p.values.quiet && !p.values.open) {
-    if (statement) {
-      console.log(`\n${id}. ${statement.title} [${statement.difficulty}]`);
-      console.log(`https://leetcode.com/problems/${slug}/`);
-      console.log("");
-      console.log(htmlToText(statement.html));
-      console.log("");
-    } else if (cached !== null) {
-      // Served from cache — the description lives in the file's header comment.
-      console.log(`\n(served from cache; description is in ${scaffoldFilename(id, slug)})\n`);
-    }
-  }
   const hasHarness = content.includes("int main()");
-  const src = cached !== null ? "cached" : "fetched";
   console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
-
   if (p.values.open) await openInEditor(path);
 }
 
@@ -615,31 +577,37 @@ async function cmdTest(p: Parsed): Promise<void> {
     break;
   }
   if (path === null) {
-    const cached = await getCached(slug);
-    let content: string;
-    let id: number;
-    if (cached !== null) {
-      content = cached;
-      id = Number(cached.match(/^\/\/\s*(\d+)\./)?.[1] ?? local?.id ?? 0);
-    } else {
-      const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
-      id = r.id;
-      content = scaffoldContent({
-        id: r.id,
-        title: r.title,
-        slug: r.slug,
-        difficulty: r.difficulty,
-        url: `https://leetcode.com/problems/${r.slug}/`,
-        snippets: r.snippets ?? [],
-        metaData: r.metaData,
-        exampleTestcases: r.exampleTestcases,
-        contentHtml: r.contentHtml,
-      });
-      await putCached(slug, content);
-    }
+    // Build via the shared, statement-guaranteed path (cache-first, healing).
+    let problem: Problem | null = local ?? null;
+    const content = await buildSolutionFile(
+      local ?? { id: 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" },
+      async () => {
+        const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
+        problem = { id: r.id, title: r.title, slug: r.slug, url: `https://leetcode.com/problems/${r.slug}/`, acceptance: r.acceptance, difficulty: r.difficulty };
+        return scaffoldContent({
+          id: r.id,
+          title: r.title,
+          slug: r.slug,
+          difficulty: r.difficulty,
+          url: `https://leetcode.com/problems/${r.slug}/`,
+          snippets: r.snippets ?? [],
+          metaData: r.metaData,
+          exampleTestcases: r.exampleTestcases,
+          contentHtml: r.contentHtml,
+        });
+      },
+    );
+    const id = (problem?.id || Number(content.match(/^\/\/\s*(\d+)\./)?.[1] ?? local?.id ?? 0));
     path = `${dir}/${scaffoldFilename(id, slug)}`;
     await Bun.write(path, content);
     console.error(`scaffolded ${path}`);
+  } else {
+    // File already on disk — heal it in place if it predates statement-embedding.
+    const existing = await Bun.file(path).text();
+    if (!hasStatementBlock(existing) && local) {
+      const stmt = await resolveDescription(local).then((r) => r.text).catch(() => "");
+      if (stmt) await Bun.write(path, withStatement(existing, stmt));
+    }
   }
 
   if (!(await Bun.file(path).text()).includes("int main()")) {

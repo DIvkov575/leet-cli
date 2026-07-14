@@ -31,8 +31,8 @@ import {
 import { prefetchProblems } from "./prefetch.ts";
 import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
-import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
+import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { compileAndRun } from "./runner.ts";
 import { authFromBrowser } from "./auth.ts";
 import { fetchSolvedSlugs } from "./leetcode-progress.ts";
@@ -1403,10 +1403,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
   const scaffoldToDisk = async (p: Problem, dir: string): Promise<string | null> => {
     const path = `${dir}/${scaffoldFilename(p.id, p.slug)}`;
     try {
-      let content = await getCached(p.slug);
-      if (content === null) {
+      // Shared, statement-guaranteed builder (cache-first, heals stale cache).
+      const content = await buildSolutionFile(p, async () => {
         const r = await fetchProblem(p.slug, { withSnippets: true, withContent: true });
-        content = scaffoldContent({
+        return scaffoldContent({
           id: r.id,
           title: r.title,
           slug: r.slug,
@@ -1417,10 +1417,18 @@ export async function runTui(list?: ProblemList): Promise<void> {
           exampleTestcases: r.exampleTestcases,
           contentHtml: r.contentHtml,
         });
-        await putCached(p.slug, content);
-      }
+      });
       await mkdir(dir, { recursive: true });
-      if (!(await Bun.file(path).exists())) await Bun.write(path, content);
+      if (!(await Bun.file(path).exists())) {
+        await Bun.write(path, content);
+      } else {
+        // Heal an existing on-disk file that predates statement-embedding.
+        const existing = await Bun.file(path).text();
+        if (!hasStatementBlock(existing)) {
+          const stmt = await resolveDescription(p).then((r) => r.text).catch(() => "");
+          if (stmt) await Bun.write(path, withStatement(existing, stmt));
+        }
+      }
       return path;
     } catch (err) {
       state.status = `scaffold failed: ${err instanceof Error ? err.message : String(err)}`;
