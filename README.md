@@ -85,9 +85,10 @@ leet import <path|owner/repo>    # mark done from NeetCode (or --adapter leetcod
 leet auth                        # grab your LeetCode session from a local browser
 leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them Accepted
 leet sync <owner/repo> [list...] # package problems into a private GitHub repo
+leet pull-solutions <owner/repo> # add solved problems missing from your NeetCode submissions repo
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
-leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendInclude)
+leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
 ```
 
 Every command has a one-line summary in `leet help`; the LeetCode-account
@@ -106,14 +107,14 @@ environment variable, then a built-in default:
 | `solutionsDir`     | —                    | `solve` / `test`    | `solutions`          |
 | `cxx`              | `$CXX`               | `test`              | `c++`                |
 | `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
-| `recommendInclude` | —                    | ★ Recommended list  | none — empty until you pick lists |
+| `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
 
 ```sh
 leet config                              # show all settings
 leet config editor "code -w"             # set the editor
 leet config recommend acceptance         # change the recommendation ranking
-leet config recommendInclude citadel,sig # only these lists feed ★ Recommended
-leet config recommendInclude --unset     # back to no recommendations
+leet config recommendExclude citadel,sig # drop these lists from ★ Recommended
+leet config recommendExclude --unset     # back to every list counting
 leet config cxx --unset                  # clear a setting
 ```
 
@@ -123,16 +124,19 @@ approachable unsolved problems first.
 
 ### Tuning ★ Recommended
 
-Recommendations are **opt-in**: `recommendInclude` names the lists that feed the
-★ Recommended pool, and with none selected the panel stays empty. Pick the lists
-you're actually interviewing against so the ranking reflects only those:
+By default **every list counts** toward ★ Recommended, so it's populated out of
+the box. `recommendExclude` drops the lists you don't want voting — handy if
+you're not interviewing at, say, the quant shops:
 
 ```sh
-leet config recommendInclude google,meta,uber
+leet config recommendExclude citadel,jane-street,two-sigma,sig
 ```
 
-Lists you leave out stay **fully browsable** — they simply don't contribute to
-the cross-list popularity signal, and aren't cited in the preview's
+In the TUI the config picker shows this as a positive **include checklist**
+(every list ticked by default); `space` toggles one, `a` includes all, `n`
+includes none. Lists you untick stay **fully browsable** — they simply don't
+contribute to the cross-list popularity signal, and aren't cited in the
+preview's
 "appears in N lists" line.
 
 Inside the interactive browser, open the settings screen with **`c`** (from any

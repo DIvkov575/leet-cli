@@ -32,26 +32,27 @@ export interface RecommendOptions {
 export type RecommendStrategy = (lists: ProblemList[], opts: RecommendOptions) => Recommendation[];
 
 /**
- * Keep only the opted-in lists in the recommendation pool. Everything
- * downstream — the popularity counts, the "appears in N lists" figure, the
- * ranking itself — is then computed as if only those lists existed. Lists left
- * out remain browsable in the UI; they just don't vote.
+ * Drop de-selected lists from the recommendation pool. Everything downstream —
+ * the popularity counts, the "appears in N lists" figure, the ranking itself —
+ * is then computed as if those lists did not exist. Excluded lists remain
+ * browsable in the UI; they just stop voting.
  *
- * This is opt-in: an unset/empty `include` means *no* list is selected, so the
- * pool is empty and ★ Recommended shows nothing until the user picks lists.
+ * The default is all-lists-count: an unset/empty `exclude` keeps every list, so
+ * ★ Recommended is populated out of the box. Excluding *every* list is the only
+ * way to empty it.
  *
  * Names are compared case-insensitively and trimmed, so a hand-edited config
  * ("Citadel", " sig ") behaves the same as one written by the TUI. Unknown
- * names simply match nothing rather than being treated as an error: a list can
- * disappear between releases, and that shouldn't wedge anyone's settings.
+ * names are ignored rather than treated as an error: a list can disappear
+ * between releases, and that shouldn't wedge anyone's settings.
  */
-export function includeLists(
+export function excludeLists(
   lists: ProblemList[],
-  include: readonly string[] | undefined,
+  exclude: readonly string[] | undefined,
 ): ProblemList[] {
-  if (!include || include.length === 0) return [];
-  const keep = new Set(include.map((n) => n.trim().toLowerCase()));
-  return lists.filter((l) => keep.has(l.name.trim().toLowerCase()));
+  if (!exclude || exclude.length === 0) return lists;
+  const skip = new Set(exclude.map((n) => n.trim().toLowerCase()));
+  return lists.filter((l) => !skip.has(l.name.trim().toLowerCase()));
 }
 
 /** Aggregate every problem across lists, de-duped by id, with list membership. */

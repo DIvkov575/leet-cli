@@ -99,6 +99,21 @@ const NEETCODE_ALIASES: Record<string, string> = {
   "meeting-schedule": "meeting-rooms",
   "meeting-schedule-ii": "meeting-rooms-ii",
   "minimum-interval-including-query": "minimum-interval-to-include-each-query",
+  // Additional renames found by cross-referencing every NeetCode folder against
+  // LeetCode's live slugs (verified against leetcode.com/problems/<slug>).
+  "non-cyclical-number": "happy-number",
+  "number-of-one-bits": "number-of-1-bits",
+  "permutation-string": "permutation-in-string",
+  "pow-x-n": "powx-n",
+  "reverse-a-linked-list": "reverse-linked-list",
+  "rotate-matrix": "rotate-image",
+  "rotting-fruit": "rotting-oranges",
+  "search-2d-matrix": "search-a-2d-matrix",
+  "search-for-word": "word-search",
+  "search-for-word-ii": "word-search-ii",
+  "set-zeroes-in-matrix": "set-matrix-zeroes",
+  "task-scheduling": "task-scheduler",
+  "three-integer-sum": "3sum",
 };
 
 /** Slug of the immediate parent directory of any `submission*` file. */

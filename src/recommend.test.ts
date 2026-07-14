@@ -3,7 +3,7 @@ import {
   recommendProblems,
   getStrategy,
   popularityStrategy,
-  includeLists,
+  excludeLists,
   DEFAULT_STRATEGY,
 } from "./recommend.ts";
 import type { ProblemList, Difficulty } from "./types.ts";
@@ -72,46 +72,44 @@ describe("recommendProblems", () => {
   });
 });
 
-describe("includeLists (opt-in)", () => {
-  test("no selection -> empty pool (opt-in: nothing recommended)", () => {
-    expect(includeLists(lists, [])).toEqual([]);
-    expect(includeLists(lists, undefined)).toEqual([]);
-    expect(popularityStrategy(includeLists(lists, []), {})).toEqual([]);
+describe("excludeLists", () => {
+  test("no exclusions -> every list counts (the default)", () => {
+    expect(excludeLists(lists, []).map((l) => l.name)).toEqual(["a", "b", "c"]);
+    expect(excludeLists(lists, undefined).map((l) => l.name)).toEqual(["a", "b", "c"]);
   });
 
-  test("keeps only the named lists", () => {
-    expect(includeLists(lists, ["a", "c"]).map((l) => l.name)).toEqual(["a", "c"]);
-    expect(includeLists(lists, ["b"]).map((l) => l.name)).toEqual(["b"]);
+  test("drops the named lists from the pool", () => {
+    expect(excludeLists(lists, ["b"]).map((l) => l.name)).toEqual(["a", "c"]);
+    expect(excludeLists(lists, ["a", "c"]).map((l) => l.name)).toEqual(["b"]);
   });
 
   test("matching is case-insensitive and tolerates unknown names", () => {
-    expect(includeLists(lists, ["A", "  c  "]).map((l) => l.name)).toEqual(["a", "c"]);
-    // Unknown names simply match nothing rather than erroring.
-    expect(includeLists(lists, ["nonexistent"])).toEqual([]);
-    expect(includeLists(lists, ["a", "nonexistent"]).map((l) => l.name)).toEqual(["a"]);
+    expect(excludeLists(lists, ["B", "  c  "]).map((l) => l.name)).toEqual(["a"]);
+    expect(excludeLists(lists, ["nonexistent"]).map((l) => l.name)).toEqual(["a", "b", "c"]);
   });
 
-  test("selecting every list is the whole pool", () => {
-    expect(includeLists(lists, ["a", "b", "c"]).map((l) => l.name)).toEqual(["a", "b", "c"]);
+  test("excluding every list empties the pool", () => {
+    expect(excludeLists(lists, ["a", "b", "c"])).toEqual([]);
+    expect(popularityStrategy(excludeLists(lists, ["a", "b", "c"]), {})).toEqual([]);
   });
 });
 
-describe("recommendations reflect only the included lists", () => {
-  test("including a subset lowers listCount and can drop a problem entirely", () => {
-    // p3 lives only in list "a"; including only b + c must drop it.
-    const recs = popularityStrategy(includeLists(lists, ["b", "c"]), {});
+describe("recommendations reflect only the non-excluded lists", () => {
+  test("excluding a list lowers listCount and can drop a problem entirely", () => {
+    // p3 lives only in list "a"; excluding "a" must drop it.
+    const recs = popularityStrategy(excludeLists(lists, ["a"]), {});
     expect(recs.some((r) => r.problem.id === 3)).toBe(false);
 
-    // p1 was in 3 lists; with only b + c included it is in 2.
+    // p1 was in 3 lists; with "a" excluded it is in b + c.
     const p1 = recs.find((r) => r.problem.id === 1)!;
     expect(p1.listCount).toBe(2);
     expect(p1.lists).toEqual(["b", "c"]);
   });
 
-  test("the popularity ranking itself follows the included set", () => {
-    // Including only list "a": all three tied at 1 list, so acceptance breaks
-    // the tie: p3(70) > p2(60) > p1(50).
-    const recs = popularityStrategy(includeLists(lists, ["a"]), {});
+  test("the popularity ranking itself follows the remaining set", () => {
+    // Excluding b + c leaves only list "a": all three tied at 1 list, so
+    // acceptance breaks the tie: p3(70) > p2(60) > p1(50).
+    const recs = popularityStrategy(excludeLists(lists, ["b", "c"]), {});
     expect(recs.map((r) => r.problem.id)).toEqual([3, 2, 1]);
   });
 });

@@ -27,7 +27,7 @@ import {
   type ConfigKey,
 } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
-import { recommendProblems, includeLists, type Recommendation } from "./recommend.ts";
+import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
 import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
@@ -852,9 +852,11 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
 export function configValueCell(field: ConfigField, working: Config): string {
   const set = working[field.key];
   if (field.kind === "multiselect") {
-    const picked = (set as string[] | undefined) ?? [];
-    if (picked.length === 0) return "";
-    return `${picked.join(", ")}  (${picked.length} skipped)`;
+    // Value is the excluded set; the row summarises what that means for the
+    // positive "included" framing the picker uses.
+    const excluded = (set as string[] | undefined) ?? [];
+    if (excluded.length === 0) return ""; // default → fallback ("all lists included")
+    return `all except ${excluded.join(", ")}  (${excluded.length} excluded)`;
   }
   return (set as string | undefined) ?? "";
 }
@@ -897,10 +899,11 @@ function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
 }
 
 /**
- * The checkbox submenu behind a `multiselect` field. A ticked box means the
- * list is *skipped* — de-selected from the recommendation pool — so the header
- * spells that out; an inverted checklist is exactly the kind of thing people
- * misread.
+ * The checkbox submenu behind a `multiselect` field. It's presented as a
+ * positive *include* checklist — a ticked box means the list counts toward
+ * ★ Recommended — even though the value is stored as the excluded (unticked)
+ * set. That inversion is deliberate: the default (nothing stored) shows every
+ * box ticked, so out of the box every list is recommended.
  */
 function renderConfigPicker(
   cfg: ConfigState,
@@ -908,27 +911,34 @@ function renderConfigPicker(
   rows: number,
   cols: number,
 ): string[] {
-  const skipped = new Set(((cfg.working[picker.key] as string[] | undefined) ?? []).map((n) => n.toLowerCase()));
+  const excluded = new Set(((cfg.working[picker.key] as string[] | undefined) ?? []).map((n) => n.toLowerCase()));
+  const included = (name: string): boolean => !excluded.has(name.toLowerCase());
+  const includedCount = picker.choices.filter(included).length;
   const content: string[] = [
-    "  Skip lists in ★ Recommended",
+    "  Lists in ★ Recommended",
     "",
-    paint("  Ticked lists stop counting toward Recommended.", "dim"),
-    paint("  They stay browsable in the Lists panel.", "dim"),
+    paint("  Ticked lists count toward Recommended (default: all).", "dim"),
+    paint("  Unticked lists stay browsable but don't vote.", "dim"),
     "",
   ];
   picker.choices.forEach((name, i) => {
-    const on = skipped.has(name.toLowerCase());
+    const on = included(name);
     const marker = i === picker.index ? "▸ " : "  ";
     const row = `  ${marker}${on ? "[x]" : "[ ]"} ${name}`;
     if (i === picker.index) content.push(paint(fit(row, cols), "rev"));
     else if (on) content.push(row);
     else content.push(paint(row, "dim"));
   });
-  if (picker.choices.length > 0 && skipped.size === picker.choices.length) {
+  if (picker.choices.length > 0 && includedCount === 0) {
     content.push("");
-    content.push(paint("  every list is skipped — Recommended will be empty", "yellow"));
+    content.push(paint("  no lists included — ★ Recommended will be empty", "yellow"));
   }
-  return renderOverlay(content, rows, cols, " skip lists  (↑↓ move · space toggle · a none · Esc back)");
+  return renderOverlay(
+    content,
+    rows,
+    cols,
+    " include lists  (↑↓ move · space toggle · a all · n none · Esc back)",
+  );
 }
 
 /** Render the Sync overlay: the action menu, then the running/last action's log. */
@@ -1050,7 +1060,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   // popularity counts (and the "appears in N lists" line in the preview)
   // reflect only the lists the user actually cares about.
   const rankRecommended = (cfg: Config, done: Set<number>): Recommendation[] =>
-    recommendProblems(includeLists(allLists, cfg.recommendInclude), cfg.recommend, {
+    recommendProblems(excludeLists(allLists, cfg.recommendExclude), cfg.recommend, {
       completed: done,
       excludeDone: true,
       limit: 100,
@@ -1698,6 +1708,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
             case " ":
             case "\r":
             case "\n": {
+              // The checklist shows *include*, but we store *exclude*, so a
+              // toggle flips this list's membership in the excluded set.
               const name = pick.choices[pick.index];
               if (name) {
                 const next = toggleSelection(cfg.working[pick.key] as string[] | undefined, name);
@@ -1706,8 +1718,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
               }
               break;
             }
-            case "a": // clear every tick — back to "all lists count"
+            case "a": // all included — exclude nothing (the default)
               delete cfg.working[pick.key];
+              break;
+            case "n": // none included — exclude every list
+              (cfg.working[pick.key] as string[]) = [...pick.choices];
               break;
           }
           render();

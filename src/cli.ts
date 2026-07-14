@@ -36,8 +36,14 @@ import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
-import { fetchSolvedSlugs } from "./leetcode-progress.ts";
+import { fetchSolvedSlugs, verifySession } from "./leetcode-progress.ts";
 import { submitSolution } from "./leetcode-submit.ts";
+import { fetchBestSolution } from "./leetcode-submissions.ts";
+import {
+  missingSolvedSlugs,
+  pullMissingSolutions,
+  NEETCODE_TOPIC_DIR,
+} from "./pull-solutions.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
@@ -54,6 +60,7 @@ Usage:
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet push [--source neetcode|dir] Submit solutions to LeetCode to mark them Accepted (--yes to apply)
   leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
+  leet pull-solutions <owner/repo> Add LeetCode-solved problems missing from your NeetCode submissions repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
@@ -61,7 +68,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendInclude)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
 
 Filters (for ls / random):
@@ -272,12 +279,12 @@ async function cmdLs(p: Parsed): Promise<void> {
  * `leet config` — show settings; `leet config <key> <value>` sets one;
  * `leet config <key> --unset` clears it.
  *
- * Keys: editor, solutionsDir, cxx, recommend, recommendInclude. The last takes
- * a comma-separated set of list names to *include* when ranking ★ Recommended
- * (opt-in: with none set, Recommended is empty):
+ * Keys: editor, solutionsDir, cxx, recommend, recommendExclude. The last takes
+ * a comma-separated set of list names to *exclude* from ★ Recommended (the
+ * default is all lists count; excluding every list empties it):
  *
- *   leet config recommendInclude citadel,sig
- *   leet config recommendInclude --unset      # back to no recommendations
+ *   leet config recommendExclude citadel,sig
+ *   leet config recommendExclude --unset      # back to all lists counting
  */
 async function cmdConfig(p: Parsed): Promise<void> {
   const cfg = await loadConfig();
@@ -832,6 +839,110 @@ async function cmdSync(p: Parsed): Promise<void> {
   }
 }
 
+/**
+ * `leet pull-solutions <owner/repo>` — add your LeetCode-solved problems that
+ * aren't yet in your NeetCode submissions repo, in that repo's own layout
+ * (`Data Structures & Algorithms/<slug>/submission-0.<ext>`).
+ *
+ * "Missing" is computed by mapping every existing folder through the NeetCode →
+ * LeetCode alias map to its canonical LeetCode slug, then diffing against the
+ * set of problems you've solved on LeetCode. Needs your session cookie (`leet
+ * auth`) since submission source code is private. Read-only on LeetCode.
+ */
+async function cmdPullSolutions(p: Parsed): Promise<void> {
+  const repo = p.positionals[0];
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new UserError(
+      "usage: leet pull-solutions <owner/repo> [--dry-run] [--no-push] [-n <limit>] [--delay <secs>]",
+    );
+  }
+  const auth = resolveLeetCodeAuth(await loadConfig());
+  if (!auth) {
+    throw new UserError(
+      "no LeetCode session — run `leet auth` (or set LEETCODE_SESSION) so your solutions can be fetched.",
+    );
+  }
+  const dryRun = Boolean(p.values["dry-run"]);
+  const limit = p.values.limit ? Number(p.values.limit) : undefined;
+  const delayMs = p.values.delay ? Number(p.values.delay) * 1000 : 1000;
+
+  // 1) Who are you + what have you solved on LeetCode.
+  const username = await verifySession(auth);
+  console.error(`signed in as ${username}; fetching your solved problems…`);
+  const solved = await fetchSolvedSlugs(auth, {
+    onProgress: (f, t) => {
+      if (f % 500 === 0 || f === t) console.error(`  solved scan ${f}/${t}`);
+    },
+  });
+  console.error(`you've solved ${solved.length} problems on LeetCode.`);
+
+  // 2) Clone the submissions repo and read its existing folder slugs.
+  const workdir = `${await run(["mktemp", "-d"])}`.trim();
+  const clone = `${workdir}/repo`;
+  console.error(`cloning ${repo}…`);
+  await run(["gh", "repo", "clone", repo, clone, "--", "--depth", "1"]);
+
+  const existingFolders = new Set<string>();
+  const topicRoot = `${clone}/${NEETCODE_TOPIC_DIR}`;
+  const glob = new Bun.Glob("*/submission-*");
+  for await (const rel of glob.scan(topicRoot)) {
+    // rel is "<slug>/submission-N.<ext>"; take the slug.
+    const slug = rel.split("/")[0];
+    if (slug) existingFolders.add(slug);
+  }
+  console.error(`repo already has ${existingFolders.size} problem folders.`);
+
+  // 3) Diff on canonical LeetCode slugs.
+  let missing = missingSolvedSlugs([...existingFolders], solved);
+  console.error(`${missing.length} solved problems are missing from the repo.`);
+  if (limit !== undefined && missing.length > limit) {
+    console.error(`(limiting to the first ${limit})`);
+    missing = missing.slice(0, limit);
+  }
+  if (missing.length === 0) {
+    console.error("nothing to add — the repo already covers everything you've solved.");
+    return;
+  }
+  if (dryRun) {
+    for (const slug of missing) console.log(slug);
+    console.error(`\n(dry run — ${missing.length} would be fetched and added; nothing written)`);
+    return;
+  }
+
+  // 4) Fetch each missing solution's source and write it in NeetCode's layout.
+  const result = await pullMissingSolutions(missing, {
+    fetchSolution: (slug) => fetchBestSolution(auth, slug),
+    write: (path, content) => Bun.write(`${clone}/${path}`, content).then(() => undefined),
+    delayMs,
+    onProgress: (done, total, slug) => {
+      if (done % 5 === 0 || done === total) console.error(`  [${done}/${total}] ${slug}`);
+    },
+  });
+  console.error(
+    `wrote ${result.written.length}, ${result.noSubmission.length} had no submission, ${result.failed.length} failed.`,
+  );
+  for (const f of result.failed) console.error(`  failed ${f.slug}: ${f.error}`);
+
+  if (result.written.length === 0) {
+    console.error("nothing new written; skipping commit.");
+    return;
+  }
+
+  // 5) Commit + push.
+  await run(["git", "add", "-A"], clone);
+  const msg =
+    `add ${result.written.length} LeetCode solution${result.written.length === 1 ? "" : "s"} ` +
+    `missing from this repo (via leet-cli)`;
+  await run(["git", "commit", "-m", msg], clone);
+  if (!p.values["no-push"]) {
+    console.error("pushing…");
+    await run(["git", "push"], clone);
+    console.error(`pushed ${result.written.length} solutions to ${repo}.`);
+  } else {
+    console.error(`committed locally in ${clone} (--no-push).`);
+  }
+}
+
 async function cmdOpen(p: Parsed): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet open <id|slug> [list]");
@@ -1081,6 +1192,16 @@ async function main(): Promise<number> {
           "dry-run": { type: "boolean" },
           "no-push": { type: "boolean" },
           force: { type: "boolean" },
+        }),
+      );
+      return 0;
+    case "pull-solutions":
+      await cmdPullSolutions(
+        parse(rest, {
+          "dry-run": { type: "boolean" },
+          "no-push": { type: "boolean" },
+          limit: { type: "string", short: "n" },
+          delay: { type: "string" }, // seconds between fetches (default 1)
         }),
       );
       return 0;
