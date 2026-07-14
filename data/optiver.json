@@ -8,7 +8,13 @@
       "slug": "design-skiplist",
       "url": "https://leetcode.com/problems/design-skiplist/",
       "acceptance": 59.8,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Linked List",
+      "patternSource": "derived",
+      "topics": [
+        "linked-list",
+        "design"
+      ]
     },
     {
       "id": 1360,
@@ -16,7 +22,13 @@
       "slug": "number-of-days-between-two-dates",
       "url": "https://leetcode.com/problems/number-of-days-between-two-dates/",
       "acceptance": 53,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Math & Geometry",
+      "patternSource": "derived",
+      "topics": [
+        "math",
+        "string"
+      ]
     }
   ]
 }

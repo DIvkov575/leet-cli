@@ -8,7 +8,10 @@
       "slug": "weather-type-in-each-country",
       "url": "https://leetcode.com/problems/weather-type-in-each-country/",
       "acceptance": 67.1,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "topics": [
+        "database"
+      ]
     },
     {
       "id": 1321,
@@ -16,7 +19,10 @@
       "slug": "restaurant-growth",
       "url": "https://leetcode.com/problems/restaurant-growth/",
       "acceptance": 59.2,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "topics": [
+        "database"
+      ]
     },
     {
       "id": 1378,
@@ -24,7 +30,10 @@
       "slug": "replace-employee-id-with-the-unique-identifier",
       "url": "https://leetcode.com/problems/replace-employee-id-with-the-unique-identifier/",
       "acceptance": 83.6,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "topics": [
+        "database"
+      ]
     },
     {
       "id": 1407,
@@ -32,7 +41,10 @@
       "slug": "top-travellers",
       "url": "https://leetcode.com/problems/top-travellers/",
       "acceptance": 57.5,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "topics": [
+        "database"
+      ]
     },
     {
       "id": 1440,
@@ -40,7 +52,10 @@
       "slug": "evaluate-boolean-expression",
       "url": "https://leetcode.com/problems/evaluate-boolean-expression/",
       "acceptance": 71.7,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "topics": [
+        "database"
+      ]
     },
     {
       "id": 2680,
@@ -48,7 +63,15 @@
       "slug": "maximum-or",
       "url": "https://leetcode.com/problems/maximum-or/",
       "acceptance": 43.4,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Bit Manipulation",
+      "patternSource": "derived",
+      "topics": [
+        "array",
+        "greedy",
+        "bit-manipulation",
+        "prefix-sum"
+      ]
     }
   ]
 }

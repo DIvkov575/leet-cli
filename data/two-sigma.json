@@ -8,7 +8,13 @@
       "slug": "valid-parentheses",
       "url": "https://leetcode.com/problems/valid-parentheses/",
       "acceptance": 44.5,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Stack",
+      "patternSource": "neetcode",
+      "topics": [
+        "string",
+        "stack"
+      ]
     },
     {
       "id": 43,
@@ -16,7 +22,14 @@
       "slug": "multiply-strings",
       "url": "https://leetcode.com/problems/multiply-strings/",
       "acceptance": 44.4,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Math & Geometry",
+      "patternSource": "neetcode",
+      "topics": [
+        "math",
+        "string",
+        "simulation"
+      ]
     },
     {
       "id": 337,
@@ -24,7 +37,15 @@
       "slug": "house-robber-iii",
       "url": "https://leetcode.com/problems/house-robber-iii/",
       "acceptance": 56.1,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Trees",
+      "patternSource": "neetcode",
+      "topics": [
+        "dynamic-programming",
+        "tree",
+        "depth-first-search",
+        "binary-tree"
+      ]
     },
     {
       "id": 528,
@@ -32,7 +53,16 @@
       "slug": "random-pick-with-weight",
       "url": "https://leetcode.com/problems/random-pick-with-weight/",
       "acceptance": 49.2,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Binary Search",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "math",
+        "binary-search",
+        "prefix-sum",
+        "randomized"
+      ]
     },
     {
       "id": 2050,
@@ -40,7 +70,15 @@
       "slug": "parallel-courses-iii",
       "url": "https://leetcode.com/problems/parallel-courses-iii/",
       "acceptance": 66.8,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Graphs",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "dynamic-programming",
+        "graph",
+        "topological-sort"
+      ]
     }
   ]
 }

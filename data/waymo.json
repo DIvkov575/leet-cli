@@ -8,7 +8,15 @@
       "slug": "maximum-gap",
       "url": "https://leetcode.com/problems/maximum-gap/",
       "acceptance": 52.4,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Arrays & Hashing",
+      "patternSource": "derived",
+      "topics": [
+        "array",
+        "sorting",
+        "bucket-sort",
+        "radix-sort"
+      ]
     },
     {
       "id": 200,
@@ -16,7 +24,16 @@
       "slug": "number-of-islands",
       "url": "https://leetcode.com/problems/number-of-islands/",
       "acceptance": 64.7,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Graphs",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "depth-first-search",
+        "breadth-first-search",
+        "union-find",
+        "matrix"
+      ]
     },
     {
       "id": 359,
@@ -24,7 +41,14 @@
       "slug": "logger-rate-limiter",
       "url": "https://leetcode.com/problems/logger-rate-limiter/",
       "acceptance": 76.9,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Arrays & Hashing",
+      "patternSource": "neetcode",
+      "topics": [
+        "hash-table",
+        "design",
+        "data-stream"
+      ]
     },
     {
       "id": 528,
@@ -32,7 +56,16 @@
       "slug": "random-pick-with-weight",
       "url": "https://leetcode.com/problems/random-pick-with-weight/",
       "acceptance": 49.2,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Binary Search",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "math",
+        "binary-search",
+        "prefix-sum",
+        "randomized"
+      ]
     }
   ]
 }
