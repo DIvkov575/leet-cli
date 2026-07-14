@@ -8,7 +8,7 @@
  * Pure functions only: they take fetched fields and return file contents, so
  * they are trivially testable and free of I/O.
  */
-import { htmlToText } from "./render.ts";
+import { htmlToText, statementCommentLines } from "./render.ts";
 import { scaffoldContent, type ScaffoldInput } from "./scaffold.ts";
 
 /** Everything needed to package a problem; superset of ScaffoldInput. */
@@ -45,10 +45,19 @@ export function descriptionMarkdown(input: PackageInput): string {
   return lines.join("\n");
 }
 
-/** Raw example cases in LeetCode's stdin format (one value per line). */
+/**
+ * Raw example cases in LeetCode's stdin format (one value per line), with the
+ * problem statement prepended as `#`-comment lines. The comment block is a
+ * human reference only — the raw cases below it are byte-for-byte what a stdin
+ * consumer reads, and `#` lines are conventionally ignored. Empty when there
+ * are no example cases at all.
+ */
 export function testsText(input: PackageInput): string {
   const raw = (input.exampleTestcases ?? "").trim();
-  return raw.length > 0 ? raw + "\n" : "";
+  if (raw.length === 0) return "";
+  const comment = input.contentHtml ? statementCommentLines(input.contentHtml, "# ") : [];
+  const prefix = comment.length > 0 ? comment.join("\n") + "\n\n" : "";
+  return prefix + raw + "\n";
 }
 
 /** Options for substituting a NeetCode-sourced solution when LeetCode has no starter. */

@@ -90,6 +90,28 @@ export function renderProblem(p: Problem, contentHtml?: string, done?: boolean):
   return lines.join("\n");
 }
 
+/**
+ * Render a problem statement (given as HTML) into a block of comment lines,
+ * each prefixed with `marker` (e.g. `// ` for C++, `# ` for the tests file).
+ * Blank statement lines become the bare, trimmed marker so the block reads
+ * cleanly. Returns [] when the HTML has no usable text, so callers can omit the
+ * block entirely rather than emit an empty comment.
+ */
+export function statementCommentLines(contentHtml: string, marker: string): string[] {
+  return commentLinesFromText(htmlToText(contentHtml), marker);
+}
+
+/**
+ * Turn already-plain statement text into comment lines prefixed with `marker`
+ * (blank lines become the bare, trimmed marker). Returns [] for empty text.
+ */
+export function commentLinesFromText(text: string, marker: string): string[] {
+  if (!text) return [];
+  return text
+    .split("\n")
+    .map((line) => (line.length > 0 ? `${marker}${line}` : marker.trimEnd()));
+}
+
 /** Very small HTML -> text pass, good enough for reading problem statements. */
 export function htmlToText(html: string): string {
   return html

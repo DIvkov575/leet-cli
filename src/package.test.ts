@@ -40,8 +40,15 @@ describe("descriptionMarkdown", () => {
 });
 
 describe("testsText", () => {
-  test("returns raw example cases with trailing newline", () => {
-    expect(testsText(INPUT)).toBe("[2,7,11,15]\n9\n[3,2,4]\n6\n");
+  test("returns raw example cases with a commented statement reference above them", () => {
+    const out = testsText(INPUT);
+    // The raw cases are preserved verbatim…
+    expect(out).toContain("[2,7,11,15]\n9\n[3,2,4]\n6\n");
+    // …and the statement is prepended as `#`-comment lines (ignored by any
+    // stdin consumer that skips comments) so the description travels with the
+    // test file too.
+    expect(out).toContain("# Given an array");
+    expect(out.indexOf("# Given an array")).toBeLessThan(out.indexOf("[2,7,11,15]"));
   });
   test("empty when no examples", () => {
     expect(testsText({ ...INPUT, exampleTestcases: undefined })).toBe("");

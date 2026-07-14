@@ -73,12 +73,12 @@ describe("recommendProblems", () => {
 });
 
 describe("excludeLists", () => {
-  test("no exclusions -> every list is considered", () => {
+  test("no exclusions -> every list counts (the default)", () => {
     expect(excludeLists(lists, []).map((l) => l.name)).toEqual(["a", "b", "c"]);
     expect(excludeLists(lists, undefined).map((l) => l.name)).toEqual(["a", "b", "c"]);
   });
 
-  test("drops the named lists from consideration", () => {
+  test("drops the named lists from the pool", () => {
     expect(excludeLists(lists, ["b"]).map((l) => l.name)).toEqual(["a", "c"]);
     expect(excludeLists(lists, ["a", "c"]).map((l) => l.name)).toEqual(["b"]);
   });
@@ -88,27 +88,27 @@ describe("excludeLists", () => {
     expect(excludeLists(lists, ["nonexistent"]).map((l) => l.name)).toEqual(["a", "b", "c"]);
   });
 
-  test("excluding everything yields an empty pool (no crash)", () => {
+  test("excluding every list empties the pool", () => {
     expect(excludeLists(lists, ["a", "b", "c"])).toEqual([]);
     expect(popularityStrategy(excludeLists(lists, ["a", "b", "c"]), {})).toEqual([]);
   });
 });
 
-describe("recommendations reflect only the included lists", () => {
+describe("recommendations reflect only the non-excluded lists", () => {
   test("excluding a list lowers listCount and can drop a problem entirely", () => {
-    // p3 lives only in list "a"; excluding "a" must remove it from the pool.
+    // p3 lives only in list "a"; excluding "a" must drop it.
     const recs = popularityStrategy(excludeLists(lists, ["a"]), {});
     expect(recs.some((r) => r.problem.id === 3)).toBe(false);
 
-    // p1 was in 3 lists; with "a" gone it is only in b + c.
+    // p1 was in 3 lists; with "a" excluded it is in b + c.
     const p1 = recs.find((r) => r.problem.id === 1)!;
     expect(p1.listCount).toBe(2);
     expect(p1.lists).toEqual(["b", "c"]);
   });
 
-  test("the popularity ranking itself changes when a list is excluded", () => {
-    // Excluding b and c leaves only list "a", where all three are tied at 1 list,
-    // so acceptance breaks the tie: p3(70) > p2(60) > p1(50).
+  test("the popularity ranking itself follows the remaining set", () => {
+    // Excluding b + c leaves only list "a": all three tied at 1 list, so
+    // acceptance breaks the tie: p3(70) > p2(60) > p1(50).
     const recs = popularityStrategy(excludeLists(lists, ["b", "c"]), {});
     expect(recs.map((r) => r.problem.id)).toEqual([3, 2, 1]);
   });

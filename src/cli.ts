@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import {
   availableLists,
+  browsableLists,
   filterProblems,
   findProblem,
   findProblemAnywhere,
@@ -9,6 +10,7 @@ import {
   pickRandom,
   saveList,
   sortProblems,
+  ALL_LIST_NAME,
   type Difficulty,
   type FilterOptions,
   type Problem,
@@ -18,8 +20,10 @@ import { fetchProblem, fetchProblems } from "./leetcode.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { collectTargets, syncTargets, missingManifest } from "./sync.ts";
 import { getCached, putCached } from "./cache.ts";
+import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
-import { loadCompleted, saveCompleted } from "./progress.ts";
+import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
+import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
   loadConfig,
   saveConfig,
@@ -27,14 +31,21 @@ import {
   resolveSolutionsDir,
   resolveCxx,
   resolveLeetCodeAuth,
+  resolveSyncRepo,
   CONFIG_FIELDS,
 } from "./config.ts";
 import { importSource } from "./import.ts";
 import { adapterNames } from "./adapters.ts";
 import { RECOMMEND_STRATEGIES } from "./recommend.ts";
 import { runSetup } from "./setup.ts";
-import { fetchSolvedSlugs } from "./leetcode-progress.ts";
+import { fetchSolvedSlugs, verifySession } from "./leetcode-progress.ts";
 import { submitSolution } from "./leetcode-submit.ts";
+import { fetchBestSolution } from "./leetcode-submissions.ts";
+import {
+  missingSolvedSlugs,
+  pullMissingSolutions,
+  NEETCODE_TOPIC_DIR,
+} from "./pull-solutions.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
@@ -50,7 +61,10 @@ Usage:
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet push [--source neetcode|dir] Submit solutions to LeetCode to mark them Accepted (--yes to apply)
-  leet sync <owner/repo> [list...] Package all problems (desc + stub + tests) into a private GitHub repo
+  leet sync [owner/repo] [list...] Package all problems (desc + stub + tests) into a GitHub repo (default: sync repo)
+  leet sync-repo [create|adopt …]  Form/register your solution-sync repo (saved in config)
+  leet pull-solutions [owner/repo] Add LeetCode-solved problems missing from your sync repo
+  leet mark-solved [owner/repo]    Mark problems done locally from the folders present in a sync repo
   leet open <id|slug> [list]       Open a problem in the browser
   leet random [list] [filters]     Print one random problem
   leet done [id|slug ...]          Mark problems done, or list what's done
@@ -94,8 +108,8 @@ const REPO_README = `# LeetCode / NeetCode solutions
 Synced by [leet-cli](https://github.com/DIvkov575/leet-cli). Each problem has:
 
 - \`<id>-<slug>.md\` — the problem statement
-- \`<id>-<slug>.cpp\` — the C++ starter stub **plus an embedded test harness**
-- \`<id>-<slug>.tests.txt\` — the raw example test cases
+- \`<id>-<slug>.cpp\` — the C++ starter stub **plus an embedded test harness**, with the statement as a leading \`//\` comment block
+- \`<id>-<slug>.tests.txt\` — the raw example test cases, with the statement prepended as \`#\` comments
 
 ## How to test a solution
 
@@ -250,8 +264,8 @@ async function openInEditor(path: string): Promise<void> {
 }
 
 async function cmdLists(): Promise<void> {
-  const names = await availableLists();
-  for (const name of names) {
+  // Lead with the synthetic "all" union, then every real list.
+  for (const name of await browsableLists()) {
     const list = await loadList(name);
     console.log(`${name.padEnd(16)} ${String(list.problems.length).padStart(4)}  ${list.title}`);
   }
@@ -270,10 +284,11 @@ async function cmdLs(p: Parsed): Promise<void> {
  * `leet config <key> --unset` clears it.
  *
  * Keys: editor, solutionsDir, cxx, recommend, recommendExclude. The last takes
- * a comma-separated set of list names to skip when ranking ★ Recommended:
+ * a comma-separated set of list names to *exclude* from ★ Recommended (the
+ * default is all lists count; excluding every list empties it):
  *
  *   leet config recommendExclude citadel,sig
- *   leet config recommendExclude --unset      # back to counting every list
+ *   leet config recommendExclude --unset      # back to all lists counting
  */
 async function cmdConfig(p: Parsed): Promise<void> {
   const cfg = await loadConfig();
@@ -430,8 +445,24 @@ async function cmdShow(p: Parsed, live: boolean): Promise<void> {
     return;
   }
   if (!local) throw new UserError(`"${key}" not found in bundled lists (try --live)`);
-  if (p.values.json) console.log(JSON.stringify(local, null, 2));
-  else console.log(renderProblem(local, undefined, completed.has(local.id)));
+  if (p.values.json) {
+    console.log(JSON.stringify(local, null, 2));
+    return;
+  }
+  // Show the statement from the local cache or synced repo when available, so a
+  // plain `show` reads the description without a live LeetCode call. Falls back
+  // to the metadata-only view if the problem was never synced/seen.
+  let statement: string | undefined;
+  try {
+    const { text } = await resolveDescription(local);
+    statement = text;
+  } catch {
+    statement = undefined;
+  }
+  // resolveDescription returns already-plain text; renderProblem expects HTML,
+  // so print the header then the statement ourselves.
+  console.log(renderProblem(local, undefined, completed.has(local.id)));
+  if (statement) console.log("\n" + statement);
 }
 
 /**
@@ -447,21 +478,24 @@ async function cmdSolve(p: Parsed): Promise<void> {
   const dir = resolveSolutionsDir(p.values.dir as string | undefined, await loadConfig());
   const fresh = Boolean(p.values.fresh);
 
-  // Cache-first: a prior live fetch (or prefetch) already packaged this file.
-  const cached = fresh ? null : await getCached(slug);
-  let content: string;
-  let id: number;
-  let statement: { title: string; difficulty: string; html: string } | null = null;
-
-  if (cached !== null) {
-    content = cached;
-    // Recover id from the cached header comment: "// <id>. <title> [..]".
-    const m = cached.match(/^\/\/\s*(\d+)\./);
-    id = m ? Number(m[1]) : (local?.id ?? 0);
-  } else {
+  // Build the guaranteed-statement content via the shared builder. On --fresh
+  // we bypass any cached copy and package straight from LeetCode. `problem` is
+  // needed for statement resolution; fill it from the bundled list when known,
+  // else from the live fetch performed by the scaffold closure.
+  let problem: Problem | null = local ?? null;
+  let src: "cached" | "fetched" = "cached";
+  const scaffoldFresh = async (): Promise<string> => {
+    src = "fetched";
     const remote = await fetchProblem(slug, { withSnippets: true, withContent: true });
-    id = remote.id;
-    content = scaffoldContent({
+    problem = {
+      id: remote.id,
+      title: remote.title,
+      slug: remote.slug,
+      url: `https://leetcode.com/problems/${remote.slug}/`,
+      acceptance: remote.acceptance,
+      difficulty: remote.difficulty,
+    };
+    return scaffoldContent({
       id: remote.id,
       title: remote.title,
       slug: remote.slug,
@@ -472,35 +506,52 @@ async function cmdSolve(p: Parsed): Promise<void> {
       exampleTestcases: remote.exampleTestcases,
       contentHtml: remote.contentHtml,
     });
-    await putCached(slug, content); // populate cache for next time
-    if (remote.contentHtml) {
-      statement = { title: remote.title, difficulty: remote.difficulty, html: remote.contentHtml };
+  };
+
+  let content: string;
+  if (fresh) {
+    content = await scaffoldFresh();
+    await putCached(slug, content);
+  } else {
+    // buildSolutionFile is cache-first and heals a statement-less cached file.
+    content = await buildSolutionFile(
+      // A placeholder Problem is fine when `local` is unknown: buildSolutionFile
+      // only touches it on a cache hit that needs healing, and resolveDescription
+      // keys off slug/id. On a cache miss the closure sets the real `problem`.
+      local ?? { id: 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" },
+      scaffoldFresh,
+    );
+    // If the cache was healed for an unknown-list problem, re-key by the real id.
+    if (problem === null) {
+      const m = content.match(/^\/\/\s*(\d+)\./);
+      problem = { id: m ? Number(m[1]) : 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" };
     }
   }
+  const id = problem?.id || Number(content.match(/^\/\/\s*(\d+)\./)?.[1] ?? 0);
 
   const path = `${dir}/${scaffoldFilename(id, slug)}`;
-  if (!p.values.force && (await Bun.file(path).exists())) {
-    throw new UserError(`${path} already exists (pass --force to overwrite)`);
-  }
-  await Bun.write(path, content);
-
-  // -o hands off to the editor, so skip dumping the statement first.
-  if (!p.values.quiet && !p.values.open) {
-    if (statement) {
-      console.log(`\n${id}. ${statement.title} [${statement.difficulty}]`);
-      console.log(`https://leetcode.com/problems/${slug}/`);
-      console.log("");
-      console.log(htmlToText(statement.html));
-      console.log("");
-    } else if (cached !== null) {
-      // Served from cache — the description lives in the file's header comment.
-      console.log(`\n(served from cache; description is in ${scaffoldFilename(id, slug)})\n`);
+  if (await Bun.file(path).exists()) {
+    if (p.values.force) {
+      await Bun.write(path, content); // regenerate wholesale
+      console.log(`wrote ${path} (--force overwrote existing) [${src}]`);
+    } else {
+      // Don't clobber solution code: add the statement in place if it's missing.
+      const existing = await Bun.file(path).text();
+      if (hasStatementBlock(existing)) {
+        console.log(`${path} already exists and has the problem statement.`);
+      } else {
+        const stmt = await resolveDescription(problem!).then((r) => r.text).catch(() => "");
+        await Bun.write(path, withStatement(existing, stmt));
+        console.log(`added the problem statement to ${path} (your code was kept)`);
+      }
     }
+    if (p.values.open) await openInEditor(path);
+    return;
   }
-  const hasHarness = content.includes("int main()");
-  const src = cached !== null ? "cached" : "fetched";
-  console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
 
+  await Bun.write(path, content);
+  const hasHarness = content.includes("int main()");
+  console.log(`wrote ${path}${hasHarness ? " (with test harness)" : ""} [${src}]`);
   if (p.values.open) await openInEditor(path);
 }
 
@@ -526,31 +577,37 @@ async function cmdTest(p: Parsed): Promise<void> {
     break;
   }
   if (path === null) {
-    const cached = await getCached(slug);
-    let content: string;
-    let id: number;
-    if (cached !== null) {
-      content = cached;
-      id = Number(cached.match(/^\/\/\s*(\d+)\./)?.[1] ?? local?.id ?? 0);
-    } else {
-      const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
-      id = r.id;
-      content = scaffoldContent({
-        id: r.id,
-        title: r.title,
-        slug: r.slug,
-        difficulty: r.difficulty,
-        url: `https://leetcode.com/problems/${r.slug}/`,
-        snippets: r.snippets ?? [],
-        metaData: r.metaData,
-        exampleTestcases: r.exampleTestcases,
-        contentHtml: r.contentHtml,
-      });
-      await putCached(slug, content);
-    }
+    // Build via the shared, statement-guaranteed path (cache-first, healing).
+    let problem: Problem | null = local ?? null;
+    const content = await buildSolutionFile(
+      local ?? { id: 0, title: slug, slug, url: `https://leetcode.com/problems/${slug}/`, acceptance: null, difficulty: "Easy" },
+      async () => {
+        const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
+        problem = { id: r.id, title: r.title, slug: r.slug, url: `https://leetcode.com/problems/${r.slug}/`, acceptance: r.acceptance, difficulty: r.difficulty };
+        return scaffoldContent({
+          id: r.id,
+          title: r.title,
+          slug: r.slug,
+          difficulty: r.difficulty,
+          url: `https://leetcode.com/problems/${r.slug}/`,
+          snippets: r.snippets ?? [],
+          metaData: r.metaData,
+          exampleTestcases: r.exampleTestcases,
+          contentHtml: r.contentHtml,
+        });
+      },
+    );
+    const id = (problem?.id || Number(content.match(/^\/\/\s*(\d+)\./)?.[1] ?? local?.id ?? 0));
     path = `${dir}/${scaffoldFilename(id, slug)}`;
     await Bun.write(path, content);
     console.error(`scaffolded ${path}`);
+  } else {
+    // File already on disk — heal it in place if it predates statement-embedding.
+    const existing = await Bun.file(path).text();
+    if (!hasStatementBlock(existing) && local) {
+      const stmt = await resolveDescription(local).then((r) => r.text).catch(() => "");
+      if (stmt) await Bun.write(path, withStatement(existing, stmt));
+    }
   }
 
   if (!(await Bun.file(path).text()).includes("int main()")) {
@@ -726,13 +783,18 @@ async function run(cmd: string[], cwd?: string): Promise<string> {
  * staggered random delays, then commits and pushes.
  */
 async function cmdSync(p: Parsed): Promise<void> {
-  const repo = p.positionals[0];
-  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+  // First positional is the repo when it looks like owner/repo; otherwise fall
+  // back to the configured sync repo and treat every positional as a list name.
+  const looksRepo = p.positionals[0] && /^[\w.-]+\/[\w.-]+$/.test(p.positionals[0]);
+  const repo = resolveSyncRepo(looksRepo ? p.positionals[0] : undefined, await loadConfig());
+  if (!repo) {
     throw new UserError(
-      "usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push] [--force]",
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet sync <owner/repo> [list ...] [--dry-run] [--no-push] [--force]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet sync`)",
     );
   }
-  const listArgs = p.positionals.slice(1);
+  const listArgs = p.positionals.slice(looksRepo ? 1 : 0);
   const listNames = listArgs.length > 0 ? listArgs : undefined;
   const dryRun = Boolean(p.values["dry-run"]);
   const force = Boolean(p.values.force); // regenerate even if already present
@@ -812,6 +874,218 @@ async function cmdSync(p: Parsed): Promise<void> {
   }
 }
 
+/**
+ * `leet pull-solutions <owner/repo>` — add your LeetCode-solved problems that
+ * aren't yet in your NeetCode submissions repo, in that repo's own layout
+ * (`Data Structures & Algorithms/<slug>/submission-0.<ext>`).
+ *
+ * "Missing" is computed by mapping every existing folder through the NeetCode →
+ * LeetCode alias map to its canonical LeetCode slug, then diffing against the
+ * set of problems you've solved on LeetCode. Needs your session cookie (`leet
+ * auth`) since submission source code is private. Read-only on LeetCode.
+ */
+async function cmdPullSolutions(p: Parsed): Promise<void> {
+  const cfg = await loadConfig();
+  const repo = resolveSyncRepo(p.positionals[0], cfg);
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new UserError(
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet pull-solutions <owner/repo> [--dry-run] [--no-push] [-n <limit>] [--delay <secs>]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet pull-solutions`)",
+    );
+  }
+  const auth = resolveLeetCodeAuth(cfg);
+  if (!auth) {
+    throw new UserError(
+      "no LeetCode session — run `leet auth` (or set LEETCODE_SESSION) so your solutions can be fetched.",
+    );
+  }
+  const dryRun = Boolean(p.values["dry-run"]);
+  const limit = p.values.limit ? Number(p.values.limit) : undefined;
+  const delayMs = p.values.delay ? Number(p.values.delay) * 1000 : 1000;
+
+  // 1) Who are you + what have you solved on LeetCode.
+  const username = await verifySession(auth);
+  console.error(`signed in as ${username}; fetching your solved problems…`);
+  const solved = await fetchSolvedSlugs(auth, {
+    onProgress: (f, t) => {
+      if (f % 500 === 0 || f === t) console.error(`  solved scan ${f}/${t}`);
+    },
+  });
+  console.error(`you've solved ${solved.length} problems on LeetCode.`);
+
+  // 2) Clone the submissions repo and read its existing folder slugs.
+  const workdir = `${await run(["mktemp", "-d"])}`.trim();
+  const clone = `${workdir}/repo`;
+  console.error(`cloning ${repo}…`);
+  await run(["gh", "repo", "clone", repo, clone, "--", "--depth", "1"]);
+
+  const existingFolders = new Set<string>();
+  const topicRoot = `${clone}/${NEETCODE_TOPIC_DIR}`;
+  const glob = new Bun.Glob("*/submission-*");
+  for await (const rel of glob.scan(topicRoot)) {
+    // rel is "<slug>/submission-N.<ext>"; take the slug.
+    const slug = rel.split("/")[0];
+    if (slug) existingFolders.add(slug);
+  }
+  console.error(`repo already has ${existingFolders.size} problem folders.`);
+
+  // 3) Diff on canonical LeetCode slugs.
+  let missing = missingSolvedSlugs([...existingFolders], solved);
+  console.error(`${missing.length} solved problems are missing from the repo.`);
+  if (limit !== undefined && missing.length > limit) {
+    console.error(`(limiting to the first ${limit})`);
+    missing = missing.slice(0, limit);
+  }
+  if (missing.length === 0) {
+    console.error("nothing to add — the repo already covers everything you've solved.");
+    return;
+  }
+  if (dryRun) {
+    for (const slug of missing) console.log(slug);
+    console.error(`\n(dry run — ${missing.length} would be fetched and added; nothing written)`);
+    return;
+  }
+
+  // 4) Fetch each missing solution's source and write it in NeetCode's layout.
+  const result = await pullMissingSolutions(missing, {
+    fetchSolution: (slug) => fetchBestSolution(auth, slug),
+    write: (path, content) => Bun.write(`${clone}/${path}`, content).then(() => undefined),
+    delayMs,
+    onProgress: (done, total, slug) => {
+      if (done % 5 === 0 || done === total) console.error(`  [${done}/${total}] ${slug}`);
+    },
+  });
+  console.error(
+    `wrote ${result.written.length}, ${result.noSubmission.length} had no submission, ${result.failed.length} failed.`,
+  );
+  for (const f of result.failed) console.error(`  failed ${f.slug}: ${f.error}`);
+
+  if (result.written.length === 0) {
+    console.error("nothing new written; skipping commit.");
+    return;
+  }
+
+  // 5) Commit + push.
+  await run(["git", "add", "-A"], clone);
+  const msg =
+    `add ${result.written.length} LeetCode solution${result.written.length === 1 ? "" : "s"} ` +
+    `missing from this repo (via leet-cli)`;
+  await run(["git", "commit", "-m", msg], clone);
+  if (!p.values["no-push"]) {
+    console.error("pushing…");
+    await run(["git", "push"], clone);
+    console.error(`pushed ${result.written.length} solutions to ${repo}.`);
+  } else {
+    console.error(`committed locally in ${clone} (--no-push).`);
+  }
+}
+
+/**
+ * `leet sync-repo` — form or register the solution-sync GitHub repo saved in
+ * config as `syncRepo`. Subcommands:
+ *   (none)              show the configured repo
+ *   create <name>       gh repo create <name> --public, then save it
+ *   adopt <owner/repo>  save an existing repo as the sync repo
+ *   unset               clear the configured repo
+ *
+ * Populating the repo is deliberately separate (`leet pull-solutions`); this
+ * only forms/points at it.
+ */
+async function cmdSyncRepo(p: Parsed): Promise<void> {
+  const [action, target] = p.positionals;
+  const cfg = await loadConfig();
+
+  if (!action || action === "show") {
+    const repo = resolveSyncRepo(undefined, cfg);
+    console.log(repo ? `sync repo: ${repo}` : "no sync repo set (leet sync-repo create <name> | adopt <owner/repo>)");
+    return;
+  }
+
+  if (action === "unset") {
+    delete cfg.syncRepo;
+    await saveConfig(cfg);
+    console.log("cleared sync repo.");
+    return;
+  }
+
+  if (action === "adopt") {
+    if (!target || !/^[\w.-]+\/[\w.-]+$/.test(target)) {
+      throw new UserError("usage: leet sync-repo adopt <owner/repo>");
+    }
+    // Sanity-check it exists (and we can see it) before saving.
+    try {
+      await run(["gh", "repo", "view", target, "--json", "nameWithOwner"]);
+    } catch {
+      throw new UserError(`can't access "${target}" via gh — check the name and that you're logged in (gh auth login).`);
+    }
+    cfg.syncRepo = target;
+    await saveConfig(cfg);
+    console.log(`sync repo set to ${target}.`);
+    return;
+  }
+
+  if (action === "create") {
+    if (!target) throw new UserError("usage: leet sync-repo create <name|owner/repo>");
+    console.error(`creating ${target} (public)…`);
+    // gh prints the created repo's URL; --clone is skipped (populating is a
+    // separate step). Description mirrors your existing submissions repos.
+    const out = await run([
+      "gh", "repo", "create", target, "--public",
+      "--description", "My coding problem solutions (managed by leet-cli)",
+    ]);
+    // Resolve the canonical owner/repo from gh (handles bare <name> → owner/name).
+    const nameWithOwner = (await run(["gh", "repo", "view", target, "--json", "nameWithOwner", "--jq", ".nameWithOwner"])).trim();
+    cfg.syncRepo = nameWithOwner || target;
+    await saveConfig(cfg);
+    console.log(`${out.trim()}\ncreated and set sync repo to ${cfg.syncRepo}.`);
+    console.error("next: `leet pull-solutions` to populate it from your LeetCode account.");
+    return;
+  }
+
+  throw new UserError(`unknown sync-repo action "${action}" (create | adopt | unset | show)`);
+}
+
+/**
+ * `leet mark-solved [owner/repo]` — mark problems done *locally* based on the
+ * problem folders present in a NeetCode-style submissions repo (the configured
+ * sync repo by default). Reuses the neetcode import adapter, so folder slugs are
+ * mapped through the alias map to bundled-list problems. `--dry-run` previews.
+ */
+async function cmdMarkSolved(p: Parsed): Promise<void> {
+  const cfg = await loadConfig();
+  const repo = resolveSyncRepo(p.positionals[0], cfg);
+  if (!repo) {
+    throw new UserError(
+      "no repo given and no sync repo configured.\n" +
+        "  usage: leet mark-solved <owner/repo|path> [--dry-run]\n" +
+        "  or set one: leet sync-repo adopt <owner/repo>  (then just `leet mark-solved`)",
+    );
+  }
+  const dryRun = Boolean(p.values["dry-run"]);
+  console.error(`reading solved problems from ${repo}…`);
+  const result = await importSource(repo, { adapter: "neetcode", ref: p.values.ref as string | undefined });
+
+  const completed = await loadCompleted();
+  const newIds = [...result.matchedIds].filter((id) => !completed.has(id));
+  const newProblems = result.matched.filter((pr) => newIds.includes(pr.id));
+  if (newProblems.length > 0) console.log(renderTable(newProblems, result.matchedIds));
+
+  console.error(
+    `${result.matched.length} of ${result.totalSolved} folders matched bundled problems; ` +
+      `${newIds.length} newly marked, ${result.unmatched.length} not in any bundled list.` +
+      (dryRun ? "\n(dry run — nothing saved)" : ""),
+  );
+  if (!dryRun && newIds.length > 0) {
+    // Merge under the lock so a concurrent done/import doesn't clobber this.
+    const total = await updateCompleted((c) => {
+      for (const id of result.matchedIds) c.add(id);
+      return c;
+    });
+    console.error(`${total.size} done total.`);
+  }
+}
+
 async function cmdOpen(p: Parsed): Promise<void> {
   const key = p.positionals[0];
   if (!key) throw new UserError("usage: leet open <id|slug> [list]");
@@ -853,38 +1127,48 @@ async function cmdDone(p: Parsed): Promise<void> {
     return;
   }
 
-  await setDone(p.positionals, completed, true);
+  await setDone(p.positionals, true);
 }
 
 async function cmdUndone(p: Parsed): Promise<void> {
   if (p.positionals.length === 0) throw new UserError("usage: leet undone <id|slug ...>");
-  await setDone(p.positionals, await loadCompleted(), false);
+  await setDone(p.positionals, false);
 }
 
-/** Resolve keys to problem ids and flip their completion state. */
-async function setDone(keys: string[], completed: Set<number>, done: boolean): Promise<void> {
-  let changed = 0;
+/**
+ * Resolve keys to problem ids, then flip their completion state under the file
+ * lock so concurrent `leet done/undone` runs can't clobber each other. Key
+ * resolution (possibly slow) happens before the lock; only the read-modify-save
+ * is serialized.
+ */
+async function setDone(keys: string[], done: boolean): Promise<void> {
+  // Resolve keys to problems up front (outside the lock).
+  const found: Problem[] = [];
   for (const key of keys) {
-    const found = await findProblemAnywhere(key);
-    if (!found) {
-      console.error(`  skipped "${key}": not found in bundled lists`);
-      continue;
-    }
-    const already = completed.has(found.id);
-    if (done && !already) {
-      completed.add(found.id);
-      changed++;
-      console.log(`  ✓ ${found.id}. ${found.title}`);
-    } else if (!done && already) {
-      completed.delete(found.id);
-      changed++;
-      console.log(`  ✗ ${found.id}. ${found.title}`);
-    } else {
-      console.log(`  · ${found.id}. ${found.title} (already ${done ? "done" : "not done"})`);
-    }
+    const p = await findProblemAnywhere(key);
+    if (!p) console.error(`  skipped "${key}": not found in bundled lists`);
+    else found.push(p);
   }
-  if (changed > 0) await saveCompleted(completed);
-  console.error(`${changed} problem(s) ${done ? "marked done" : "unmarked"}, ${completed.size} done total.`);
+
+  let changed = 0;
+  const total = await updateCompleted((completed) => {
+    for (const p of found) {
+      const already = completed.has(p.id);
+      if (done && !already) {
+        completed.add(p.id);
+        changed++;
+        console.log(`  ✓ ${p.id}. ${p.title}`);
+      } else if (!done && already) {
+        completed.delete(p.id);
+        changed++;
+        console.log(`  ✗ ${p.id}. ${p.title}`);
+      } else {
+        console.log(`  · ${p.id}. ${p.title} (already ${done ? "done" : "not done"})`);
+      }
+    }
+    return completed;
+  });
+  console.error(`${changed} problem(s) ${done ? "marked done" : "unmarked"}, ${total.size} done total.`);
 }
 
 async function cmdImport(p: Parsed): Promise<void> {
@@ -949,9 +1233,15 @@ async function cmdImport(p: Parsed): Promise<void> {
   const newProblems = result.matched.filter((pr) => newIds.includes(pr.id));
   if (newProblems.length > 0) console.log(renderTable(newProblems, result.matchedIds));
 
+  let total = completed.size;
   if (!dryRun && newIds.length > 0) {
-    for (const id of newIds) completed.add(id);
-    await saveCompleted(completed);
+    // Merge under the lock so a concurrent mutation isn't clobbered.
+    total = (
+      await updateCompleted((c) => {
+        for (const id of result.matchedIds) c.add(id);
+        return c;
+      })
+    ).size;
   }
 
   const verb = dryRun ? "would mark" : "marked";
@@ -959,7 +1249,7 @@ async function cmdImport(p: Parsed): Promise<void> {
     `\n${result.matched.length} of ${result.totalSolved} solved problems are in bundled lists; ` +
       `${verb} ${newIds.length} new, ${result.matched.length - newIds.length} already done. ` +
       `${result.unmatched.length} not in any bundled list.` +
-      (dryRun ? "\n(dry run — nothing saved; re-run without --dry-run to apply)" : ` ${completed.size} done total.`),
+      (dryRun ? "\n(dry run — nothing saved; re-run without --dry-run to apply)" : ` ${total} done total.`),
   );
 }
 
@@ -967,6 +1257,10 @@ async function cmdRefresh(p: Parsed): Promise<void> {
   const all = Boolean(p.values.all);
   const names = all ? await availableLists() : p.positionals.slice(0, 1);
   if (names.length === 0) throw new UserError("usage: leet refresh <list|--all>");
+  // The synthetic "all" union isn't a real, savable list; refresh the real ones.
+  if (names.includes(ALL_LIST_NAME)) {
+    throw new UserError(`"${ALL_LIST_NAME}" is a synthetic list — use \`leet refresh --all\` to refresh every real list`);
+  }
 
   for (const name of names) {
     const list = await loadList(name);
@@ -1058,6 +1352,24 @@ async function main(): Promise<number> {
           "no-push": { type: "boolean" },
           force: { type: "boolean" },
         }),
+      );
+      return 0;
+    case "pull-solutions":
+      await cmdPullSolutions(
+        parse(rest, {
+          "dry-run": { type: "boolean" },
+          "no-push": { type: "boolean" },
+          limit: { type: "string", short: "n" },
+          delay: { type: "string" }, // seconds between fetches (default 1)
+        }),
+      );
+      return 0;
+    case "sync-repo":
+      await cmdSyncRepo(parse(rest));
+      return 0;
+    case "mark-solved":
+      await cmdMarkSolved(
+        parse(rest, { "dry-run": { type: "boolean" }, ref: { type: "string" } }),
       );
       return 0;
     case "open":

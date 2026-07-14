@@ -4,9 +4,11 @@
  * problems the repo doesn't have. Already-cached problems are skipped.
  */
 import type { Problem } from "./types.ts";
-import { isCached, putCached } from "./cache.ts";
-import { fetchFromRepo } from "./repo.ts";
+import { isCached, putCached, putCachedDescription } from "./cache.ts";
+import { fetchFromRepo, fetchMarkdownFromRepo } from "./repo.ts";
+import { descriptionBodyFromMarkdown } from "./description.ts";
 import { fetchProblem } from "./leetcode.ts";
+import { htmlToText } from "./render.ts";
 import { scaffoldContent } from "./scaffold.ts";
 import { staggerDelay } from "./sync.ts";
 
@@ -27,9 +29,13 @@ export interface PrefetchOptions {
   shouldStop?: () => boolean;
 }
 
-/** Build a packaged .cpp live from LeetCode for one problem. */
+/**
+ * Build a packaged .cpp live from LeetCode for one problem, and cache the
+ * statement text alongside it so the preview stays offline afterwards.
+ */
 async function packageLive(slug: string): Promise<string> {
   const r = await fetchProblem(slug, { withSnippets: true, withContent: true });
+  if (r.contentHtml) await putCachedDescription(slug, htmlToText(r.contentHtml));
   return scaffoldContent({
     id: r.id,
     title: r.title,
@@ -72,6 +78,9 @@ export async function prefetchProblems(
       const fromRepo = await fetchFromRepo(p.id, p.slug);
       if (fromRepo !== null) {
         await putCached(p.slug, fromRepo);
+        // Cache the description too (same repo round), so previews stay offline.
+        const md = await fetchMarkdownFromRepo(p.id, p.slug);
+        if (md !== null) await putCachedDescription(p.slug, descriptionBodyFromMarkdown(md));
         result.fromRepo++;
       } else {
         const live = await packageLive(p.slug);

@@ -37,6 +37,10 @@ export type RecommendStrategy = (lists: ProblemList[], opts: RecommendOptions) =
  * is then computed as if those lists did not exist. Excluded lists remain
  * browsable in the UI; they just stop voting.
  *
+ * The default is all-lists-count: an unset/empty `exclude` keeps every list, so
+ * ★ Recommended is populated out of the box. Excluding *every* list is the only
+ * way to empty it.
+ *
  * Names are compared case-insensitively and trimmed, so a hand-edited config
  * ("Citadel", " sig ") behaves the same as one written by the TUI. Unknown
  * names are ignored rather than treated as an error: a list can disappear

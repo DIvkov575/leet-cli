@@ -84,7 +84,10 @@ leet undone <id|slug ...>        # unmark problems as done
 leet import <path|owner/repo>    # mark done from NeetCode (or --adapter leetcode)
 leet auth                        # grab your LeetCode session from a local browser
 leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them Accepted
-leet sync <owner/repo> [list...] # package problems into a private GitHub repo
+leet sync [owner/repo] [list...] # package problems into a GitHub repo (default: your sync repo)
+leet sync-repo [create|adopt …]  # form/register your solution-sync repo (saved in config)
+leet pull-solutions [owner/repo] # add solved problems missing from your sync repo
+leet mark-solved [owner/repo]    # mark problems done locally from the folders present in a sync repo
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
@@ -107,13 +110,14 @@ environment variable, then a built-in default:
 | `cxx`              | `$CXX`               | `test`              | `c++`                |
 | `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
 | `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
+| `syncRepo`         | `$LEET_SYNC_REPO`    | `sync` / `pull-solutions` / `mark-solved` | unset |
 
 ```sh
 leet config                              # show all settings
 leet config editor "code -w"             # set the editor
 leet config recommend acceptance         # change the recommendation ranking
-leet config recommendExclude citadel,sig # don't let these lists count
-leet config recommendExclude --unset     # back to counting every list
+leet config recommendExclude citadel,sig # drop these lists from ★ Recommended
+leet config recommendExclude --unset     # back to every list counting
 leet config cxx --unset                  # clear a setting
 ```
 
@@ -123,18 +127,20 @@ approachable unsolved problems first.
 
 ### Tuning ★ Recommended
 
-`popularity` treats every bundled list as one vote, which is only useful if you
-care about every company. `recommendExclude` de-selects the lists that shouldn't
-get a vote — if you're not interviewing at a quant shop, drop them and the
-ranking stops being skewed by them:
+By default **every list counts** toward ★ Recommended, so it's populated out of
+the box. `recommendExclude` drops the lists you don't want voting — handy if
+you're not interviewing at, say, the quant shops:
 
 ```sh
 leet config recommendExclude citadel,jane-street,two-sigma,sig
 ```
 
-Excluded lists stay **fully browsable** — they simply stop contributing to the
-cross-list popularity signal, and stop being cited in the preview's
-"appears in N lists" line. Skipping *every* list just leaves ★ Recommended empty.
+In the TUI the config picker shows this as a positive **include checklist**
+(every list ticked by default); `space` toggles one, `a` includes all, `n`
+includes none. Lists you untick stay **fully browsable** — they simply don't
+contribute to the cross-list popularity signal, and aren't cited in the
+preview's
+"appears in N lists" line.
 
 Inside the interactive browser, open the settings screen with **`c`** (from any
 panel, or the **Config** menu item). Enter edits the selected field, `x` clears
@@ -175,9 +181,11 @@ Just run **`leet`** to open the full-screen browser — this is the primary way
 to use the tool, and a front-end for everything the subcommands do. It's built
 around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
 
-- **Lists** — every bundled list with done/left/total counts, plus a
-  **★ Recommended** pseudo-list at the top that surfaces the highest-signal
-  unsolved problems across all lists (ranking set by `recommend` in config).
+- **Lists** — every bundled list with done/left/total counts, plus two views at
+  the top: **★ Recommended** (the highest-signal unsolved problems across the
+  lists you opted into — ranking set by `recommend` in config) and **all** (the
+  de-duplicated union of every list, so you can browse the whole catalog at
+  once). A bare `leet` opens on **all**.
 - **Problems** — the problems in the selected list (or the recommended set),
   filterable/sortable/searchable.
 - **Preview** — the selected problem's statement, links, and a copy-paste solve
@@ -190,6 +198,12 @@ around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
 logs); **`←` / `Esc` steps back out**. From the Problems or Preview panel,
 **`s`** branches off into *solve* (scaffold the C++ file cache-first and open it
 in your editor) and **`t`** into *test* (compile & run, output in Logs).
+
+Press **`F`** from Problems, Preview, or Logs to enter **fullscreen reading
+mode**: the statement (and, on a wide terminal, the test logs beside it) takes
+the whole screen so a long problem is comfortable to read. `Tab` flips focus
+between the description and the logs; `↑↓`/`PgUp`/`PgDn`/`g`/`G` scroll; `s`/`t`
+still solve/test; `F` or `Esc` leaves.
 
 Every action also lives in a **menu bar** across the top — press **Tab** to
 enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
@@ -212,6 +226,7 @@ Core keys:
 | `Space`          | toggle done (saved immediately)                   |
 | `s`              | solve — scaffold the C++ file and open it         |
 | `t`              | test — compile & run the harness (output in Logs) |
+| `F`              | fullscreen reading mode (description + logs)      |
 | `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 
@@ -220,9 +235,13 @@ Each menu item also has a direct shortcut, usable from any panel: `f` filter,
 refresh, `i` import, `c` config, `?` help. `s` is reserved for **solve** on the
 Problems/Preview panels. Press `?` in-app for the full reference.
 
-The preview fetches the statement lazily from LeetCode's public GraphQL API the
-first time you open it, so browsing stays offline until you ask. The one-shot
-subcommands below remain available for scripting and piping.
+The preview resolves each statement **cache-first**: it checks the local cache,
+then the packaged `.md` in your synced solutions repo, and only falls back to a
+live LeetCode fetch for a problem that has never been synced or seen. Whatever a
+network step returns is written back to the cache, so any given problem hits
+LeetCode at most once — after a `leet sync` or `leet setup`, browsing and
+previewing are effectively offline. The one-shot subcommands below remain
+available for scripting and piping.
 
 ## Tracking completed problems
 
@@ -321,6 +340,55 @@ the CSRF token, not just the session).
 > didn't write, and some solutions may not match LeetCode's exact problem
 > variant (Wrong Answer). Use deliberately.
 
+## Your solution-sync repo
+
+leet-cli can keep a personal GitHub repo of your solutions (a NeetCode-style
+layout: `Data Structures & Algorithms/<slug>/submission-0.<ext>`) and treat it
+as the hub for completion tracking. Register it once and the sync commands
+default to it:
+
+```sh
+leet sync-repo adopt DIvkov575/my-solutions   # point at an existing repo
+leet sync-repo create my-solutions            # gh repo create (public), then save it
+leet sync-repo                                # show the configured repo
+leet sync-repo unset                          # clear it
+```
+
+You can also set it in the interactive **Config** menu (the *Sync repo* field —
+which autocompletes against your GitHub repos as you type: `↑↓` to pick, `Tab`
+to complete), via the `LEET_SYNC_REPO` env var, or by hand in `config.json`
+(`syncRepo`).
+
+With a repo registered, three commands work with no repo argument:
+
+```sh
+leet pull-solutions        # fetch your LeetCode-solved problems missing from the repo and add them
+leet mark-solved           # mark problems done LOCALLY from the folders present in the repo
+leet sync                  # package the bundled problems (desc + stub + tests) into the repo
+```
+
+- **`pull-solutions`** reads your account (needs `leet auth`), finds solved
+  problems not yet in the repo, fetches your accepted source, and pushes them.
+- **`mark-solved`** is the reverse and needs no LeetCode session: it reads the
+  repo's folders, maps each through the NeetCode→LeetCode alias table, and marks
+  the matching bundled problems done locally. `--dry-run` previews. It's the same
+  resolution `leet import <repo>` uses, just defaulting to your configured repo.
+  Folders for problems not in any bundled list are reported and skipped (local
+  completion is keyed to bundled-list problems).
+
+The TUI **Sync** menu (Tab → Sync) has the full set:
+
+1. **Authenticate** — grab your LeetCode session from a browser.
+2. **Pull solved from LeetCode** — mark done what you've solved on your account.
+3. **Mark solved from sync repo** — mark done from the folders in your sync repo.
+4. **Pull my solutions → repo** — fetch LeetCode-solved problems missing from
+   your sync repo and push them (suspends the TUI, shows live progress, returns
+   on any key).
+5. **Commit + push solutions dir** — git add/commit/push your local `./solutions`
+   files to the repo they live in.
+6. **Push solutions to LeetCode** — submit NeetCode solutions to mark Accepted
+   (with an in-panel confirm before any real submission).
+
 ## Live data
 
 `--live` and `refresh` query LeetCode's public GraphQL endpoint
@@ -339,6 +407,8 @@ src/
   leetcode.ts         public GraphQL client (fetch one / many, bounded concurrency)
   leetcode-progress.ts authenticated "my solved problems" fetch (session cookie)
   leetcode-submit.ts  authenticated submit + judge polling (retry/backoff)
+  leetcode-submissions.ts authenticated submission-source fetch (pull-solutions)
+  pull-solutions.ts   add LeetCode-solved problems missing from your sync repo
   auth.ts             grab the session cookie from a local browser
   chrome-cookies.ts   decrypt Chrome's cookie store (Keychain-derived key)
   firefox-cookies.ts  read Firefox's plaintext cookie store
@@ -347,6 +417,7 @@ src/
   adapters.ts         import adapters (NeetCode layout, LeetCode account)
   import.ts           source acquisition + slug resolution against bundled lists
   recommend.ts        modular "recommended problems" ranking strategies
+  description.ts      resolve a statement cache-first (cache → repo .md → live)
   scaffold.ts         C++ solution file scaffolding
   harness.ts          generate the embedded C++ test harness
   runner.ts           compile + run a solution, capture output (Logs panel)

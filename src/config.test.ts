@@ -9,6 +9,7 @@ import {
   resolveSolutionsDir,
   resolveCxx,
   resolveLeetCodeAuth,
+  resolveSyncRepo,
   CONFIG_FIELDS,
   toggleSelection,
   type Config,
@@ -95,6 +96,7 @@ describe("CONFIG_FIELDS metadata", () => {
       "cxx",
       "recommend",
       "recommendExclude",
+      "syncRepo",
     ]);
     // The session cookie is a credential and must not be a TUI-editable field.
     expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
@@ -114,6 +116,21 @@ describe("resolveLeetCodeAuth: env > config", () => {
   });
   test("carries the csrf token", () => {
     expect(resolveLeetCodeAuth({}, { LEETCODE_SESSION: "s", LEETCODE_CSRF: "c" })?.csrf).toBe("c");
+  });
+});
+
+describe("resolveSyncRepo: arg > env > config > null", () => {
+  test("explicit arg wins", () => {
+    expect(resolveSyncRepo("a/b", { syncRepo: "c/d" }, { LEET_SYNC_REPO: "e/f" })).toBe("a/b");
+  });
+  test("env beats config", () => {
+    expect(resolveSyncRepo(undefined, { syncRepo: "c/d" }, { LEET_SYNC_REPO: "e/f" })).toBe("e/f");
+  });
+  test("config used when no arg/env", () => {
+    expect(resolveSyncRepo(undefined, { syncRepo: "c/d" }, {})).toBe("c/d");
+  });
+  test("null when nothing set", () => {
+    expect(resolveSyncRepo(undefined, {}, {})).toBeNull();
   });
 });
 

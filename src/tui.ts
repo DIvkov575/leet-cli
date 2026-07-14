@@ -1,14 +1,17 @@
 import type { Difficulty, Problem, ProblemList } from "./types.ts";
 import {
   availableLists,
+  browsableLists,
   filterProblems,
   loadList,
   saveList,
   sortProblems,
+  ALL_LIST_NAME,
   type SortKey,
 } from "./lib.ts";
 import { fetchProblem, fetchProblems } from "./leetcode.ts";
-import { htmlToText } from "./render.ts";
+import { resolveDescription } from "./description.ts";
+import { listUserRepos } from "./repo.ts";
 import { importSource } from "./import.ts";
 import { loadCompleted, saveCompleted } from "./progress.ts";
 import {
@@ -18,6 +21,7 @@ import {
   resolveSolutionsDir,
   resolveCxx,
   resolveLeetCodeAuth,
+  resolveSyncRepo,
   CONFIG_FIELDS,
   toggleSelection,
   type Config,
@@ -27,8 +31,8 @@ import {
 import { prefetchProblems } from "./prefetch.ts";
 import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun, markSetupDone } from "./setup.ts";
-import { getCached, putCached } from "./cache.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
+import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { compileAndRun } from "./runner.ts";
 import { authFromBrowser } from "./auth.ts";
 import { fetchSolvedSlugs } from "./leetcode-progress.ts";
@@ -253,9 +257,12 @@ function diffColor(d: Difficulty): keyof typeof C {
 interface PreviewState {
   slug: string | null;
   status: "idle" | "loading" | "loaded" | "error";
-  lines: string[];
+  /** Unwrapped statement text; wrapped to the panel width at render time. */
+  text: string;
   scroll: number;
   error?: string;
+  /** Where a loaded statement came from: cache / repo / live LeetCode. */
+  source?: "cache" | "repo" | "live";
 }
 
 /** A single-line text prompt (search / import). */
@@ -279,12 +286,23 @@ interface ConfigState {
    * list names) so config.ts stays free of any knowledge of what lists exist.
    */
   picker: { key: ConfigKey; choices: string[]; index: number } | null;
+  /**
+   * Autocomplete candidates for a text field (currently the sync repo — the
+   * user's GitHub repos, fetched once via `gh`). Filtered against `draft` at
+   * render time; `suggestIndex` highlights one for Tab-to-accept. Empty until
+   * the async fetch lands (or if `gh` is unavailable).
+   */
+  repoSuggestions: string[];
+  suggestIndex: number;
 }
 
-/** The Sync overlay's three actions, in menu order. */
+/** The Sync overlay's actions, in menu order. */
 const SYNC_ACTIONS = [
   { key: "auth", label: "Authenticate", hint: "grab your LeetCode session from a browser" },
   { key: "pull", label: "Pull solved from LeetCode", hint: "mark done what you've solved on your account" },
+  { key: "markRepo", label: "Mark solved from sync repo", hint: "mark done from the folders in your sync repo" },
+  { key: "pullSolutions", label: "Pull my solutions → repo", hint: "add LeetCode-solved problems missing from your sync repo" },
+  { key: "pushDir", label: "Commit + push solutions dir", hint: "git add/commit/push your ./solutions files to the sync repo" },
   { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
 ] as const;
 type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
@@ -301,6 +319,12 @@ interface SyncState {
   lines: string[];
   /** When set, push is awaiting y/n confirmation; holds the plan count. */
   confirmPush: number | null;
+  /**
+   * A generic pending confirmation for the git actions (pull-solutions / push
+   * dir), gated behind y/n like `confirmPush`. `prompt` is the footer question;
+   * `action` picks which runner fires on `y`.
+   */
+  confirm: { action: "pullSolutions" | "pushDir"; prompt: string } | null;
 }
 
 /**
@@ -372,17 +396,26 @@ interface State {
   prefetch: string | null;
   /** First-run: offer to pre-cache the study set (shown once). */
   suggestSetup: boolean;
+  /**
+   * Fullscreen reading mode: the Preview and Logs panels take the whole screen
+   * (split when there's room), hiding Lists/Problems. Focus stays on preview or
+   * logs; F toggles it, Esc/← leaves it.
+   */
+  fullscreen: boolean;
 }
 
-/** The Lists panel's rows: the recommended sentinel followed by every list name. */
+/**
+ * The Lists panel's rows: the ★ Recommended sentinel, then the synthetic "all"
+ * union, then every real list name.
+ */
 function listRows(s: State): string[] {
-  return [RECOMMENDED_LIST, ...s.listNames];
+  return [RECOMMENDED_LIST, ALL_LIST_NAME, ...s.listNames];
 }
 
-/** Row index of a list name within listRows() (sentinel occupies index 0). */
-function listRows0(names: string[], name: string): number {
-  const i = names.indexOf(name);
-  return i < 0 ? 0 : i + 1;
+/** Row index of a Lists-panel entry, or 0 (★ Recommended) if not found. */
+function listRows0(s: State, name: string): number {
+  const i = listRows(s).indexOf(name);
+  return i < 0 ? 0 : i;
 }
 
 /** Problems currently shown in the Problems panel (recommended set or the list). */
@@ -444,7 +477,7 @@ async function selectListRow(s: State, name: string): Promise<void> {
   }
   s.cursor = 0;
   s.top = 0;
-  s.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+  s.preview = { slug: null, status: "idle", text: "", scroll: 0 };
   recompute(s);
 }
 
@@ -467,6 +500,7 @@ const HELP_LINES = [
   "    ↑ ↓ / j k     move within the focused panel",
   "    → / Enter     drill in (list → problems → preview → logs)",
   "    p             preview the selected problem (handy in the narrow view)",
+    "    F             fullscreen the description + logs (Tab flips, Esc exits)",
   "    ← / Esc       step back out",
   "    g / G         jump to top / bottom",
   "    PgUp / PgDn   page up / down (Problems)",
@@ -509,11 +543,11 @@ function footerLine(s: State, cols: number): string {
     s.focus === "lists"
       ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
       : s.focus === "problems"
-        ? " ↑↓ move · p/Enter/→ preview · s solve · t test · Space done · ← lists"
+        ? " ↑↓ move · p/Enter/→ preview · F fullscreen · s solve · t test · Space done · ← lists"
         : s.focus === "preview"
-          ? " ↑↓ scroll · s solve · t test · →/Enter logs · o open · ← back"
+          ? " ↑↓ scroll · F fullscreen · s solve · t test · →/Enter logs · o open · ← back"
           : s.focus === "logs"
-            ? " ↑↓ scroll · t re-run · s solve · Space done · ← preview · Tab menu"
+            ? " ↑↓ scroll · F fullscreen · t re-run · s solve · Space done · ← preview · Tab menu"
             : " ←→ move · Enter fire · Esc back to panel";
   return paint(fit(hint, cols), "dim");
 }
@@ -730,6 +764,7 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.help) return renderOverlay(HELP_LINES, rows, cols, " help  (? or Esc to close)");
   if (s.config) return renderConfig(s.config, rows, cols);
   if (s.sync) return renderSync(s.sync, rows, cols);
+  if (s.fullscreen) return renderFullscreen(s, rows, cols);
 
   const menuBar = renderMenuBar(s, cols);
   const footer = footerLine(s, cols);
@@ -742,6 +777,51 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   const blocks = panels.map((name, i) => renderPanelByName(s, name, widths[i]!, bodyH));
   const body = joinColumns(blocks, bodyH, widths);
   return [menuBar, ...body, footer];
+}
+
+/**
+ * Fullscreen reading mode: the Preview (problem description) and Logs (test
+ * results) fill the whole terminal — the Lists/Problems chrome is hidden so the
+ * statement gets the full width to reflow into. On a wide terminal both panels
+ * show side by side; otherwise only the focused one is shown. The header names
+ * the current problem; the footer keeps the reading-mode shortcuts in view.
+ */
+function renderFullscreen(s: State, rows: number, cols: number): string[] {
+  const bodyH = rows - 2; // header + footer
+  const p = current(s);
+  const title = p ? `${p.id}. ${p.title}  [${p.difficulty}]` : "Preview";
+  const header = paint(fit(`  ⛶ ${title}`, cols), "bold", "cyan");
+
+  // Both panels side by side when there's room; else just the focused panel so
+  // the description isn't squeezed into an unreadable column.
+  const both = cols >= 100;
+  const focusIsLogs = s.focus === "logs";
+  let body: string[];
+  if (both) {
+    const sepCount = 1;
+    const previewW = Math.max(20, Math.floor((cols - sepCount) * 0.62));
+    const logsW = cols - sepCount - previewW;
+    const blocks = [
+      previewPanel(s, previewW, bodyH, !focusIsLogs),
+      logsPanel(s, logsW, bodyH, focusIsLogs),
+    ];
+    body = joinColumns(blocks, bodyH, [previewW, logsW]);
+  } else {
+    body = focusIsLogs
+      ? logsPanel(s, cols, bodyH, true)
+      : previewPanel(s, cols, bodyH, true);
+  }
+
+  const footer = paint(
+    fit(
+      focusIsLogs
+        ? " ↑↓ scroll · t re-run · Tab preview · F/Esc exit fullscreen · q quit"
+        : " ↑↓ scroll · s solve · t test · Tab logs · F/Esc exit fullscreen · q quit",
+      cols,
+    ),
+    "dim",
+  );
+  return [header, ...body.slice(0, bodyH), footer];
 }
 
 /** Column widths for the visible panels: Lists gets ~22%, others split evenly. */
@@ -759,19 +839,65 @@ function distributeWidths(panels: PanelName[], avail: number): number[] {
   return widths;
 }
 
+/**
+ * The contiguous run of menu items [start, end) to show so that item `sel` is
+ * visible and the row (cells joined by single spaces, plus optional ‹/› overflow
+ * markers) fits within `cols`. Grows outward from `sel`, preferring to reveal
+ * following items first, so the highlighted item is never clipped on a narrow
+ * terminal. Pure, so it's unit-tested.
+ */
+export function menuWindow(cellLens: number[], sel: number, cols: number): { start: number; end: number } {
+  const n = cellLens.length;
+  if (n === 0) return { start: 0, end: 0 };
+  const sepAndMarkers = 4; // slack for a leading "‹ " and trailing " ›"
+  const budget = Math.max(1, cols - sepAndMarkers);
+  let start = Math.max(0, Math.min(sel, n - 1));
+  let end = start + 1;
+  let used = cellLens[start]!;
+  // Alternate expanding right then left until we run out of room.
+  let grow = true;
+  while (grow) {
+    grow = false;
+    if (end < n && used + 1 + cellLens[end]! <= budget) {
+      used += 1 + cellLens[end]!;
+      end++;
+      grow = true;
+    }
+    if (start > 0 && used + 1 + cellLens[start - 1]! <= budget) {
+      start--;
+      used += 1 + cellLens[start]!;
+      grow = true;
+    }
+  }
+  return { start, end };
+}
+
 /** Render the menu bar to exactly `cols`, highlighting the focused item. */
 function renderMenuBar(s: State, cols: number): string {
   const cells = MENU_ITEMS.map((it) => ` ${it.label} `);
   const plainLen = cells.reduce((n, c) => n + c.length, 0) + (cells.length - 1);
 
-  if (s.focus === "menu" && plainLen <= cols) {
+  // When not in the menu, just show the (possibly truncated) dim bar.
+  if (s.focus !== "menu") return paint(fit(cells.join(" "), cols), "dim");
+
+  // In the menu: if everything fits, highlight in place; otherwise show a
+  // horizontal window around the selection so the highlight is always visible.
+  if (plainLen <= cols) {
     const styled = cells
       .map((c, i) => (i === s.menuIndex ? paint(c, "rev", "bold") : c))
       .join(" ");
     return styled + " ".repeat(cols - plainLen);
   }
-  const plain = cells.join(" ");
-  return paint(fit(plain, cols), s.focus === "menu" ? "bold" : "dim");
+
+  const { start, end } = menuWindow(cells.map((c) => c.length), s.menuIndex, cols);
+  const parts = cells
+    .slice(start, end)
+    .map((c, i) => (start + i === s.menuIndex ? paint(c, "rev", "bold") : paint(c, "bold")));
+  let bar = parts.join(" ");
+  if (start > 0) bar = paint("‹", "dim") + " " + bar;
+  if (end < cells.length) bar = bar + " " + paint("›", "dim");
+  // Pad/truncate to the exact width (fit() ignores the ANSI codes).
+  return fit(bar, cols);
 }
 
 /** Render a full-screen overlay from content lines. */
@@ -791,11 +917,45 @@ function renderOverlay(content: string[], rows: number, cols: number, title: str
 export function configValueCell(field: ConfigField, working: Config): string {
   const set = working[field.key];
   if (field.kind === "multiselect") {
-    const picked = (set as string[] | undefined) ?? [];
-    if (picked.length === 0) return "";
-    return `${picked.join(", ")}  (${picked.length} skipped)`;
+    // Value is the excluded set; the row summarises what that means for the
+    // positive "included" framing the picker uses.
+    const excluded = (set as string[] | undefined) ?? [];
+    if (excluded.length === 0) return ""; // default → fallback ("all lists included")
+    return `all except ${excluded.join(", ")}  (${excluded.length} excluded)`;
   }
   return (set as string | undefined) ?? "";
+}
+
+/**
+ * Which config field (if any) offers repo autocomplete. Kept as a helper so the
+ * render and key handler agree on when suggestions are live.
+ */
+function fieldHasRepoSuggest(field: ConfigField | undefined): boolean {
+  return field?.key === "syncRepo";
+}
+
+/**
+ * Filter repo candidates against the typed draft: case-insensitive substring,
+ * ranked so prefix matches come first, then alphabetically. An empty draft
+ * shows everything (capped). Exact matches are dropped — no point suggesting
+ * what's already typed in full. Pure, so it's unit-tested.
+ */
+export function filterRepoSuggestions(
+  candidates: readonly string[],
+  draft: string,
+  limit = 8,
+): string[] {
+  const q = draft.trim().toLowerCase();
+  const hits = candidates.filter((r) => {
+    const lower = r.toLowerCase();
+    return lower.includes(q) && lower !== q;
+  });
+  hits.sort((a, b) => {
+    const ap = a.toLowerCase().startsWith(q) ? 0 : 1;
+    const bp = b.toLowerCase().startsWith(q) ? 0 : 1;
+    return ap !== bp ? ap - bp : a.localeCompare(b);
+  });
+  return hits.slice(0, limit);
 }
 
 /** Render the settings overlay: one row per editable field, showing current value or fallback. */
@@ -829,17 +989,38 @@ function renderConfig(cfg: ConfigState, rows: number, cols: number): string[] {
   });
   const selectedField = CONFIG_FIELDS[cfg.index];
   const openVerb = selectedField?.kind === "multiselect" ? "choose" : "edit";
+
+  // While editing the sync-repo field, list matching GitHub repos beneath the
+  // settings so the user can Tab-complete instead of typing the full owner/repo.
+  let repoSuggesting = false;
+  if (cfg.editing && fieldHasRepoSuggest(selectedField)) {
+    const matches = filterRepoSuggestions(cfg.repoSuggestions, cfg.draft);
+    repoSuggesting = matches.length > 0;
+    if (repoSuggesting) {
+      content.push("", paint("  matching repos:", "dim"));
+      matches.forEach((repo, i) => {
+        const row = `    ${repo}`;
+        content.push(i === cfg.suggestIndex ? paint(fit(row, cols), "rev") : row);
+      });
+    } else if (cfg.repoSuggestions.length === 0) {
+      content.push("", paint("  (type owner/repo — gh repo list unavailable)", "dim"));
+    }
+  }
+
   const hint = cfg.editing
-    ? " editing  (Enter save field · Esc cancel edit)"
+    ? repoSuggesting
+      ? " editing  (↑↓ pick · Tab complete · Enter save · Esc cancel)"
+      : " editing  (Enter save field · Esc cancel edit)"
     : ` settings  (↑↓ move · Enter ${openVerb} · x clear · Esc save & close)`;
   return renderOverlay(content, rows, cols, hint);
 }
 
 /**
- * The checkbox submenu behind a `multiselect` field. A ticked box means the
- * list is *skipped* — de-selected from the recommendation pool — so the header
- * spells that out; an inverted checklist is exactly the kind of thing people
- * misread.
+ * The checkbox submenu behind a `multiselect` field. It's presented as a
+ * positive *include* checklist — a ticked box means the list counts toward
+ * ★ Recommended — even though the value is stored as the excluded (unticked)
+ * set. That inversion is deliberate: the default (nothing stored) shows every
+ * box ticked, so out of the box every list is recommended.
  */
 function renderConfigPicker(
   cfg: ConfigState,
@@ -847,27 +1028,34 @@ function renderConfigPicker(
   rows: number,
   cols: number,
 ): string[] {
-  const skipped = new Set(((cfg.working[picker.key] as string[] | undefined) ?? []).map((n) => n.toLowerCase()));
+  const excluded = new Set(((cfg.working[picker.key] as string[] | undefined) ?? []).map((n) => n.toLowerCase()));
+  const included = (name: string): boolean => !excluded.has(name.toLowerCase());
+  const includedCount = picker.choices.filter(included).length;
   const content: string[] = [
-    "  Skip lists in ★ Recommended",
+    "  Lists in ★ Recommended",
     "",
-    paint("  Ticked lists stop counting toward Recommended.", "dim"),
-    paint("  They stay browsable in the Lists panel.", "dim"),
+    paint("  Ticked lists count toward Recommended (default: all).", "dim"),
+    paint("  Unticked lists stay browsable but don't vote.", "dim"),
     "",
   ];
   picker.choices.forEach((name, i) => {
-    const on = skipped.has(name.toLowerCase());
+    const on = included(name);
     const marker = i === picker.index ? "▸ " : "  ";
     const row = `  ${marker}${on ? "[x]" : "[ ]"} ${name}`;
     if (i === picker.index) content.push(paint(fit(row, cols), "rev"));
     else if (on) content.push(row);
     else content.push(paint(row, "dim"));
   });
-  if (picker.choices.length > 0 && skipped.size === picker.choices.length) {
+  if (picker.choices.length > 0 && includedCount === 0) {
     content.push("");
-    content.push(paint("  every list is skipped — Recommended will be empty", "yellow"));
+    content.push(paint("  no lists included — ★ Recommended will be empty", "yellow"));
   }
-  return renderOverlay(content, rows, cols, " skip lists  (↑↓ move · space toggle · a none · Esc back)");
+  return renderOverlay(
+    content,
+    rows,
+    cols,
+    " include lists  (↑↓ move · space toggle · a all · n none · Esc back)",
+  );
 }
 
 /** Render the Sync overlay: the action menu, then the running/last action's log. */
@@ -885,11 +1073,13 @@ function renderSync(sync: SyncState, rows: number, cols: number): string[] {
   if (sync.lines.length > 0) {
     content.push("", paint(fit("  ─ output ─", cols), "dim"), ...sync.lines.map((l) => `  ${l}`));
   }
-  const hint = sync.confirmPush !== null
+  const hint = sync.confirmPush != null
     ? ` push ${sync.confirmPush} solution(s) to your LeetCode account?  (y = submit · n/Esc = cancel)`
-    : sync.busy
-      ? " working…  (Esc when done)"
-      : " sync  (↑↓ move · Enter run · Esc close)";
+    : sync.confirm
+      ? ` ${sync.confirm.prompt}  (y = yes · n/Esc = cancel)`
+      : sync.busy
+        ? " working…  (Esc when done)"
+        : " sync  (↑↓ move · Enter run · Esc close)";
   return renderOverlay(content, rows, cols, hint);
 }
 
@@ -945,7 +1135,9 @@ function previewBody(s: State, width: number): string[] {
   if (pv.status === "idle") return [paint(fit("Press Enter to load the statement.", width), "dim")];
   if (pv.status === "loading") return [paint(fit("Loading…", width), "dim")];
   if (pv.status === "error") return [paint(fit(`error: ${pv.error ?? "failed"}`, width), "red")];
-  return pv.lines;
+  // Wrap the raw statement to the current panel width at render time, so the
+  // fullscreen view and terminal resizes reflow correctly without re-fetching.
+  return wrapText(pv.text, Math.max(10, width));
 }
 
 // ─── runtime ───────────────────────────────────────────────────────────────
@@ -970,14 +1162,16 @@ export async function runTui(list?: ProblemList): Promise<void> {
   }
 
   const listNames = await availableLists();
-  const initial = list ?? (await loadList(listNames[0]!));
+  // The Lists panel opens on the synthetic "all" list unless a specific list
+  // was requested; the picker (Lists panel) switches from there.
+  const initial = list ?? (await loadList(ALL_LIST_NAME));
 
-  // Preload every list once: powers the Lists panel counts and recommendations.
-  const allLists = await Promise.all(
-    listNames.map((name) => (name === initial.name ? Promise.resolve(initial) : loadList(name))),
-  );
+  // Preload every real list once: powers the Lists panel counts and rankings.
+  const allLists = await Promise.all(listNames.map((name) => loadList(name)));
   const listMeta = new Map<string, number[]>();
   for (const l of allLists) listMeta.set(l.name, l.problems.map((p) => p.id));
+  // The synthetic "all" list's counts come from the de-duped union of every id.
+  listMeta.set(ALL_LIST_NAME, [...new Set(allLists.flatMap((l) => l.problems.map((p) => p.id)))]);
 
   const completed = await loadCompleted();
   const config = await loadConfig();
@@ -996,7 +1190,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
 
   // Bare launch focuses the Lists panel; an explicit list jumps into Problems.
-  const listCursor = list ? Math.max(0, listRows0(listNames, initial.name)) : 0;
+  const initialListName = initial.name;
 
   const state: State = {
     list: initial,
@@ -1013,12 +1207,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
     filtered: [],
     cursor: 0,
     top: 0,
-    listCursor,
+    listCursor: 0,
     listTop: 0,
     focus: list ? "problems" : "lists",
     lastPanel: list ? "problems" : "lists",
     menuIndex: 0,
-    preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    preview: { slug: null, status: "idle", text: "", scroll: 0 },
     logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: initial.problems.reduce((m, p) => Math.max(m, p.id), 0),
     status: "",
@@ -1028,7 +1222,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
     help: false,
     prefetch: null,
     suggestSetup,
+    fullscreen: false,
   };
+  // An explicit list arg starts with the Lists cursor on that row (bare launch
+  // leaves it on ★ Recommended at index 0).
+  if (list) state.listCursor = listRows0(state, initialListName);
   recompute(state);
 
   const out = process.stdout;
@@ -1038,32 +1236,31 @@ export async function runTui(list?: ProblemList): Promise<void> {
     out.write("\x1b[H" + renderFrame(state, rows, cols).join("\r\n") + "\x1b[J");
   };
 
-  const previewWidthForCols = (cols: number): number =>
-    cols >= 90 ? cols - Math.max(40, Math.floor(cols * 0.5)) - 1 : cols;
-
   // Rough width the Logs panel gets; used to pre-wrap captured output.
   const logsWidthForCols = (cols: number): number =>
     Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
 
+  // Resolve the statement cache-first (local cache → synced repo .md → live
+  // LeetCode), so a preview only ever hits LeetCode for a problem that has
+  // never been synced or seen. The raw text is stored and wrapped at render
+  // time, which lets the fullscreen view reflow to the full terminal width.
   const loadPreview = async (): Promise<void> => {
     const p = current(state);
     if (!p) return;
     if (state.preview.slug === p.slug && state.preview.status === "loaded") return;
-    state.preview = { slug: p.slug, status: "loading", lines: [], scroll: 0 };
+    state.preview = { slug: p.slug, status: "loading", text: "", scroll: 0 };
     render();
     try {
-      const remote = await fetchProblem(p.slug, { withContent: true });
-      const w = Math.max(10, previewWidthForCols(out.columns ?? 80));
-      const text = remote.contentHtml ? htmlToText(remote.contentHtml) : "(no statement available)";
+      const { text, source } = await resolveDescription(p);
       if (state.preview.slug === p.slug) {
-        state.preview = { slug: p.slug, status: "loaded", lines: wrapText(text, w), scroll: 0 };
+        state.preview = { slug: p.slug, status: "loaded", text, scroll: 0, source };
       }
     } catch (err) {
       if (state.preview.slug === p.slug) {
         state.preview = {
           slug: p.slug,
           status: "error",
-          lines: [],
+          text: "",
           scroll: 0,
           error: err instanceof Error ? err.message : String(err),
         };
@@ -1150,6 +1347,13 @@ export async function runTui(list?: ProblemList): Promise<void> {
   };
 
   const refreshList = async (): Promise<void> => {
+    // The ★ Recommended pseudo-list and the synthetic "all" union aren't real,
+    // savable lists — refresh a concrete list instead.
+    if (state.showingRecommended || state.list.name === ALL_LIST_NAME) {
+      state.status = "pick a specific list to refresh (Recommended/All are computed views).";
+      render();
+      return;
+    }
     state.status = `refreshing ${state.list.name} (${state.list.problems.length}) from LeetCode…`;
     render();
     let failed = 0;
@@ -1173,8 +1377,22 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   const openConfig = async (): Promise<void> => {
     const cfg = await loadConfig();
-    state.config = { index: 0, editing: false, draft: "", working: { ...cfg }, picker: null };
+    state.config = {
+      index: 0,
+      editing: false,
+      draft: "",
+      working: { ...cfg },
+      picker: null,
+      repoSuggestions: [],
+      suggestIndex: 0,
+    };
     render();
+    // Fetch the user's repos in the background for the sync-repo autocomplete;
+    // degrade silently to a plain text field if gh isn't available.
+    void listUserRepos().then((repos) => {
+      if (state.config) state.config.repoSuggestions = repos;
+      render();
+    });
   };
 
   // Scaffold the current problem's C++ file (cache-first) into the solutions
@@ -1185,10 +1403,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
   const scaffoldToDisk = async (p: Problem, dir: string): Promise<string | null> => {
     const path = `${dir}/${scaffoldFilename(p.id, p.slug)}`;
     try {
-      let content = await getCached(p.slug);
-      if (content === null) {
+      // Shared, statement-guaranteed builder (cache-first, heals stale cache).
+      const content = await buildSolutionFile(p, async () => {
         const r = await fetchProblem(p.slug, { withSnippets: true, withContent: true });
-        content = scaffoldContent({
+        return scaffoldContent({
           id: r.id,
           title: r.title,
           slug: r.slug,
@@ -1199,10 +1417,18 @@ export async function runTui(list?: ProblemList): Promise<void> {
           exampleTestcases: r.exampleTestcases,
           contentHtml: r.contentHtml,
         });
-        await putCached(p.slug, content);
-      }
+      });
       await mkdir(dir, { recursive: true });
-      if (!(await Bun.file(path).exists())) await Bun.write(path, content);
+      if (!(await Bun.file(path).exists())) {
+        await Bun.write(path, content);
+      } else {
+        // Heal an existing on-disk file that predates statement-embedding.
+        const existing = await Bun.file(path).text();
+        if (!hasStatementBlock(existing)) {
+          const stmt = await resolveDescription(p).then((r) => r.text).catch(() => "");
+          if (stmt) await Bun.write(path, withStatement(existing, stmt));
+        }
+      }
       return path;
     } catch (err) {
       state.status = `scaffold failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -1328,7 +1554,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
 
   // ── Sync overlay: auth / pull / push, all running in-panel ──
   const openSync = (): void => {
-    state.sync = { index: 0, busy: false, lines: [], confirmPush: null };
+    state.sync = { index: 0, busy: false, lines: [], confirmPush: null, confirm: null };
     render();
   };
   const syncLog = (line: string): void => {
@@ -1375,6 +1601,149 @@ export async function runTui(list?: ProblemList): Promise<void> {
       );
     } catch (err) {
       syncLog(`pull failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  // Mark problems done from the folders present in the configured sync repo
+  // (NeetCode-style layout). No LeetCode session needed — this only reads the
+  // repo's git tree via gh and marks matches done locally.
+  const syncMarkRepo = async (): Promise<void> => {
+    if (!state.sync) return;
+    const repo = resolveSyncRepo(undefined, await loadConfig());
+    if (!repo) {
+      syncLog("No sync repo configured — set `syncRepo` in Config (or `leet sync-repo adopt <owner/repo>`).");
+      return;
+    }
+    state.sync.busy = true;
+    state.sync.lines = [`Reading solved problems from ${repo}…`];
+    render();
+    try {
+      const result = await importSource(repo, { adapter: "neetcode" });
+      const before = state.completed.size;
+      for (const id of result.matchedIds) state.completed.add(id);
+      const added = state.completed.size - before;
+      await saveCompleted(state.completed);
+      recompute(state);
+      syncLog(
+        `${result.matched.length} of ${result.totalSolved} folders matched bundled problems; ` +
+          `marked ${added} new.`,
+      );
+    } catch (err) {
+      syncLog(`mark-solved failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  // Re-invoke `leet <args>` as a child process with the terminal handed over
+  // (suspending the alt-screen), so long git/network operations show their live
+  // output and can't corrupt the TUI frame. Works both compiled (a single
+  // executable argv[0]) and under `bun run` (argv = [bun, cli.ts, …]). Returns
+  // the child's exit code; -1 if it couldn't be spawned.
+  const runLeetInShell = async (args: string[]): Promise<number> => {
+    // process.argv[1] is cli.ts under `bun run`; undefined-ish when compiled.
+    const self = process.argv[1];
+    const cmd =
+      self && self.endsWith(".ts")
+        ? [process.execPath, self, ...args] // bun run src/cli.ts …
+        : [process.execPath, ...args]; // compiled standalone binary
+    // Detach the TUI's key handler while the child owns the terminal, so its
+    // stdin and our "press any key" prompt don't feed back into the frame.
+    process.stdin.removeListener("data", onData);
+    out.write("\x1b[?25h\x1b[?1049l"); // leave alt-screen, show cursor
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    let code = -1;
+    try {
+      const child = Bun.spawn(cmd, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+      code = await child.exited;
+      // Hold on the finished output until a key, so it isn't wiped instantly.
+      process.stdout.write("\n[done — press any key to return to leet] ");
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      await new Promise<void>((resolve) => process.stdin.once("data", () => resolve()));
+    } catch {
+      code = -1;
+    }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", onData); // re-attach the TUI key handler
+    out.write("\x1b[?1049h\x1b[?25l"); // re-enter alt-screen, hide cursor
+    return code;
+  };
+
+  // Pull-solutions: add LeetCode-solved problems missing from the sync repo.
+  // Runs the real `leet pull-solutions` in a suspended shell (it clones, fetches,
+  // and pushes with live progress), then refreshes local state.
+  const syncPullSolutions = async (): Promise<void> => {
+    if (!state.sync) return;
+    const repo = resolveSyncRepo(undefined, await loadConfig());
+    if (!repo) {
+      syncLog("No sync repo configured — set it in Config (Sync repo) first.");
+      return;
+    }
+    state.sync.busy = true;
+    render();
+    const code = await runLeetInShell(["pull-solutions", repo]);
+    syncLog(code === 0 ? `pull-solutions finished (${repo}).` : `pull-solutions exited ${code}.`);
+    state.sync.busy = false;
+    render();
+  };
+
+  // Run a git command in `cwd`, logging the trimmed output to the sync panel.
+  // Returns { code, out } so callers can branch on success and show detail.
+  const gitInDir = async (args: string[], cwd: string): Promise<{ code: number; out: string }> => {
+    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { code, out: (stdout + stderr).trim() };
+  };
+
+  // Commit + push the local solutions dir. It lives inside a git repo (the
+  // leet-cli checkout or wherever the user keeps solutions); this stages that
+  // dir, commits if there's anything new, and pushes — logging each step.
+  const syncPushDir = async (): Promise<void> => {
+    if (!state.sync) return;
+    const config = await loadConfig();
+    const dir = resolveSolutionsDir(undefined, config);
+    state.sync.busy = true;
+    state.sync.lines = [`Committing + pushing ${dir}…`];
+    render();
+    try {
+      // Resolve the git repo root that contains the solutions dir.
+      const root = await gitInDir(["rev-parse", "--show-toplevel"], dir);
+      if (root.code !== 0) {
+        syncLog(`${dir} is not inside a git repository — nothing to push.`);
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      const cwd = root.out;
+      await gitInDir(["add", "--", dir], cwd);
+      const status = await gitInDir(["status", "--porcelain", "--", dir], cwd);
+      if (status.out === "") {
+        syncLog("Nothing to commit — the solutions dir is already up to date.");
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      const commit = await gitInDir(["commit", "-m", `solutions: update ${dir} (leet-cli)`, "--", dir], cwd);
+      if (commit.code !== 0) {
+        syncLog(`commit failed: ${commit.out.split("\n")[0] ?? ""}`);
+        state.sync.busy = false;
+        render();
+        return;
+      }
+      syncLog("committed; pushing…");
+      const push = await gitInDir(["push"], cwd);
+      syncLog(push.code === 0 ? "pushed." : `push failed: ${push.out.split("\n").slice(-1)[0] ?? ""}`);
+    } catch (err) {
+      syncLog(`push-dir failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     state.sync.busy = false;
     render();
@@ -1476,7 +1845,21 @@ export async function runTui(list?: ProblemList): Promise<void> {
     if (!state.sync || state.sync.busy) return;
     if (action === "auth") void syncAuth();
     else if (action === "pull") void syncPull();
-    else if (action === "push") void syncPushPlan();
+    else if (action === "markRepo") void syncMarkRepo();
+    // The two outward-writing git actions gate behind a y/n confirm first.
+    else if (action === "pullSolutions") {
+      state.sync.confirm = {
+        action: "pullSolutions",
+        prompt: "pull your solved LeetCode problems into the sync repo and push?",
+      };
+      render();
+    } else if (action === "pushDir") {
+      state.sync.confirm = {
+        action: "pushDir",
+        prompt: "commit + push your local solutions dir?",
+      };
+      render();
+    } else if (action === "push") void syncPushPlan();
   };
 
   const activateMenu = (action: MenuAction): void => {
@@ -1552,7 +1935,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     const invalidateStalePreview = (): void => {
       const p = current(state);
       if (p && state.preview.slug !== p.slug && state.focus !== "preview") {
-        state.preview = { slug: null, status: "idle", lines: [], scroll: 0 };
+        state.preview = { slug: null, status: "idle", text: "", scroll: 0 };
       }
       // The Logs panel is per-problem; reset it when the selection moves off it.
       if (p && state.logs.slug !== p.slug && state.focus !== "logs") {
@@ -1623,6 +2006,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
             case " ":
             case "\r":
             case "\n": {
+              // The checklist shows *include*, but we store *exclude*, so a
+              // toggle flips this list's membership in the excluded set.
               const name = pick.choices[pick.index];
               if (name) {
                 const next = toggleSelection(cfg.working[pick.key] as string[] | undefined, name);
@@ -1631,8 +2016,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
               }
               break;
             }
-            case "a": // clear every tick — back to "all lists count"
+            case "a": // all included — exclude nothing (the default)
               delete cfg.working[pick.key];
+              break;
+            case "n": // none included — exclude every list
+              (cfg.working[pick.key] as string[]) = [...pick.choices];
               break;
           }
           render();
@@ -1640,6 +2028,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
         }
 
         if (cfg.editing) {
+          // Live repo autocomplete on the sync-repo field: the current matches
+          // for the typed draft, so ↑↓/Tab operate on what's on screen.
+          const suggests = fieldHasRepoSuggest(field)
+            ? filterRepoSuggestions(cfg.repoSuggestions, cfg.draft)
+            : [];
           if (key === "\r" || key === "\n") {
             const v = cfg.draft.trim();
             // Only text fields ever enter edit mode; multiselect opens the picker.
@@ -1648,13 +2041,22 @@ export async function runTui(list?: ProblemList): Promise<void> {
             cfg.editing = false;
           } else if (key === "\x1b") {
             cfg.editing = false; // cancel edit, keep prior value
+          } else if (suggests.length > 0 && key === "\t") {
+            // Tab accepts the highlighted suggestion into the draft.
+            cfg.draft = suggests[Math.min(cfg.suggestIndex, suggests.length - 1)]!;
+            cfg.suggestIndex = 0;
+          } else if (suggests.length > 0 && (key === "\x1b[A" || key === "\x1b[B")) {
+            const dir = key === "\x1b[A" ? -1 : 1;
+            cfg.suggestIndex = (cfg.suggestIndex + dir + suggests.length) % suggests.length;
           } else if (key === "\x7f" || key === "\b") {
             cfg.draft = cfg.draft.slice(0, -1);
+            cfg.suggestIndex = 0;
           } else if (key === "\x03") {
             finish();
             return;
           } else if (key >= " " && !key.startsWith("\x1b")) {
             cfg.draft += key;
+            cfg.suggestIndex = 0;
           }
           render();
           return;
@@ -1711,6 +2113,23 @@ export async function runTui(list?: ProblemList): Promise<void> {
           render();
           return;
         }
+        // Generic confirmation gate for the git actions: y runs, n/Esc cancels.
+        if (sync.confirm) {
+          if (key === "y" || key === "Y") {
+            const action = sync.confirm.action;
+            sync.confirm = null;
+            if (action === "pullSolutions") void syncPullSolutions();
+            else if (action === "pushDir") void syncPushDir();
+          } else if (key === "n" || key === "N" || key === "\x1b") {
+            sync.confirm = null;
+            syncLog("cancelled.");
+          } else if (key === "\x03") {
+            finish();
+            return;
+          }
+          render();
+          return;
+        }
         if (key === "\x03") {
           finish();
           return;
@@ -1742,6 +2161,80 @@ export async function runTui(list?: ProblemList): Promise<void> {
       // ── help overlay ──
       if (state.help) {
         if (key === "?" || key === "\x1b" || key === "q") state.help = false;
+        render();
+        return;
+      }
+
+      // ── fullscreen reading mode ── (owns all input while active)
+      if (state.fullscreen) {
+        const maxLogScroll = Math.max(0, state.logs.lines.length - 1);
+        switch (key) {
+          case "\x03":
+          case "q":
+            finish();
+            return;
+          case "F":
+          case "\x1b": // Esc / ← leave fullscreen, restoring the panel layout
+          case "\x1b[D":
+            state.fullscreen = false;
+            break;
+          case "\t": // Tab / Shift-Tab flip between the description and the logs
+          case "\x1b[Z":
+            state.focus = state.focus === "logs" ? "preview" : "logs";
+            state.lastPanel = state.focus;
+            break;
+          case "k":
+          case "\x1b[A":
+            if (state.focus === "logs") state.logs.scroll = Math.max(0, state.logs.scroll - 1);
+            else state.preview.scroll = Math.max(0, state.preview.scroll - 1);
+            break;
+          case "j":
+          case "\x1b[B":
+            if (state.focus === "logs") state.logs.scroll = Math.min(maxLogScroll, state.logs.scroll + 1);
+            else
+              state.preview.scroll = Math.min(
+                Math.max(0, previewBodyLen() - 1),
+                state.preview.scroll + 1,
+              );
+            break;
+          case "\x1b[5~": // PgUp
+            if (state.focus === "logs") state.logs.scroll = Math.max(0, state.logs.scroll - pageStep());
+            else state.preview.scroll = Math.max(0, state.preview.scroll - pageStep());
+            break;
+          case "\x1b[6~": // PgDn
+            if (state.focus === "logs")
+              state.logs.scroll = Math.min(maxLogScroll, state.logs.scroll + pageStep());
+            else
+              state.preview.scroll = Math.min(
+                Math.max(0, previewBodyLen() - 1),
+                state.preview.scroll + pageStep(),
+              );
+            break;
+          case "g":
+            if (state.focus === "logs") state.logs.scroll = 0;
+            else state.preview.scroll = 0;
+            break;
+          case "G":
+            if (state.focus === "logs") state.logs.scroll = maxLogScroll;
+            else state.preview.scroll = Math.max(0, previewBodyLen() - 1);
+            break;
+          case " ":
+            void toggleDone();
+            return;
+          case "s":
+            void solveCurrent();
+            return;
+          case "t":
+            void runTest();
+            return;
+          case "o": {
+            const p = current(state);
+            if (p) void openUrl(p.url);
+            break;
+          }
+          default:
+            return;
+        }
         render();
         return;
       }
@@ -1936,6 +2429,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "t": // compile & run the test harness, show output in Logs
             void runTest();
             return;
+          case "F": // jump straight into fullscreen reading mode
+            state.focus = "preview";
+            state.lastPanel = "preview";
+            state.fullscreen = true;
+            void loadPreview();
+            return;
           case "P": // prefetch the current view into the local cache
             startPrefetch();
             return;
@@ -1982,6 +2481,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "t": // compile & run the harness → Logs
             void runTest();
             return;
+          case "F": // fullscreen reading mode (description + logs)
+            state.fullscreen = true;
+            void loadPreview();
+            break;
           case "o": {
             const p = current(state);
             if (p) void openUrl(p.url);
@@ -2027,6 +2530,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
           case "s":
             void solveCurrent();
             return;
+          case "F": // fullscreen reading mode (description + logs)
+            state.fullscreen = true;
+            void loadPreview();
+            break;
           case " ":
             void toggleDone();
             return;

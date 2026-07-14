@@ -18,11 +18,20 @@ export interface Config {
   /** Ranking strategy for the recommended-problems panel (e.g. "popularity", "acceptance"). */
   recommend?: string;
   /**
-   * List names de-selected from the recommended-problems pool. Excluded lists
-   * stay fully browsable — they simply stop contributing to the cross-list
-   * popularity signal. Unset/empty means every bundled list is considered.
+   * List names EXCLUDED from the recommended-problems pool. Stored as the set of
+   * de-selected lists (the complement of what the include-checklist shows), so
+   * the default — unset/empty — means *every* list counts and ★ Recommended is
+   * populated out of the box. Excluded lists stay fully browsable; they just
+   * stop contributing to the cross-list popularity signal.
    */
   recommendExclude?: string[];
+  /**
+   * Your solution-sync GitHub repo, as "owner/repo" (e.g. a NeetCode-style
+   * submissions repo). Used as the default target for `sync` / `pull-solutions`
+   * and the source for `mark-solved`. Overridable per-command by an explicit
+   * repo argument, and via the LEET_SYNC_REPO env var.
+   */
+  syncRepo?: string;
   /**
    * LeetCode session cookie for `import --adapter leetcode`. Deliberately NOT in
    * CONFIG_FIELDS so it's never shown/edited in the TUI (it's a credential);
@@ -69,9 +78,15 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   },
   {
     key: "recommendExclude",
-    label: "Recommend: skip lists",
+    label: "Recommend: include lists",
     kind: "multiselect",
-    fallback: "none — every list counts",
+    fallback: "all lists included",
+  },
+  {
+    key: "syncRepo",
+    label: "Sync repo (owner/repo)",
+    kind: "text",
+    fallback: "$LEET_SYNC_REPO, else unset",
   },
 ] as const;
 
@@ -169,6 +184,18 @@ export function resolveSolutionsDir(flag: string | undefined, cfg: Config): stri
 /** C++ compiler: config `cxx` > $CXX > "c++". */
 export function resolveCxx(cfg: Config, env: Env = process.env): string {
   return cfg.cxx || env.CXX || "c++";
+}
+
+/**
+ * Solution-sync repo ("owner/repo"): explicit CLI arg > $LEET_SYNC_REPO >
+ * config `syncRepo` > null. Callers surface a clear "set one" message on null.
+ */
+export function resolveSyncRepo(
+  arg: string | undefined,
+  cfg: Config,
+  env: Env = process.env,
+): string | null {
+  return arg || env.LEET_SYNC_REPO || cfg.syncRepo || null;
 }
 
 /**

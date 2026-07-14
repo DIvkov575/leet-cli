@@ -11,11 +11,76 @@ import {
   wrapText,
   renderFrame,
   solveCommand,
+  filterRepoSuggestions,
+  menuWindow,
   MENU_ITEMS,
 } from "./tui.ts";
 
 const RESET = "\x1b[0m";
 const REV = "\x1b[7m";
+
+describe("menuWindow", () => {
+  // 11 items each 8 cols wide, like the real bar's cell lengths.
+  const lens = Array.from({ length: 11 }, () => 8);
+
+  test("everything fits -> full range", () => {
+    expect(menuWindow(lens, 0, 200)).toEqual({ start: 0, end: 11 });
+  });
+
+  test("narrow: selected item is inside the window", () => {
+    const { start, end } = menuWindow(lens, 5, 40);
+    expect(5).toBeGreaterThanOrEqual(start);
+    expect(5).toBeLessThan(end);
+    expect(end).toBeLessThanOrEqual(11);
+  });
+
+  test("selecting the last item scrolls it into view", () => {
+    const { start, end } = menuWindow(lens, 10, 40);
+    expect(end).toBe(11);
+    expect(10).toBeGreaterThanOrEqual(start);
+  });
+
+  test("empty menu -> empty range", () => {
+    expect(menuWindow([], 0, 80)).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe("filterRepoSuggestions", () => {
+  const repos = [
+    "DIvkov575/leetcode-problems",
+    "DIvkov575/neetcode-submissions-zkag82uy",
+    "DIvkov575/leet-cli",
+    "someoneelse/leetcode",
+  ];
+
+  test("empty draft returns everything (capped)", () => {
+    expect(filterRepoSuggestions(repos, "")).toHaveLength(4);
+    expect(filterRepoSuggestions(repos, "", 2)).toHaveLength(2);
+  });
+
+  test("case-insensitive substring match", () => {
+    expect(filterRepoSuggestions(repos, "NEET")).toEqual([
+      "DIvkov575/neetcode-submissions-zkag82uy",
+    ]);
+  });
+
+  test("prefix matches rank before mid-string matches", () => {
+    const out = filterRepoSuggestions(repos, "leet");
+    // "someoneelse/leetcode" contains "leet" but doesn't start with it; the two
+    // "DIvkov575/leet*" repos aren't prefix either (owner prefix), so ranking is
+    // alphabetical among substring hits.
+    expect(out).toContain("DIvkov575/leetcode-problems");
+    expect(out).toContain("someoneelse/leetcode");
+  });
+
+  test("an exact full match is dropped (already fully typed)", () => {
+    expect(filterRepoSuggestions(repos, "DIvkov575/leet-cli")).toEqual([]);
+  });
+
+  test("no candidates -> empty", () => {
+    expect(filterRepoSuggestions([], "anything")).toEqual([]);
+  });
+});
 
 describe("solveCommand", () => {
   test("is a short, non-truncating scaffold+open command", () => {
@@ -192,7 +257,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     focus: "problems",
     lastPanel: "problems",
     menuIndex: 0,
-    preview: { slug: null, status: "idle", lines: [], scroll: 0 },
+    preview: { slug: null, status: "idle", text: "", scroll: 0 },
     logs: { slug: null, status: "idle", lines: [], scroll: 0 },
     maxId: 3,
     status: "",
@@ -202,6 +267,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     help: false,
     prefetch: null,
     suggestSetup: false,
+    fullscreen: false,
     ...overrides,
   };
   return s;
@@ -221,6 +287,20 @@ describe("renderFrame layout", () => {
     expect(strip(f[0]!)).toContain("Import");
   });
 
+  test("focused menu highlights the selected item even on a narrow terminal", () => {
+    // 60 cols can't fit all 11 items; the selected one must still be visible +
+    // highlighted (reverse-video), which the old full-bar-only render dropped.
+    const bar = renderFrame(makeState({ focus: "menu", menuIndex: 2 }), 12, 60)[0]!;
+    expect(strip(bar)).toContain("Sort"); // selected item is in the window
+    if (bar.includes("\x1b[")) expect(bar).toContain("\x1b[7m"); // reverse-video present
+  });
+
+  test("selecting a far item keeps it visible (windowed)", () => {
+    const bar = strip(renderFrame(makeState({ focus: "menu", menuIndex: 10 }), 12, 60)[0]!);
+    expect(bar).toContain("Help"); // last item scrolled into view
+    expect(bar).toContain("‹"); // overflow marker on the left
+  });
+
   test("Problems panel header shows view name, count, and settings", () => {
     // Wide enough for three panels; Problems is the middle column.
     const f = renderFrame(makeState({ doneFilter: "todo", sortKey: "acc", sortDesc: true }), 12, 120);
@@ -229,6 +309,46 @@ describe("renderFrame layout", () => {
     expect(joined).toContain("3/3");
     expect(joined).toContain("todo");
     expect(joined).toContain("acc↓");
+  });
+});
+
+describe("fullscreen reading mode", () => {
+  const fsState = (overrides: any = {}) =>
+    makeState({
+      fullscreen: true,
+      focus: "preview",
+      lastPanel: "preview",
+      preview: {
+        slug: "two-sum",
+        status: "loaded",
+        text: "Given an array of integers…\n\nExample 1:",
+        scroll: 0,
+        source: "repo",
+      },
+      ...overrides,
+    });
+
+  test("fills the whole screen with the description; header names the problem", () => {
+    const f = renderFrame(fsState(), 14, 120);
+    expect(f).toHaveLength(14);
+    for (const line of f) expect(strip(line).length).toBe(120);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Easy One"); // header (from current problem)
+    expect(joined).toContain("Given an array of integers");
+    // No Lists/Problems chrome, no menu bar in fullscreen.
+    expect(joined).not.toContain("Filter");
+  });
+
+  test("wide terminal shows Preview and Logs side by side", () => {
+    const joined = strip(renderFrame(fsState(), 14, 130).join("\n"));
+    expect(joined).toContain("Preview");
+    expect(joined).toContain("Logs");
+  });
+
+  test("narrow terminal shows only the focused panel", () => {
+    const joined = strip(renderFrame(fsState(), 14, 70).join("\n"));
+    expect(joined).toContain("Given an array of integers"); // preview body
+    expect(joined).not.toContain("Logs"); // no room for the logs column
   });
 });
 
@@ -369,26 +489,43 @@ describe("renderFrame config overlay", () => {
 });
 
 describe("renderFrame sync overlay", () => {
-  test("shows the three sync actions and running output", () => {
+  test("shows the sync actions and running output", () => {
     const s = makeState({
-      sync: { index: 0, busy: false, lines: ["Signed in as tester."], confirmPush: null },
+      sync: { index: 0, busy: false, lines: ["Signed in as tester."], confirmPush: null, confirm: null },
     });
-    const f = renderFrame(s, 16, 80);
+    const f = renderFrame(s, 20, 80);
     for (const line of f) expect(strip(line).length).toBe(80);
     const joined = strip(f.join("\n"));
     expect(joined).toContain("LeetCode Sync");
     expect(joined).toContain("Authenticate");
     expect(joined).toContain("Pull solved from LeetCode");
+    expect(joined).toContain("Pull my solutions → repo");
+    expect(joined).toContain("Commit + push solutions dir");
     expect(joined).toContain("Push solutions to LeetCode");
     expect(joined).toContain("Signed in as tester.");
   });
 
   test("push confirmation prompt gates the destructive action", () => {
     const s = makeState({
-      sync: { index: 2, busy: false, lines: [], confirmPush: 12 },
+      sync: { index: 4, busy: false, lines: [], confirmPush: 12, confirm: null },
     });
-    const joined = strip(renderFrame(s, 16, 80).join("\n"));
+    const joined = strip(renderFrame(s, 20, 80).join("\n"));
     expect(joined).toContain("push 12 solution(s)");
     expect(joined).toContain("y = submit");
+  });
+
+  test("generic confirm gate shows its prompt", () => {
+    const s = makeState({
+      sync: {
+        index: 3,
+        busy: false,
+        lines: [],
+        confirmPush: null,
+        confirm: { action: "pushDir", prompt: "commit + push your local solutions dir?" },
+      },
+    });
+    const joined = strip(renderFrame(s, 20, 80).join("\n"));
+    expect(joined).toContain("commit + push your local solutions dir?");
+    expect(joined).toContain("y = yes");
   });
 });

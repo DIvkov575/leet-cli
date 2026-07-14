@@ -45,4 +45,24 @@ describe("scaffoldContent", () => {
     expect(content).toContain("class Solution {");
     expect(content.endsWith("};\n")).toBe(true);
   });
+
+  test("embeds the problem statement as a comment block when contentHtml is given", () => {
+    const withDesc = scaffoldContent({
+      id: 1,
+      title: "Two Sum",
+      slug: "two-sum",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/two-sum/",
+      snippets: SNIPPETS,
+      contentHtml: "<p>Given an array of integers, return indices.</p>",
+    });
+    // The statement appears as // comments, above the includes, and never
+    // leaks into compiled code.
+    expect(withDesc).toContain("// Given an array of integers, return indices.");
+    expect(withDesc.indexOf("Given an array")).toBeLessThan(withDesc.indexOf("#include"));
+  });
+
+  test("omits the statement block when no contentHtml", () => {
+    expect(content).not.toContain("// Given an array");
+  });
 });
