@@ -5,6 +5,7 @@ import {
   type ExampleCase,
   type ProblemMeta,
 } from "./harness.ts";
+import { statementCommentLines } from "./render.ts";
 
 /** Metadata needed to render a scaffolded solution file. */
 export interface ScaffoldInput {
@@ -80,7 +81,14 @@ function parseMeta(metaData: string | undefined): ProblemMeta | null {
  * examples support it) or the example cases as a comment.
  */
 export function scaffoldContent(input: ScaffoldInput): string {
-  const header = `// ${input.id}. ${input.title} [${input.difficulty}]\n// ${input.url}\n`;
+  let header = `// ${input.id}. ${input.title} [${input.difficulty}]\n// ${input.url}\n`;
+  // Embed the statement as a `//` comment block between the header and the
+  // includes, so the description travels with the code file (readable in an
+  // editor, stripped by the compiler). Omitted when no statement is available.
+  if (input.contentHtml) {
+    const body = statementCommentLines(input.contentHtml, "// ");
+    if (body.length > 0) header += "//\n" + body.join("\n") + "\n";
+  }
   const stub = cppSnippet(input.snippets);
   const parts = [header, INCLUDES, "", stub];
 

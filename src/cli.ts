@@ -107,8 +107,8 @@ const REPO_README = `# LeetCode / NeetCode solutions
 Synced by [leet-cli](https://github.com/DIvkov575/leet-cli). Each problem has:
 
 - \`<id>-<slug>.md\` — the problem statement
-- \`<id>-<slug>.cpp\` — the C++ starter stub **plus an embedded test harness**
-- \`<id>-<slug>.tests.txt\` — the raw example test cases
+- \`<id>-<slug>.cpp\` — the C++ starter stub **plus an embedded test harness**, with the statement as a leading \`//\` comment block
+- \`<id>-<slug>.tests.txt\` — the raw example test cases, with the statement prepended as \`#\` comments
 
 ## How to test a solution
 
