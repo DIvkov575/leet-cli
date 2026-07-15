@@ -5,9 +5,9 @@
  * re-parenting a pattern is a one-line change.
  *
  * The graph is a DAG (a pattern can have several prerequisites, e.g. Advanced
- * Graphs follows both Graphs and Heap). The text view renders it as an indented
- * tree via a stable DFS from the roots, so a node with multiple parents appears
- * under its first-visited parent (with a `↗` marker noting the shared edge).
+ * Graphs follows both Graphs and Heap). The box view lays patterns out in rows
+ * by longest-path level (`roadmapLevels`) so every prerequisite edge points
+ * downward, and draws each pattern as a box with connectors to its children.
  */
 
 /** A pattern and the patterns it unlocks (its children in the roadmap). */
@@ -84,4 +84,97 @@ export function roadmapRows(): RoadmapRow[] {
 /** Every pattern named in the roadmap (declaration order). */
 export function roadmapPatterns(): string[] {
   return ROADMAP_EDGES.map(([p]) => p);
+}
+
+/** Immediate prerequisites (parents) of each pattern. */
+function parents(): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const p of roadmapPatterns()) m.set(p, []);
+  for (const [parent, children] of ROADMAP_EDGES) {
+    for (const c of children) m.get(c)!.push(parent);
+  }
+  return m;
+}
+
+/**
+ * Longest-path level (row) of each pattern: 0 for roots, else 1 + the deepest
+ * parent. This lays the DAG out top-to-bottom so every edge points downward.
+ */
+export function roadmapLevelOf(): Map<string, number> {
+  const par = parents();
+  const level = new Map<string, number>();
+  const compute = (p: string): number => {
+    const cached = level.get(p);
+    if (cached !== undefined) return cached;
+    const ps = par.get(p) ?? [];
+    const lv = ps.length === 0 ? 0 : 1 + Math.max(...ps.map(compute));
+    level.set(p, lv);
+    return lv;
+  };
+  for (const p of roadmapPatterns()) compute(p);
+  return level;
+}
+
+/**
+ * The patterns grouped into rows by level, for the box-flowchart view. Within a
+ * row, patterns keep declaration order (stable, readable layout).
+ */
+export function roadmapLevels(): string[][] {
+  const level = roadmapLevelOf();
+  const maxLevel = Math.max(...level.values());
+  const rows: string[][] = Array.from({ length: maxLevel + 1 }, () => []);
+  for (const p of roadmapPatterns()) rows[level.get(p)!]!.push(p);
+  return rows;
+}
+
+/** Immediate children of a pattern (what it unlocks). */
+export function roadmapChildren(pattern: string): string[] {
+  return CHILDREN.get(pattern) ?? [];
+}
+
+/**
+ * Short labels for the box view, so a row of boxes fits an 80-col terminal.
+ * Patterns not listed here use their full name (already short enough).
+ */
+const SHORT_LABELS: Record<string, string> = {
+  "Arrays & Hashing": "Arrays/Hash",
+  "Sliding Window": "Sliding Win",
+  "Binary Search": "Bin. Search",
+  "Heap / Priority Queue": "Heap / PQ",
+  "Advanced Graphs": "Adv. Graphs",
+  "1-D Dynamic Programming": "1-D DP",
+  "2-D Dynamic Programming": "2-D DP",
+  "Bit Manipulation": "Bit Manip.",
+  "Math & Geometry": "Math/Geo",
+};
+
+/** A compact label for `pattern` suitable for a fixed-width box. */
+export function roadmapShortLabel(pattern: string): string {
+  return SHORT_LABELS[pattern] ?? pattern;
+}
+
+/**
+ * Move the flat-index `cursor` (into `roadmapPatterns()`) in a grid direction,
+ * matching the box layout: left/right step within a level; up/down jump to the
+ * nearest box (by position-in-row) on the adjacent level. Returns the new flat
+ * index (clamped; unchanged if there's no box that way).
+ */
+export function roadmapMove(cursor: number, dir: "up" | "down" | "left" | "right"): number {
+  const flat = roadmapPatterns();
+  const level = roadmapLevelOf();
+  const levels = roadmapLevels();
+  const cur = flat[cursor]!;
+  const lv = level.get(cur)!;
+  const row = levels[lv]!;
+  const col = row.indexOf(cur);
+
+  const at = (pattern: string): number => flat.indexOf(pattern);
+  if (dir === "left") return col > 0 ? at(row[col - 1]!) : cursor;
+  if (dir === "right") return col < row.length - 1 ? at(row[col + 1]!) : cursor;
+  const target = dir === "up" ? lv - 1 : lv + 1;
+  const trow = levels[target];
+  if (!trow || trow.length === 0) return cursor;
+  // Keep the same column position where possible; else the nearest.
+  const idx = Math.min(col, trow.length - 1);
+  return at(trow[idx]!);
 }

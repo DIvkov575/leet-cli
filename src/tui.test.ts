@@ -523,14 +523,17 @@ describe("renderFrame tag picker", () => {
 });
 
 describe("renderFrame roadmap", () => {
-  test("renders the pattern tree with counts and drilling hint", () => {
+  test("renders the pattern flowchart as boxes with counts and drilling hint", () => {
     const s = makeState({ roadmap: { cursor: 0 } });
-    const f = renderFrame(s, 30, 90);
+    const f = renderFrame(s, 34, 90);
     for (const line of f) expect(strip(line).length).toBe(90);
     const joined = strip(f.join("\n"));
-    expect(joined).toContain("NeetCode roadmap");
-    expect(joined).toContain("Arrays & Hashing"); // root
-    expect(joined).toContain("Two Pointers"); // a child, indented
+    expect(joined).toContain("Roadmap"); // overlay title
+    expect(joined).toContain("┌"); // box borders are drawn
+    expect(joined).toContain("Two Pointers"); // a level-1 box label
+    expect(joined).toContain("v"); // connectors between levels
+    // Cursor 0 = Arrays & Hashing → its full name appears in the detail line.
+    expect(joined).toContain("Arrays & Hashing");
     expect(joined).toContain("Enter study this pattern");
   });
 });
