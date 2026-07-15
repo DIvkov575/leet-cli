@@ -8,7 +8,12 @@
       "slug": "convert-integer-to-the-sum-of-two-no-zero-integers",
       "url": "https://leetcode.com/problems/convert-integer-to-the-sum-of-two-no-zero-integers/",
       "acceptance": 59.2,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Math & Geometry",
+      "patternSource": "derived",
+      "topics": [
+        "math"
+      ]
     },
     {
       "id": 1323,
@@ -16,7 +21,13 @@
       "slug": "maximum-69-number",
       "url": "https://leetcode.com/problems/maximum-69-number/",
       "acceptance": 84.6,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Greedy",
+      "patternSource": "derived",
+      "topics": [
+        "math",
+        "greedy"
+      ]
     },
     {
       "id": 1342,
@@ -24,7 +35,13 @@
       "slug": "number-of-steps-to-reduce-a-number-to-zero",
       "url": "https://leetcode.com/problems/number-of-steps-to-reduce-a-number-to-zero/",
       "acceptance": 85.9,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Bit Manipulation",
+      "patternSource": "derived",
+      "topics": [
+        "math",
+        "bit-manipulation"
+      ]
     },
     {
       "id": 1566,
@@ -32,7 +49,13 @@
       "slug": "detect-pattern-of-length-m-repeated-k-or-more-times",
       "url": "https://leetcode.com/problems/detect-pattern-of-length-m-repeated-k-or-more-times/",
       "acceptance": 44.1,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Backtracking",
+      "patternSource": "derived",
+      "topics": [
+        "array",
+        "enumeration"
+      ]
     },
     {
       "id": 2246,
@@ -40,7 +63,17 @@
       "slug": "longest-path-with-different-adjacent-characters",
       "url": "https://leetcode.com/problems/longest-path-with-different-adjacent-characters/",
       "acceptance": 54,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Trees",
+      "patternSource": "derived",
+      "topics": [
+        "array",
+        "string",
+        "tree",
+        "depth-first-search",
+        "graph",
+        "topological-sort"
+      ]
     },
     {
       "id": 2285,
@@ -48,7 +81,15 @@
       "slug": "maximum-total-importance-of-roads",
       "url": "https://leetcode.com/problems/maximum-total-importance-of-roads/",
       "acceptance": 69.1,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Greedy",
+      "patternSource": "neetcode",
+      "topics": [
+        "greedy",
+        "graph",
+        "sorting",
+        "heap-priority-queue"
+      ]
     },
     {
       "id": 2508,
@@ -56,7 +97,13 @@
       "slug": "add-edges-to-make-degrees-of-all-nodes-even",
       "url": "https://leetcode.com/problems/add-edges-to-make-degrees-of-all-nodes-even/",
       "acceptance": 36.6,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Graphs",
+      "patternSource": "derived",
+      "topics": [
+        "hash-table",
+        "graph"
+      ]
     },
     {
       "id": 3225,
@@ -64,7 +111,15 @@
       "slug": "maximum-score-from-grid-operations",
       "url": "https://leetcode.com/problems/maximum-score-from-grid-operations/",
       "acceptance": 64.3,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Arrays & Hashing",
+      "patternSource": "derived",
+      "topics": [
+        "array",
+        "dynamic-programming",
+        "matrix",
+        "prefix-sum"
+      ]
     }
   ]
 }

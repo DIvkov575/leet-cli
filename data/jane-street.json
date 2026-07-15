@@ -8,7 +8,18 @@
       "slug": "add-two-numbers",
       "url": "https://leetcode.com/problems/add-two-numbers/",
       "acceptance": 48.8,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Linked List",
+      "patternSource": "neetcode",
+      "topics": [
+        "linked-list",
+        "math",
+        "recursion"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
+      ]
     }
   ]
 }

@@ -95,6 +95,25 @@ describe("filterProblems", () => {
     expect(filterProblems(sample, { done: true }).map((p) => p.id)).toEqual([]);
     expect(filterProblems(sample, { done: false }).map((p) => p.id)).toEqual([1, 42, 3, 9]);
   });
+
+  const tagged: Problem[] = [
+    { id: 1, title: "Two Sum", slug: "two-sum", url: "", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing" },
+    { id: 2, title: "Valid Parens", slug: "valid-parentheses", url: "", acceptance: 40, difficulty: "Easy", pattern: "Stack" },
+    { id: 3, title: "Course Schedule", slug: "course-schedule", url: "", acceptance: 45, difficulty: "Medium", pattern: "Graphs" },
+    { id: 4, title: "SQL thing", slug: "sql-thing", url: "", acceptance: 60, difficulty: "Easy" }, // no pattern
+  ];
+  test("by single pattern", () => {
+    expect(filterProblems(tagged, { patterns: ["Stack"] }).map((p) => p.id)).toEqual([2]);
+  });
+  test("by multiple patterns (union)", () => {
+    expect(filterProblems(tagged, { patterns: ["Stack", "Graphs"] }).map((p) => p.id)).toEqual([2, 3]);
+  });
+  test("empty patterns array ignores the filter", () => {
+    expect(filterProblems(tagged, { patterns: [] }).map((p) => p.id)).toEqual([1, 2, 3, 4]);
+  });
+  test("a problem with no pattern is excluded when patterns are set", () => {
+    expect(filterProblems(tagged, { patterns: ["Arrays & Hashing"] }).map((p) => p.id)).toEqual([1]);
+  });
 });
 
 describe("sortProblems", () => {

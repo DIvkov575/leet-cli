@@ -214,9 +214,11 @@ describe("MENU_ITEMS", () => {
     expect(MENU_ITEMS.map((m) => m.action)).toEqual([
       "filter",
       "diff",
+      "tag",
       "sort",
       "search",
       "list",
+      "roadmap",
       "open",
       "refresh",
       "import",
@@ -233,8 +235,8 @@ const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
   const problems = [
-    { id: 1, title: "Easy One", slug: "easy-one", url: "u", acceptance: 50, difficulty: "Easy" },
-    { id: 2, title: "Med Two", slug: "med-two", url: "u", acceptance: 40, difficulty: "Medium" },
+    { id: 1, title: "Easy One", slug: "easy-one", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", patternSource: "neetcode", topics: ["array", "hash-table"] },
+    { id: 2, title: "Med Two", slug: "med-two", url: "u", acceptance: 40, difficulty: "Medium", pattern: "Stack", patternSource: "derived", topics: ["stack"] },
     { id: 3, title: "Hard Three", slug: "hard-three", url: "u", acceptance: 30, difficulty: "Hard" },
   ];
   const s: any = {
@@ -246,6 +248,9 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     completed: new Set<number>(),
     doneFilter: "all",
     diff: undefined,
+    tagFilter: new Set<string>(),
+    tagPicker: null,
+    roadmap: null,
     search: "",
     sortKey: "id",
     sortDesc: false,
@@ -318,8 +323,9 @@ describe("fullscreen reading mode", () => {
       fullscreen: true,
       focus: "preview",
       lastPanel: "preview",
+      cursor: 2, // the untagged problem, so the header stays short in a 14-row view
       preview: {
-        slug: "two-sum",
+        slug: "hard-three",
         status: "loaded",
         text: "Given an array of integers…\n\nExample 1:",
         scroll: 0,
@@ -333,7 +339,7 @@ describe("fullscreen reading mode", () => {
     expect(f).toHaveLength(14);
     for (const line of f) expect(strip(line).length).toBe(120);
     const joined = strip(f.join("\n"));
-    expect(joined).toContain("Easy One"); // header (from current problem)
+    expect(joined).toContain("Hard Three"); // header (from current problem)
     expect(joined).toContain("Given an array of integers");
     // No Lists/Problems chrome, no menu bar in fullscreen.
     expect(joined).not.toContain("Filter");
@@ -485,6 +491,58 @@ describe("renderFrame config overlay", () => {
     });
     const joined = strip(renderFrame(s, 14, 70).join("\n"));
     expect(joined).toContain("mysols▏");
+  });
+});
+
+describe("preview tags", () => {
+  test("shows the NeetCode pattern and LeetCode topics in the preview header", () => {
+    // Focus preview so the panel renders; cursor 0 = the tagged 'Easy One'.
+    const s = makeState({ focus: "preview", cursor: 0, preview: { slug: "easy-one", status: "loaded", text: "body", scroll: 0, source: "repo" } });
+    const joined = strip(renderFrame(s, 20, 140).join("\n"));
+    expect(joined).toContain("Pattern: Arrays & Hashing");
+    expect(joined).toContain("Topics: array, hash-table");
+  });
+  test("marks a derived pattern with ~", () => {
+    const s = makeState({ focus: "preview", cursor: 1, preview: { slug: "med-two", status: "loaded", text: "b", scroll: 0 } });
+    const joined = strip(renderFrame(s, 20, 140).join("\n"));
+    expect(joined).toContain("Pattern: Stack ~");
+  });
+});
+
+describe("renderFrame tag picker", () => {
+  test("lists every pattern with checkbox + counts; marks the active filter", () => {
+    const s = makeState({ tagPicker: { index: 0 }, tagFilter: new Set(["Stack"]) });
+    const f = renderFrame(s, 24, 80);
+    for (const line of f) expect(strip(line).length).toBe(80);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Filter by NeetCode pattern");
+    expect(joined).toContain("Arrays & Hashing");
+    expect(joined).toContain("[x] Stack"); // Stack is in the filter
+    expect(joined).toContain("Space toggle");
+  });
+});
+
+describe("renderFrame roadmap", () => {
+  test("neetcode chart: boxes, connectors, subset/chart toggles, detail line", () => {
+    const s = makeState({ roadmap: { cursor: 0, chart: "neetcode", subset: "neetcode250" } });
+    const f = renderFrame(s, 34, 90);
+    for (const line of f) expect(strip(line).length).toBe(90);
+    const joined = strip(f.join("\n"));
+    expect(joined).toContain("Roadmap"); // overlay title
+    expect(joined).toContain("┌"); // box borders are drawn
+    expect(joined).toContain("Two Pointers"); // a level-1 box label
+    expect(joined).toContain("v"); // connectors between levels
+    // Cursor 0 = Arrays & Hashing → its full name appears in the detail line.
+    expect(joined).toContain("Arrays & Hashing");
+    expect(joined).toContain("chart: neetcode");
+    expect(joined).toContain("subset: neetcode250");
+  });
+
+  test("full chart: pattern boxes fan out to topic boxes", () => {
+    const s = makeState({ roadmap: { cursor: 0, chart: "full", subset: "all" } });
+    const joined = strip(renderFrame(s, 50, 120).join("\n"));
+    expect(joined).toContain("chart: full");
+    expect(joined).toContain("┆"); // topic boxes use dashed edges
   });
 });
 

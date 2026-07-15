@@ -8,7 +8,20 @@
       "slug": "reorganize-string",
       "url": "https://leetcode.com/problems/reorganize-string/",
       "acceptance": 57.3,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Heap / Priority Queue",
+      "patternSource": "neetcode",
+      "topics": [
+        "hash-table",
+        "string",
+        "greedy",
+        "sorting",
+        "heap-priority-queue",
+        "counting"
+      ],
+      "subsets": [
+        "neetcode250"
+      ]
     },
     {
       "id": 779,
@@ -16,7 +29,14 @@
       "slug": "k-th-symbol-in-grammar",
       "url": "https://leetcode.com/problems/k-th-symbol-in-grammar/",
       "acceptance": 48.5,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Two Pointers",
+      "patternSource": "neetcode",
+      "topics": [
+        "math",
+        "bit-manipulation",
+        "recursion"
+      ]
     }
   ]
 }

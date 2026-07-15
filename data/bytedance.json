@@ -8,7 +8,19 @@
       "slug": "lru-cache",
       "url": "https://leetcode.com/problems/lru-cache/",
       "acceptance": 47.6,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Linked List",
+      "patternSource": "neetcode",
+      "topics": [
+        "hash-table",
+        "linked-list",
+        "design",
+        "doubly-linked-list"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 200,
@@ -16,7 +28,21 @@
       "slug": "number-of-islands",
       "url": "https://leetcode.com/problems/number-of-islands/",
       "acceptance": 64.7,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Graphs",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "depth-first-search",
+        "breadth-first-search",
+        "union-find",
+        "matrix"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 300,
@@ -24,7 +50,19 @@
       "slug": "longest-increasing-subsequence",
       "url": "https://leetcode.com/problems/longest-increasing-subsequence/",
       "acceptance": 59.6,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "1-D Dynamic Programming",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "binary-search",
+        "dynamic-programming"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 540,
@@ -32,7 +70,13 @@
       "slug": "single-element-in-a-sorted-array",
       "url": "https://leetcode.com/problems/single-element-in-a-sorted-array/",
       "acceptance": 59.3,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Binary Search",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "binary-search"
+      ]
     }
   ]
 }

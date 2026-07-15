@@ -8,7 +8,13 @@
       "slug": "permutation-sequence",
       "url": "https://leetcode.com/problems/permutation-sequence/",
       "acceptance": 53.5,
-      "difficulty": "Hard"
+      "difficulty": "Hard",
+      "pattern": "Math & Geometry",
+      "patternSource": "derived",
+      "topics": [
+        "math",
+        "recursion"
+      ]
     },
     {
       "id": 202,
@@ -16,7 +22,18 @@
       "slug": "happy-number",
       "url": "https://leetcode.com/problems/happy-number/",
       "acceptance": 59.9,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Math & Geometry",
+      "patternSource": "neetcode",
+      "topics": [
+        "hash-table",
+        "math",
+        "two-pointers"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 572,
@@ -24,7 +41,21 @@
       "slug": "subtree-of-another-tree",
       "url": "https://leetcode.com/problems/subtree-of-another-tree/",
       "acceptance": 51.8,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Trees",
+      "patternSource": "neetcode",
+      "topics": [
+        "tree",
+        "depth-first-search",
+        "string-matching",
+        "binary-tree",
+        "hash-function"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 2275,
@@ -32,7 +63,15 @@
       "slug": "largest-combination-with-bitwise-and-greater-than-zero",
       "url": "https://leetcode.com/problems/largest-combination-with-bitwise-and-greater-than-zero/",
       "acceptance": 80.8,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Bit Manipulation",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "hash-table",
+        "bit-manipulation",
+        "counting"
+      ]
     }
   ]
 }

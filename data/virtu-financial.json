@@ -8,7 +8,13 @@
       "slug": "array-transformation",
       "url": "https://leetcode.com/problems/array-transformation/",
       "acceptance": 53.8,
-      "difficulty": "Easy"
+      "difficulty": "Easy",
+      "pattern": "Arrays & Hashing",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "simulation"
+      ]
     }
   ]
 }

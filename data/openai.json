@@ -8,7 +8,18 @@
       "slug": "rotting-oranges",
       "url": "https://leetcode.com/problems/rotting-oranges/",
       "acceptance": 59,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Graphs",
+      "patternSource": "neetcode",
+      "topics": [
+        "array",
+        "breadth-first-search",
+        "matrix"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
+      ]
     },
     {
       "id": 1797,
@@ -16,7 +27,15 @@
       "slug": "design-authentication-manager",
       "url": "https://leetcode.com/problems/design-authentication-manager/",
       "acceptance": 58.7,
-      "difficulty": "Medium"
+      "difficulty": "Medium",
+      "pattern": "Linked List",
+      "patternSource": "derived",
+      "topics": [
+        "hash-table",
+        "linked-list",
+        "design",
+        "doubly-linked-list"
+      ]
     }
   ]
 }

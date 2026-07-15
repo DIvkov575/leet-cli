@@ -97,6 +97,8 @@ describe("CONFIG_FIELDS metadata", () => {
       "recommend",
       "recommendExclude",
       "syncRepo",
+      "roadmapChart",
+      "roadmapSubset",
     ]);
     // The session cookie is a credential and must not be a TUI-editable field.
     expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
