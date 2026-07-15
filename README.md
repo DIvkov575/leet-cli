@@ -165,7 +165,7 @@ immediately, without a restart.
 | `--difficulty, -d`  | `easy` \| `medium` \| `hard`              |
 | `--min-acc <n>`     | minimum acceptance %                      |
 | `--max-acc <n>`     | maximum acceptance %                      |
-| `--search, -s <q>`  | title substring match                     |
+| `--search, -s <q>`  | fuzzy match over title, tags, and company (ranked) |
 | `--tag, -t <p,…>`   | NeetCode pattern(s), e.g. `Graphs` or `two-pointers,stack` |
 | `--done`            | only completed problems                   |
 | `--todo`            | only problems not yet completed           |
