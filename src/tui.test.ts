@@ -242,6 +242,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
   const s: any = {
     list: { name: "demo", title: "Demo", problems },
     listNames: ["demo"],
+    allProblems: problems,
     listMeta: new Map<string, number[]>([["demo", [1, 2, 3]]]),
     recommended: [],
     showingRecommended: false,
@@ -543,6 +544,41 @@ describe("renderFrame roadmap", () => {
     const joined = strip(renderFrame(s, 50, 120).join("\n"));
     expect(joined).toContain("chart: full");
     expect(joined).toContain("┆"); // topic boxes use dashed edges
+  });
+
+  test("counts are global (allProblems), not the current list", () => {
+    // Current list has only 'Easy One' (Arrays & Hashing); the global union adds
+    // an Arrays & Hashing problem outside the list. The roadmap must count 2/…,
+    // proving it reads allProblems, not s.list.problems.
+    const extra = { id: 99, title: "Global AH", slug: "global-ah", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", patternSource: "neetcode", topics: ["array"], subsets: ["neetcode250"] };
+    const s = makeState({
+      list: { name: "tiny", title: "Tiny", problems: [] }, // empty current list
+      allProblems: [{ id: 1, title: "Easy One", slug: "easy-one", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", patternSource: "neetcode", topics: ["array"], subsets: ["neetcode250"] }, extra],
+      roadmap: { cursor: 0, chart: "neetcode", subset: "all" },
+    });
+    const joined = strip(renderFrame(s, 34, 90).join("\n"));
+    // Arrays & Hashing is cursor 0; detail line shows 0/2 (two global AH problems)
+    // even though the current list is empty.
+    expect(joined).toContain("0/2 done");
+  });
+
+  test("subset scopes the global counts", () => {
+    const mk = (subset: string) =>
+      strip(
+        renderFrame(
+          makeState({
+            allProblems: [
+              { id: 1, title: "A", slug: "a", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["blind75", "neetcode250"] },
+              { id: 2, title: "B", slug: "b", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["neetcode250"] },
+            ],
+            roadmap: { cursor: 0, chart: "neetcode", subset },
+          }),
+          34,
+          90,
+        ).join("\n"),
+      );
+    expect(mk("all")).toContain("0/2 done"); // both
+    expect(mk("blind75")).toContain("0/1 done"); // only the blind75 one
   });
 });
 
