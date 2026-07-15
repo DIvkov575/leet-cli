@@ -1,0 +1,184 @@
+import { describe, expect, test } from "bun:test";
+import { createActions } from "./actions.ts";
+import { createInputHandler } from "./input.ts";
+import { recompute, type State } from "./state.ts";
+import type { TuiContext } from "./context.ts";
+import type { Problem } from "../types.ts";
+
+/**
+ * End-to-end coverage of the extracted input handler + action wiring, driven
+ * headlessly: build a context over a fake stdout, feed key bytes to `onData`,
+ * and assert the state transitions. This is the safety net for the runtime that
+ * the pure render tests can't reach.
+ */
+function makeProblems(n: number): Problem[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    title: `Problem ${i + 1}`,
+    slug: `problem-${i + 1}`,
+    url: "u",
+    acceptance: 50,
+    difficulty: "Easy" as const,
+    pattern: "Arrays & Hashing",
+    topics: ["array"],
+  }));
+}
+
+function harness() {
+  const problems = makeProblems(5);
+  const state = {
+    list: { name: "demo", title: "Demo", problems },
+    listNames: ["demo"],
+    allProblems: problems,
+    listMeta: new Map([["demo", problems.map((p) => p.id)]]),
+    recommended: [],
+    showingRecommended: false,
+    completed: new Set<number>(),
+    doneFilter: "all",
+    diff: undefined,
+    tagFilter: new Set<string>(),
+    tagPicker: null,
+    roadmap: null,
+    search: "",
+    sortKey: "id",
+    sortDesc: false,
+    filtered: [],
+    cursor: 0,
+    top: 0,
+    listCursor: 0,
+    listTop: 0,
+    focus: "problems",
+    lastPanel: "problems",
+    menuIndex: 0,
+    preview: { slug: null, status: "idle", text: "", scroll: 0 },
+    logs: { slug: null, status: "idle", lines: [], scroll: 0 },
+    maxId: 5,
+    status: "",
+    input: null,
+    config: null,
+    sync: null,
+    help: false,
+    prefetch: null,
+    suggestSetup: false,
+    fullscreen: false,
+  } as unknown as State;
+  recompute(state);
+  let renders = 0;
+  const out = { columns: 120, rows: 40, write() {}, on() {}, removeListener() {} } as unknown as NodeJS.WriteStream;
+  const ctx: TuiContext = {
+    state,
+    render: () => { renders++; },
+    out,
+    config: {},
+    rankRecommended: () => [],
+    onData: null,
+    finish: () => {},
+  };
+  const actions = createActions(ctx);
+  const onData = createInputHandler(ctx, actions);
+  ctx.onData = onData;
+  const key = (s: string) => onData(Buffer.from(s, "utf8"));
+  return { state, key, renders: () => renders };
+}
+
+describe("input handler — navigation", () => {
+  test("j / k move the problems cursor", () => {
+    const h = harness();
+    h.key("j");
+    expect(h.state.cursor).toBe(1);
+    h.key("k");
+    expect(h.state.cursor).toBe(0);
+  });
+  test("G jumps to the last problem, g to the first", () => {
+    const h = harness();
+    h.key("G");
+    expect(h.state.cursor).toBe(h.state.filtered.length - 1);
+    h.key("g");
+    expect(h.state.cursor).toBe(0);
+  });
+});
+
+describe("input handler — menu bar", () => {
+  test("Tab enters the menu, l/h move, Esc returns", () => {
+    const h = harness();
+    h.key("\t");
+    expect(h.state.focus).toBe("menu");
+    const m0 = h.state.menuIndex;
+    h.key("l");
+    expect(h.state.menuIndex).toBe(m0 + 1);
+    h.key("h");
+    expect(h.state.menuIndex).toBe(m0);
+    h.key("\x1b");
+    expect(h.state.focus).toBe("problems");
+  });
+});
+
+describe("input handler — overlays", () => {
+  test("T opens the tag picker; space toggles, n clears", () => {
+    const h = harness();
+    h.key("T");
+    expect(h.state.tagPicker).not.toBeNull();
+    h.key(" ");
+    expect(h.state.tagFilter.size).toBe(1);
+    h.key("n");
+    expect(h.state.tagFilter.size).toBe(0);
+  });
+
+  test("m opens the roadmap; arrows move the cursor; Enter filters + closes", () => {
+    const h = harness();
+    h.key("m");
+    expect(h.state.roadmap).not.toBeNull();
+    h.key("\x1b[B"); // down
+    expect(h.state.roadmap!.cursor).toBeGreaterThan(0);
+    h.key("\r"); // study → sets tag filter, closes, focuses problems
+    expect(h.state.roadmap).toBeNull();
+    expect(h.state.focus).toBe("problems");
+    expect(h.state.tagFilter.size).toBe(1);
+  });
+
+  test("? toggles help", () => {
+    const h = harness();
+    h.key("?");
+    expect(h.state.help).toBe(true);
+    h.key("\x1b");
+    expect(h.state.help).toBe(false);
+  });
+});
+
+describe("input handler — search prompt", () => {
+  test("/ opens search, typing sets the query live, Esc clears it", () => {
+    const h = harness();
+    h.key("/");
+    expect(h.state.input?.kind).toBe("search");
+    h.key("t");
+    h.key("w");
+    h.key("o");
+    expect(h.state.search).toBe("two");
+    h.key("\x1b");
+    expect(h.state.search).toBe("");
+    expect(h.state.input).toBeNull();
+  });
+});
+
+describe("input handler — drill navigation", () => {
+  test("Enter drills problems → preview → logs, Esc walks back", () => {
+    const h = harness();
+    h.key("\r"); // problems → preview
+    expect(h.state.focus).toBe("preview");
+    h.key("\r"); // preview → logs
+    expect(h.state.focus).toBe("logs");
+    h.key("\x1b"); // logs → preview
+    expect(h.state.focus).toBe("preview");
+    h.key("\x1b"); // preview → problems
+    expect(h.state.focus).toBe("problems");
+  });
+});
+
+describe("input handler — repaints", () => {
+  test("every handled key triggers a render", () => {
+    const h = harness();
+    const before = h.renders();
+    h.key("j");
+    expect(h.renders()).toBeGreaterThan(before);
+  });
+});

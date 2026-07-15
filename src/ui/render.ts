@@ -802,7 +802,7 @@ function previewHeaderLines(s: State, width: number): string[] {
   return lines;
 }
 
-function previewBody(s: State, width: number): string[] {
+export function previewBody(s: State, width: number): string[] {
   const pv = s.preview;
   if (pv.status === "idle") return [paint(fit("Press Enter to load the statement.", width), "dim")];
   if (pv.status === "loading") return [paint(fit("Loading…", width), "dim")];
