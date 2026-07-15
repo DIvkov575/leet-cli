@@ -15,7 +15,7 @@ import type { TuiContext } from "./ui/context.ts";
 // unchanged after the decomposition into ui/ modules.
 export { visibleLength, truncate, fit, type Columns } from "./ui/ansi.ts";
 export { layoutColumns, computeTop, wrapText } from "./ui/layout.ts";
-export { menuWindow, MENU_ITEMS, type MenuAction, type MenuItem } from "./ui/menu.ts";
+export { menuWindow, MENU_ITEMS, PALETTE_ITEMS, type MenuAction, type MenuItem } from "./ui/menu.ts";
 export {
   cycleDoneFilter,
   cycleDifficulty,
@@ -23,7 +23,15 @@ export {
   solveCommand,
   type DoneFilter,
 } from "./ui/controls.ts";
-export { renderFrame, filterRepoSuggestions, configValueCell, renderTagPicker, renderRoadmap } from "./ui/render.ts";
+export {
+  renderFrame,
+  filterRepoSuggestions,
+  configValueCell,
+  renderTagPicker,
+  renderRoadmap,
+  renderFilterPanel,
+  renderPalette,
+} from "./ui/render.ts";
 
 /**
  * Interactive full-screen browser for the bundled lists — the primary way to

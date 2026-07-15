@@ -7,7 +7,7 @@
 import { CONFIG_FIELDS, ROADMAP_SUBSETS, resolveRoadmapSubset, toggleSelection } from "../config.ts";
 import { NEETCODE_PATTERNS } from "../tags.ts";
 import { neetcodeChart, chartMove } from "../roadmap.ts";
-import { MENU_ITEMS, type MenuAction } from "./menu.ts";
+import { MENU_ITEMS, PALETTE_ITEMS, type MenuAction } from "./menu.ts";
 import { cycleDoneFilter, cycleDifficulty, cycleSortState } from "./controls.ts";
 import { previewBody, filterRepoSuggestions, fieldHasRepoSuggest } from "./render.ts";
 import { recompute, current, listRows, selectListRow, SYNC_ACTIONS } from "./state.ts";
@@ -45,8 +45,11 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
   const activateMenu = (action: MenuAction): void => {
     switch (action) {
       case "filter":
-        state.doneFilter = cycleDoneFilter(state.doneFilter);
-        recompute(state);
+        // The bar's Filter opens the combined overlay (status·difficulty·sort·tags).
+        state.filterPanel = { index: 0 };
+        break;
+      case "menu":
+        state.palette = { index: 0 };
         break;
       case "diff":
         state.diff = cycleDifficulty(state.diff);
@@ -256,6 +259,112 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
             cfg.draft = (cfg.working[field.key] as string | undefined) ?? "";
           }
           break;
+      }
+      render();
+      return;
+    }
+
+    // ── combined Filter overlay ── (status · difficulty · sort · tags · clear)
+    if (state.filterPanel) {
+      const fp = state.filterPanel;
+      const applyLeftRight = (dir: 1 | -1): void => {
+        // Left/right cycle the value on the focused row (right = forward).
+        switch (fp.index) {
+          case 0:
+            state.doneFilter = cycleDoneFilter(state.doneFilter, dir);
+            break;
+          case 1:
+            state.diff = cycleDifficulty(state.diff, dir);
+            break;
+          case 2: {
+            const next = cycleSortState(state.sortKey, state.sortDesc, dir);
+            state.sortKey = next.key;
+            state.sortDesc = next.desc;
+            break;
+          }
+        }
+        recompute(state);
+      };
+      switch (key) {
+        case "\x03":
+          finish();
+          return;
+        case "\x1b":
+        case "\r":
+        case "\n":
+        case "q":
+          state.filterPanel = null;
+          break;
+        case "k":
+        case "\x1b[A":
+          fp.index = Math.max(0, fp.index - 1);
+          break;
+        case "j":
+        case "\x1b[B":
+          fp.index = Math.min(4, fp.index + 1);
+          break;
+        case "h":
+        case "\x1b[D":
+          if (fp.index <= 2) applyLeftRight(-1);
+          break;
+        case "l":
+        case "\x1b[C":
+          if (fp.index <= 2) applyLeftRight(1);
+          break;
+        case " ":
+          // Space cycles a value row, or activates the action rows (tags/clear).
+          if (fp.index <= 2) applyLeftRight(1);
+          else if (fp.index === 3) {
+            state.filterPanel = null;
+            state.tagPicker = { index: 0 };
+          } else if (fp.index === 4) {
+            state.doneFilter = "all";
+            state.diff = undefined;
+            state.tagFilter.clear();
+            recompute(state);
+          }
+          break;
+        case "x":
+          state.doneFilter = "all";
+          state.diff = undefined;
+          state.tagFilter.clear();
+          recompute(state);
+          break;
+        default:
+          return;
+      }
+      render();
+      return;
+    }
+
+    // ── command palette overlay ── (the "Menu" item: everything not on the bar)
+    if (state.palette) {
+      const pal = state.palette;
+      switch (key) {
+        case "\x03":
+          finish();
+          return;
+        case "\x1b":
+        case "q":
+          state.palette = null;
+          break;
+        case "k":
+        case "\x1b[A":
+          pal.index = Math.max(0, pal.index - 1);
+          break;
+        case "j":
+        case "\x1b[B":
+          pal.index = Math.min(PALETTE_ITEMS.length - 1, pal.index + 1);
+          break;
+        case "\r":
+        case "\n": {
+          const item = PALETTE_ITEMS[pal.index]!;
+          state.palette = null;
+          activateMenu(item.action);
+          return;
+        }
+        default:
+          return;
       }
       render();
       return;

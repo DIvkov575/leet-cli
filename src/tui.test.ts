@@ -14,6 +14,7 @@ import {
   filterRepoSuggestions,
   menuWindow,
   MENU_ITEMS,
+  PALETTE_ITEMS,
 } from "./tui.ts";
 
 const RESET = "\x1b[0m";
@@ -210,22 +211,21 @@ describe("wrapText", () => {
 });
 
 describe("MENU_ITEMS", () => {
-  test("exposes the expected actions in order", () => {
-    expect(MENU_ITEMS.map((m) => m.action)).toEqual([
-      "filter",
-      "diff",
-      "tag",
-      "sort",
-      "search",
-      "list",
-      "roadmap",
-      "open",
-      "refresh",
-      "import",
-      "sync",
-      "config",
-      "help",
-    ]);
+  test("the bar is trimmed to four entries", () => {
+    expect(MENU_ITEMS.map((m) => m.action)).toEqual(["search", "filter", "roadmap", "menu"]);
+  });
+});
+
+describe("PALETTE_ITEMS", () => {
+  test("holds the off-bar actions, each with a hotkey", () => {
+    const actions = PALETTE_ITEMS.map((p) => p.action);
+    expect(actions).toContain("sync");
+    expect(actions).toContain("import");
+    expect(actions).toContain("refresh");
+    expect(actions).toContain("config");
+    expect(actions).toContain("help");
+    // Every palette entry carries a key hint (— for the keyless Sync).
+    for (const it of PALETTE_ITEMS) expect(it.key.length).toBeGreaterThan(0);
   });
 });
 
@@ -251,6 +251,8 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     diff: undefined,
     tagFilter: new Set<string>(),
     tagPicker: null,
+    filterPanel: null,
+    palette: null,
     roadmap: null,
     search: "",
     sortKey: "id",
@@ -286,25 +288,28 @@ describe("renderFrame layout", () => {
     for (const line of f) expect(strip(line).length).toBe(70);
   });
 
-  test("first line is the menu bar with all labels", () => {
+  test("first line is the four-item menu bar", () => {
     const f = renderFrame(makeState(), 12, 100);
+    expect(strip(f[0]!)).toContain("Search");
     expect(strip(f[0]!)).toContain("Filter");
-    expect(strip(f[0]!)).toContain("Sort");
-    expect(strip(f[0]!)).toContain("Import");
+    expect(strip(f[0]!)).toContain("Roadmap");
+    expect(strip(f[0]!)).toContain("Menu");
   });
 
-  test("focused menu highlights the selected item even on a narrow terminal", () => {
-    // 60 cols can't fit all 11 items; the selected one must still be visible +
-    // highlighted (reverse-video), which the old full-bar-only render dropped.
+  test("focused menu highlights the selected item", () => {
+    // menuIndex 2 = "Roadmap"; it must be visible and reverse-video highlighted.
     const bar = renderFrame(makeState({ focus: "menu", menuIndex: 2 }), 12, 60)[0]!;
-    expect(strip(bar)).toContain("Sort"); // selected item is in the window
+    expect(strip(bar)).toContain("Roadmap");
     if (bar.includes("\x1b[")) expect(bar).toContain("\x1b[7m"); // reverse-video present
   });
 
-  test("selecting a far item keeps it visible (windowed)", () => {
-    const bar = strip(renderFrame(makeState({ focus: "menu", menuIndex: 10 }), 12, 60)[0]!);
-    expect(bar).toContain("Help"); // last item scrolled into view
-    expect(bar).toContain("‹"); // overflow marker on the left
+  test("the trimmed bar fits without overflow markers on a normal terminal", () => {
+    // Four short items fit at 60 cols, so there's no ‹/› windowing needed.
+    const bar = strip(renderFrame(makeState({ focus: "menu", menuIndex: 3 }), 12, 60)[0]!);
+    expect(bar).toContain("Search");
+    expect(bar).toContain("Menu"); // last item shown in full
+    expect(bar).not.toContain("‹");
+    expect(bar).not.toContain("›");
   });
 
   test("Problems panel header shows view name, count, and settings", () => {
@@ -606,6 +611,43 @@ describe("renderFrame roadmap", () => {
     expect(joined).not.toMatch(/\bv\b/); // no arrow-style connectors
     expect(joined).toContain("─"); // horizontal routing between boxes
     expect(joined).toContain("┐"); // an elbow where a bus turns down
+  });
+});
+
+describe("renderFrame filter overlay", () => {
+  test("shows status, difficulty, sort, tags, and clear rows", () => {
+    const s = makeState({
+      filterPanel: { index: 0 },
+      doneFilter: "todo",
+      diff: "Medium",
+      sortKey: "acc",
+      sortDesc: true,
+      tagFilter: new Set(["Graphs"]),
+    });
+    const joined = strip(renderFrame(s, 20, 90).join("\n"));
+    expect(joined).toContain("Filter & sort");
+    expect(joined).toContain("Status");
+    expect(joined).toContain("todo");
+    expect(joined).toContain("Difficulty");
+    expect(joined).toContain("Medium");
+    expect(joined).toContain("Sort");
+    expect(joined).toContain("acc");
+    expect(joined).toContain("Tags");
+    expect(joined).toContain("Graphs");
+    expect(joined).toContain("Clear all filters");
+  });
+});
+
+describe("renderFrame command palette", () => {
+  test("lists the off-bar actions with key hints", () => {
+    const s = makeState({ palette: { index: 0 } });
+    const joined = strip(renderFrame(s, 20, 90).join("\n"));
+    expect(joined).toContain("Menu");
+    expect(joined).toContain("Sync");
+    expect(joined).toContain("Import");
+    expect(joined).toContain("Settings");
+    expect(joined).toContain("Help");
+    expect(joined).toContain("R"); // a hotkey hint (Refresh)
   });
 });
 

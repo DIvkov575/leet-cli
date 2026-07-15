@@ -5,14 +5,21 @@
  */
 import { fit, paint } from "./ansi.ts";
 
+/**
+ * Every action the UI can fire. Only four surface on the Tab-able menu bar
+ * (`MENU_ITEMS`); the rest are reached via their direct hotkey or the "Menu"
+ * command palette (`PALETTE_ITEMS`). Splitting the union this way keeps the bar
+ * uncluttered without dropping any capability.
+ */
 export type MenuAction =
+  | "search"
   | "filter"
+  | "roadmap"
+  | "menu"
   | "diff"
   | "tag"
   | "sort"
-  | "search"
   | "list"
-  | "roadmap"
   | "open"
   | "refresh"
   | "import"
@@ -25,21 +32,38 @@ export interface MenuItem {
   action: MenuAction;
 }
 
-/** The Tab-able menu bar, left to right. */
+/**
+ * The Tab-able menu bar, left to right — deliberately just four entries. Search
+ * and Roadmap open their views; Filter opens the combined filter/sort overlay
+ * (status · difficulty · sort · tags); Menu opens the command palette listing
+ * everything else with its key.
+ */
 export const MENU_ITEMS: readonly MenuItem[] = [
-  { label: "Filter", action: "filter" },
-  { label: "Difficulty", action: "diff" },
-  { label: "Tag", action: "tag" },
-  { label: "Sort", action: "sort" },
   { label: "Search", action: "search" },
-  { label: "List", action: "list" },
+  { label: "Filter", action: "filter" },
   { label: "Roadmap", action: "roadmap" },
-  { label: "Open", action: "open" },
-  { label: "Refresh", action: "refresh" },
-  { label: "Import", action: "import" },
-  { label: "Sync", action: "sync" },
-  { label: "Config", action: "config" },
-  { label: "Help", action: "help" },
+  { label: "Menu", action: "menu" },
+];
+
+/** A command-palette entry: label, the action it fires, and its direct hotkey. */
+export interface PaletteItem {
+  label: string;
+  action: MenuAction;
+  key: string;
+}
+
+/**
+ * The "Menu" command palette: every action that isn't on the bar, each shown
+ * with its direct hotkey so the palette doubles as a discoverable cheatsheet.
+ */
+export const PALETTE_ITEMS: readonly PaletteItem[] = [
+  { label: "Lists", action: "list", key: "L" },
+  { label: "Open in browser", action: "open", key: "o" },
+  { label: "Sync (auth · pull · push)", action: "sync", key: "—" },
+  { label: "Import solved", action: "import", key: "i" },
+  { label: "Refresh from LeetCode", action: "refresh", key: "R" },
+  { label: "Settings", action: "config", key: "c" },
+  { label: "Help", action: "help", key: "?" },
 ];
 
 /**
