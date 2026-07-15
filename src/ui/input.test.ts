@@ -188,6 +188,29 @@ describe("input handler — overlays", () => {
     h.key("\x1b"); // close
     expect(h.state.palette).toBeNull();
   });
+
+  test("u submits to LeetCode; without a session it reports that in Logs", async () => {
+    const prevDir = process.env.LEET_DATA_DIR;
+    const prevSession = process.env.LEETCODE_SESSION;
+    // Point config at an empty dir and clear any exported session so the submit
+    // path takes the deterministic, network-free "not authenticated" branch.
+    process.env.LEET_DATA_DIR = "/tmp/leet-submit-noauth-" + Math.floor(performance.now());
+    delete process.env.LEETCODE_SESSION;
+    try {
+      const h = harness();
+      h.key("u");
+      // submitCurrent awaits loadConfig() first; flush microtasks.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.state.focus).toBe("logs");
+      expect(h.state.logs.status).toBe("done");
+      expect(h.state.logs.lines.join(" ")).toMatch(/authenticate/i);
+      expect(h.state.logs.ok).toBe(false);
+    } finally {
+      if (prevDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDir;
+      if (prevSession !== undefined) process.env.LEETCODE_SESSION = prevSession;
+    }
+  });
 });
 
 describe("input handler — search prompt", () => {

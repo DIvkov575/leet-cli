@@ -53,6 +53,7 @@ const HELP_LINES = [
   "    Space         toggle done (saved immediately)",
   "    s             solve — scaffold the C++ file and open it",
   "    t             test — compile & run the harness, output in Logs",
+  "    u             submit — upload the solution to LeetCode; verdict in Logs",
   "    P             prefetch the current view into the cache (offline)",
   "    Tab           enter the menu bar",
   "    q             quit",
@@ -103,11 +104,11 @@ function footerLine(s: State, cols: number): string {
     s.focus === "lists"
       ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
       : s.focus === "problems"
-        ? " ↑↓ move · p/Enter/→ preview · F fullscreen · s solve · t test · Space done · ← lists"
+        ? " ↑↓ move · Enter preview · s solve · t test · u submit · Space done · ← lists"
         : s.focus === "preview"
-          ? " ↑↓ scroll · F fullscreen · s solve · t test · →/Enter logs · o open · ← back"
+          ? " ↑↓ scroll · F full · s solve · t test · u submit · →/Enter logs · o open · ← back"
           : s.focus === "logs"
-            ? " ↑↓ scroll · F fullscreen · t re-run · s solve · Space done · ← preview · Tab menu"
+            ? " ↑↓ scroll · t re-run · u submit · s solve · Space done · ← preview · Tab menu"
             : " ←→ move · Enter fire · Esc back to panel";
   return paint(fit(hint, cols), "dim");
 }
@@ -396,8 +397,8 @@ function renderFullscreen(s: State, rows: number, cols: number): string[] {
   const footer = paint(
     fit(
       focusIsLogs
-        ? " ↑↓ scroll · t re-run · Tab preview · F/Esc exit fullscreen · q quit"
-        : " ↑↓ scroll · s solve · t test · Tab logs · F/Esc exit fullscreen · q quit",
+        ? " ↑↓ scroll · t re-run · u submit · Tab preview · F/Esc exit · q quit"
+        : " ↑↓ scroll · s solve · t test · u submit · Tab logs · F/Esc exit · q quit",
       cols,
     ),
     "dim",
