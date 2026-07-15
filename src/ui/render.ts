@@ -599,22 +599,87 @@ function layoutBoxRow(
   };
 }
 
+// Stroke directions for the connector line-router, as a bitmask per cell.
+const UP = 1;
+const DOWN = 2;
+const LEFT = 4;
+const RIGHT = 8;
+
+/** Box-drawing glyph for a set of strokes (junctions included). */
+const MASK_CHAR: Record<number, string> = {
+  [UP | DOWN]: "│",
+  [LEFT | RIGHT]: "─",
+  [DOWN | RIGHT]: "┌",
+  [DOWN | LEFT]: "┐",
+  [UP | RIGHT]: "└",
+  [UP | LEFT]: "┘",
+  [UP | DOWN | RIGHT]: "├",
+  [UP | DOWN | LEFT]: "┤",
+  [DOWN | LEFT | RIGHT]: "┬",
+  [UP | LEFT | RIGHT]: "┴",
+  [UP | DOWN | LEFT | RIGHT]: "┼",
+  [UP]: "│",
+  [DOWN]: "│",
+  [LEFT]: "─",
+  [RIGHT]: "─",
+};
+
 /**
- * A connector row between two placed levels: for each edge whose parent is above
- * and child directly below, drop a `│` from the parent centre and a `v` at the child.
+ * A fully-connected connector block between two placed levels. Each edge is
+ * routed as a real path — down out of the parent, along a shared horizontal bus,
+ * then down into the child — on a small grid whose overlapping strokes merge
+ * into the correct box-drawing junctions (┬ ┤ ┼ …). Returns the two connector
+ * lines plus the parent/child centre columns that carry an edge, so the caller
+ * can splice ┬/┴ junctions into the adjoining box borders.
  */
-function connectorRow(parents: PlacedBox[], children: PlacedBox[], edges: Array<[string, string]>, cols: number): string {
-  const row = Array(cols).fill(" ");
+function connectorBlock(
+  parents: PlacedBox[],
+  children: PlacedBox[],
+  edges: Array<[string, string]>,
+  cols: number,
+): { lines: string[]; parentCols: Set<number>; childCols: Set<number> } {
+  const H = 2; // bus row (0) + a drop row (1) into the children
+  const grid: number[][] = Array.from({ length: H }, () => Array<number>(cols).fill(0));
   const parentById = new Map(parents.map((b) => [b.node.id, b]));
   const childById = new Map(children.map((b) => [b.node.id, b]));
+  const parentCols = new Set<number>();
+  const childCols = new Set<number>();
+  const add = (r: number, c: number, bits: number): void => {
+    if (r >= 0 && r < H && c >= 0 && c < cols) grid[r]![c]! |= bits;
+  };
+
   for (const [pid, cid] of edges) {
     const parent = parentById.get(pid);
     const child = childById.get(cid);
     if (!parent || !child) continue;
-    if (parent.center >= 0 && parent.center < cols) row[parent.center] = "│";
-    if (child.center >= 0 && child.center < cols) row[child.center] = "v";
+    const px = parent.center;
+    const cx = child.center;
+    parentCols.add(px);
+    childCols.add(cx);
+    add(0, px, UP); // rises into the parent box (border gets a ┬)
+    if (px === cx) {
+      add(0, px, DOWN);
+      add(1, cx, UP);
+    } else {
+      const lo = Math.min(px, cx);
+      const hi = Math.max(px, cx);
+      for (let x = lo; x <= hi; x++) {
+        if (x < hi) add(0, x, RIGHT);
+        if (x > lo) add(0, x, LEFT);
+      }
+      add(0, cx, DOWN); // turn down toward the child
+      add(1, cx, UP); // drop into the child box (border gets a ┴)
+    }
   }
-  return row.join("");
+
+  const lines = grid.map((row) => row.map((m) => (m ? (MASK_CHAR[m] ?? "┼") : " ")).join(""));
+  return { lines, parentCols, childCols };
+}
+
+/** Overlay a single character at `col` in a plain (no-ANSI) line. */
+function overlayChar(line: string, col: number, ch: string): string {
+  if (col < 0 || col >= line.length) return line;
+  return line.slice(0, col) + ch + line.slice(col + 1);
 }
 
 /**
@@ -675,16 +740,31 @@ export function renderRoadmap(s: State, rows: number, cols: number): string[] {
   ];
 
   const boxW = roadmapBoxWidth(chart, cols);
-  let prev: PlacedBox[] | null = null;
-  for (const nodes of chart.rows) {
-    const { boxes, lines } = layoutBoxRow(nodes, boxW, cols, cursor.id, counts);
-    if (prev) content.push(connectorRow(prev, boxes, chart.edges, cols));
+  // Lay out every row, then build the connector block between each pair. The
+  // connectors splice ┬/┴ junctions into the box borders they meet, so all of
+  // that mutation has to happen BEFORE any line is emitted.
+  const laid = chart.rows.map((nodes) => layoutBoxRow(nodes, boxW, cols, cursor.id, counts));
+  const connectors: string[][] = [];
+  for (let r = 1; r < laid.length; r++) {
+    const prev = laid[r - 1]!;
+    const cur = laid[r]!;
+    const conn = connectorBlock(prev.boxes, cur.boxes, chart.edges, cols);
+    // A parent's bottom border opens downward (┬) into the connector below it;
+    // a child's top border opens upward (┴) toward the connector above it — so
+    // the lines physically meet the boxes rather than floating near them.
+    for (const c0 of conn.parentCols) prev.lines[3] = overlayChar(prev.lines[3]!, c0, "┬");
+    for (const c0 of conn.childCols) cur.lines[0] = overlayChar(cur.lines[0]!, c0, "┴");
+    connectors[r] = conn.lines;
+  }
+
+  for (let r = 0; r < laid.length; r++) {
+    if (r > 0) for (const cl of connectors[r]!) content.push(cl);
+    const { boxes, lines } = laid[r]!;
     // Border lines plain; the two text lines carry the completion colour.
     content.push(lines[0]!);
     content.push(colorSegments(lines[1]!, boxes, counts));
     content.push(colorSegments(lines[2]!, boxes, counts));
     content.push(lines[3]!);
-    prev = boxes;
   }
   return renderOverlay(content, rows, cols, " Roadmap ");
 }

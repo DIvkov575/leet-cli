@@ -127,8 +127,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
     top: 0,
     listCursor: 0,
     listTop: 0,
-    focus: list ? "problems" : "lists",
-    lastPanel: list ? "problems" : "lists",
+    // Both bare launch and an explicit list open straight into the Problems
+    // panel; bare launch defaults to the "All Problems" union (`initial`).
+    focus: "problems",
+    lastPanel: "problems",
     menuIndex: 0,
     preview: { slug: null, status: "idle", text: "", scroll: 0 },
     logs: { slug: null, status: "idle", lines: [], scroll: 0 },
@@ -142,9 +144,9 @@ export async function runTui(list?: ProblemList): Promise<void> {
     suggestSetup,
     fullscreen: false,
   };
-  // An explicit list arg starts with the Lists cursor on that row (bare launch
-  // leaves it on ★ Recommended at index 0).
-  if (list) state.listCursor = listRows0(state, initialListName);
+  // Place the Lists cursor on whichever list is showing (the requested one, or
+  // "all" for a bare launch) so stepping back (←) highlights the right row.
+  state.listCursor = listRows0(state, initialListName);
   recompute(state);
 
   const out = process.stdout;
