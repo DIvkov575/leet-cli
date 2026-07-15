@@ -23,7 +23,7 @@ import {
 import { setConfigOffline } from "../net.ts";
 import { prefetchProblems } from "../prefetch.ts";
 import { setupHasRun, markSetupDone } from "../setup.ts";
-import { scaffoldContent, scaffoldFilename } from "../scaffold.ts";
+import { scaffoldContent, scaffoldFilename, solutionCodeForSubmit } from "../scaffold.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "../solution-file.ts";
 import { compileAndRun } from "../runner.ts";
 import { authFromBrowser } from "../auth.ts";
@@ -46,6 +46,7 @@ export interface Actions {
   openConfig: () => Promise<void>;
   closeConfig: () => Promise<void>;
   runTest: () => Promise<void>;
+  submitCurrent: () => Promise<void>;
   solveCurrent: () => Promise<void>;
   runImport: (source: string) => Promise<void>;
   openSync: () => void;
@@ -303,6 +304,87 @@ export function createActions(ctx: TuiContext): Actions {
     if (state.logs.slug === p.slug) {
       state.logs = { slug: p.slug, status: "done", lines: wrapped, scroll: 0, summary, ok: result.ok };
       render();
+    }
+  };
+
+  // Submit the current problem's solution straight to LeetCode (no browser),
+  // then report the judge verdict into the Logs panel. Reuses the same on-disk
+  // solution file `solve`/`test` use; strips the local harness before sending.
+  const submitCurrent = async (): Promise<void> => {
+    const p = current(state);
+    if (!p) return;
+    const config = await loadConfig();
+    const auth = resolveLeetCodeAuth(config);
+    // Reveal the Logs panel so progress + the verdict are visible.
+    state.logs = { slug: p.slug, status: "running", lines: ["Submitting to LeetCode…"], scroll: 0 };
+    state.focus = "logs";
+    state.lastPanel = "logs";
+    render();
+
+    if (!auth || !auth.csrf) {
+      const why = auth
+        ? "No CSRF token — re-run Authenticate (Menu → Sync → Authenticate)."
+        : "No LeetCode session — authenticate first (Menu → Sync → Authenticate).";
+      state.logs = { slug: p.slug, status: "done", lines: [why], scroll: 0, summary: "not authenticated", ok: false };
+      render();
+      return;
+    }
+
+    const dir = resolveSolutionsDir(undefined, config);
+    const path = `${dir}/${scaffoldFilename(p.id, p.slug)}`;
+    let code: string;
+    if (await Bun.file(path).exists()) {
+      code = solutionCodeForSubmit(await Bun.file(path).text());
+    } else {
+      // Nothing edited yet — fall back to the packaged/cached scaffold so the
+      // action still does something sensible (submits the starter stub).
+      const scaffolded = await scaffoldToDisk(p, dir);
+      if (scaffolded === null) return; // status already set by scaffoldToDisk
+      code = solutionCodeForSubmit(await Bun.file(scaffolded).text());
+    }
+
+    const w = Math.max(10, logsWidthForCols(ctx.out.columns ?? 80));
+    const log = (lines: string[], summary: string, ok: boolean): void => {
+      if (state.logs.slug !== p.slug) return;
+      const wrapped = lines.flatMap((l) => (l ? wrapText(l, w) : [""]));
+      state.logs = { slug: p.slug, status: "done", lines: wrapped, scroll: 0, summary, ok };
+      render();
+    };
+
+    try {
+      const v = await submitSolution(auth, p.slug, code, {
+        lang: "cpp",
+        onRetry: (attempt, waitMs) => {
+          if (state.logs.slug !== p.slug) return;
+          state.logs.lines = [`Rate-limited by LeetCode — retry ${attempt} in ${Math.round(waitMs / 1000)}s…`];
+          render();
+        },
+      });
+      const lines = [
+        `${v.accepted ? "✓ Accepted" : "✗ " + v.statusMsg}  (submission ${v.submissionId})`,
+      ];
+      if (v.passed !== undefined && v.total !== undefined) {
+        lines.push(`Test cases: ${v.passed}/${v.total} passed.`);
+      }
+      if (v.detail) {
+        lines.push("");
+        lines.push(...v.detail.split("\n"));
+      }
+      lines.push("");
+      lines.push(`View: https://leetcode.com/problems/${p.slug}/`);
+      // Accepted → mark done locally so the UI reflects it immediately.
+      if (v.accepted && !state.completed.has(p.id)) {
+        state.completed.add(p.id);
+        await saveCompleted(state.completed);
+        recompute(state);
+      }
+      log(lines, v.accepted ? "Accepted" : v.statusMsg, v.accepted);
+    } catch (err) {
+      log(
+        [`Submit failed: ${err instanceof Error ? err.message : String(err)}`],
+        "submit error",
+        false,
+      );
     }
   };
 
@@ -656,6 +738,7 @@ export function createActions(ctx: TuiContext): Actions {
     openConfig,
     closeConfig,
     runTest,
+    submitCurrent,
     solveCurrent,
     runImport,
     openSync,

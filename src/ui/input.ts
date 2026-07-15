@@ -593,6 +593,9 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         case "t":
           void actions.runTest();
           return;
+        case "u":
+          void actions.submitCurrent();
+          return;
         case "o": {
           const p = current(state);
           if (p) void openUrl(p.url);
@@ -796,6 +799,9 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         case "t":
           void actions.runTest();
           return;
+        case "u":
+          void actions.submitCurrent();
+          return;
         case "F":
           state.focus = "preview";
           state.lastPanel = "preview";
@@ -848,6 +854,9 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         case "t":
           void actions.runTest();
           return;
+        case "u":
+          void actions.submitCurrent();
+          return;
         case "F":
           state.fullscreen = true;
           void actions.loadPreview();
@@ -893,6 +902,9 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
           break;
         case "t":
           void actions.runTest();
+          return;
+        case "u":
+          void actions.submitCurrent();
           return;
         case "s":
           void actions.solveCurrent();

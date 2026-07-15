@@ -339,15 +339,24 @@ in your editor) and **`t`** into *test* (compile & run, output in Logs).
 Press **`F`** from Problems, Preview, or Logs to enter **fullscreen reading
 mode**: the statement (and, on a wide terminal, the test logs beside it) takes
 the whole screen so a long problem is comfortable to read. `Tab` flips focus
-between the description and the logs; `↑↓`/`PgUp`/`PgDn`/`g`/`G` scroll; `s`/`t`
-still solve/test; `F` or `Esc` leaves.
+between the description and the logs; `↑↓`/`PgUp`/`PgDn`/`g`/`G` scroll; `s`/`t`/`u`
+still solve/test/submit; `F` or `Esc` leaves.
 
-Every action also lives in a **menu bar** across the top — press **Tab** to
-enter it, `←→` to move, `Enter` to fire (Filter · Difficulty · Sort · Search ·
-List · Open · Refresh · Import · Sync · Config · Help); `Esc` returns to your
-panel. The **Sync** menu runs the LeetCode account features right in the TUI —
-authenticate from your browser, pull your solved problems, and push solutions
-(with an in-panel confirm before any real submission).
+**Submit straight from the TUI** — press **`u`** on any problem to upload your
+solution to LeetCode without opening a browser. It reads the file you've been
+editing (`solve`/`test` scaffold), strips the local test harness, submits, and
+prints the judge verdict — Accepted / Wrong Answer, cases passed, and any
+compile/runtime detail — into the **Logs** panel. An Accepted verdict marks the
+problem done locally. (Needs `leet auth` first, for the session + CSRF token.)
+
+Every action also lives in a **menu bar** across the top, trimmed to four
+entries — press **Tab** to enter it, `←→` to move, `Enter` to fire: **Search ·
+Filter · Roadmap · Menu**. *Filter* opens a combined overlay (status ·
+difficulty · sort · tags); *Menu* is a command palette listing everything else
+(Lists · Open · Sync · Import · Refresh · Settings · Help) with its hotkey.
+The **Sync** action (via Menu) runs the LeetCode account features right in the
+TUI — authenticate from your browser, pull your solved problems, and push
+solutions in bulk (with an in-panel confirm before any real submission).
 The layout adapts to width — it shows as many adjacent panels as fit (~38 cols
 each), always including the focused one, down to a single panel when narrow
 (it's all hierarchical, so one-at-a-time still works).
@@ -363,14 +372,16 @@ Core keys:
 | `Space`          | toggle done (saved immediately)                   |
 | `s`              | solve — scaffold the C++ file and open it         |
 | `t`              | test — compile & run the harness (output in Logs) |
+| `u`              | submit — upload the solution to LeetCode, verdict in Logs |
 | `F`              | fullscreen reading mode (description + logs)      |
 | `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
 
-Each menu item also has a direct shortcut, usable from any panel: `f` filter,
-`d` difficulty, `S` sort, `/` search, `r` random, `L` lists, `o` open, `R`
-refresh, `i` import, `c` config, `?` help. `s` is reserved for **solve** on the
-Problems/Preview panels. Press `?` in-app for the full reference.
+Every action has a direct shortcut, usable from any panel: `/` search, `f`
+filter overlay, `m` roadmap, `d` difficulty, `S` sort, `T` tags, `r` random,
+`L` lists, `o` open, `R` refresh, `i` import, `c` settings, `?` help. `s`/`t`/`u`
+are solve / test / submit on the Problems/Preview/Logs panels. Press `?` in-app
+for the full reference, or **Menu** in the bar for a clickable palette.
 
 The preview resolves each statement **cache-first**: it checks the local cache,
 then the packaged `.md` in your synced solutions repo, and only falls back to a
