@@ -99,6 +99,7 @@ describe("CONFIG_FIELDS metadata", () => {
       "syncRepo",
       "roadmapChart",
       "roadmapSubset",
+      "offline",
     ]);
     // The session cookie is a credential and must not be a TUI-editable field.
     expect(CONFIG_FIELDS.some((f) => f.key === "leetcodeSession")).toBe(false);
@@ -180,9 +181,11 @@ describe("recommendExclude (list de-selection)", () => {
     expect(field!.kind).toBe("multiselect");
   });
 
-  test("every other field stays plain text", () => {
+  test("field kinds: recommendExclude multiselect, offline boolean, rest text", () => {
     for (const f of CONFIG_FIELDS) {
-      if (f.key !== "recommendExclude") expect(f.kind).toBe("text");
+      const expected =
+        f.key === "recommendExclude" ? "multiselect" : f.key === "offline" ? "boolean" : "text";
+      expect(f.kind).toBe(expected);
     }
   });
 });

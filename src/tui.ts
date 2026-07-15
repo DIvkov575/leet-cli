@@ -967,6 +967,7 @@ export function configValueCell(field: ConfigField, working: Config): string {
     if (excluded.length === 0) return ""; // default → fallback ("all lists included")
     return `all except ${excluded.join(", ")}  (${excluded.length} excluded)`;
   }
+  if (field.kind === "boolean") return set ? "on" : "off";
   return (set as string | undefined) ?? "";
 }
 
@@ -1785,6 +1786,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
     const working = state.config.working;
     state.config = null;
     await saveConfig(working);
+    // Re-prime the network gate in case offline mode was toggled in-session.
+    setConfigOffline(working.offline);
 
     // Ranking settings feed the ★ Recommended pseudo-list, which was computed at
     // startup. Re-rank on close so a change lands immediately instead of waiting
@@ -2360,6 +2363,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
             if (field.kind === "multiselect") {
               // Choices come from the loaded lists, not from config.ts.
               cfg.picker = { key: field.key, choices: [...state.listNames], index: 0 };
+            } else if (field.kind === "boolean") {
+              // Toggle in place — no text edit for on/off fields.
+              if (cfg.working[field.key]) delete cfg.working[field.key];
+              else (cfg.working[field.key] as boolean) = true;
             } else {
               cfg.editing = true;
               cfg.draft = (cfg.working[field.key] as string | undefined) ?? "";

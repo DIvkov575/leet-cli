@@ -1,5 +1,6 @@
 import type { Difficulty } from "./types.ts";
 import { normalizeDifficulty, parseAcceptance } from "./parse.ts";
+import { assertOnline } from "./net.ts";
 
 const GRAPHQL_ENDPOINT = "https://leetcode.com/graphql";
 
@@ -65,6 +66,7 @@ const QUESTION_QUERY = `query questionData($titleSlug: String!) {
 }`;
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+  assertOnline("fetch problem data from LeetCode");
   const res = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
     headers: {

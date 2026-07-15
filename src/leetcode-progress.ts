@@ -9,6 +9,8 @@
  * surface clear errors rather than assuming it always works.
  */
 
+import { assertOnline } from "./net.ts";
+
 const GRAPHQL_ENDPOINT = "https://leetcode.com/graphql";
 
 /** Where the session cookie comes from: config field or the env var. */
@@ -42,6 +44,7 @@ async function authedGraphql<T>(
   variables: Record<string, unknown>,
   query: string = SOLVED_QUERY,
 ): Promise<T> {
+  assertOnline("fetch your solved problems from LeetCode");
   const cookie = `LEETCODE_SESSION=${auth.session}` + (auth.csrf ? `; csrftoken=${auth.csrf}` : "");
   const res = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",

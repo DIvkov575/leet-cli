@@ -12,6 +12,7 @@
  * private). The cookie expires, so failures surface clear errors.
  */
 import type { LeetCodeAuth } from "./leetcode-progress.ts";
+import { assertOnline } from "./net.ts";
 
 const GRAPHQL_ENDPOINT = "https://leetcode.com/graphql";
 
@@ -92,6 +93,7 @@ async function authedGraphql<T>(
   query: string,
   variables: Record<string, unknown>,
 ): Promise<T> {
+  assertOnline("fetch your submissions from LeetCode");
   const res = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
     headers: authHeaders(auth),
