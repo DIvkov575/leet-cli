@@ -13,29 +13,116 @@ A terminal workflow for LeetCode company problem lists. Built with
 
 ## Install
 
-### Homebrew (recommended)
+Pick **one** of the three routes below. Homebrew is the easiest; the direct
+download is the same binary without needing Homebrew; from source is for hacking
+on it.
+
+### Requirements
+
+Almost none — the binary is self-contained and the problem lists are baked into
+it, so **browsing works immediately, offline, with nothing else installed**.
+
+| You want to…                            | You need                                              |
+|-----------------------------------------|-------------------------------------------------------|
+| Browse / filter / track (`leet`, `ls`, `done`) | nothing                                        |
+| Read statements, `--live`, `refresh`    | a network connection (LeetCode's public API)          |
+| `leet solve` / `leet test`              | a **C++17 compiler** — `clang++` (macOS: Xcode Command Line Tools) or `g++` |
+| `leet import owner/repo`                | the [`gh`](https://cli.github.com) CLI, authenticated |
+| `leet auth` / `push` / LeetCode resync  | a LeetCode account (see [Resync](#resync-directly-from-leetcode)) |
+
+Bun/Node are **not** required unless you install from source.
+
+### Homebrew (macOS + Linux — recommended)
 
 ```sh
 brew install DIvkov575/leet/leet
 ```
 
-A single standalone binary — no Bun, Node, or `gh` required. Available for macOS
+A single standalone binary — no Bun, Node, or `gh` required. Prebuilt for macOS
 (Apple Silicon + Intel) and Linux (x64 + arm64).
+
+```sh
+brew upgrade leet     # update later
+brew uninstall leet   # remove (see Uninstall below for your data)
+```
+
+### Direct download (no Homebrew)
+
+Grab the binary for your platform straight from the
+[latest release](https://github.com/DIvkov575/leet-cli/releases/latest):
+
+```sh
+BASE=https://github.com/DIvkov575/leet-cli/releases/latest/download
+PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
+
+curl -fsSL -O "$BASE/leet-$PLATFORM"                 # the binary
+curl -fsSL -O "$BASE/leet-$PLATFORM.sha256"          # and its checksum
+shasum -a 256 -c "leet-$PLATFORM.sha256"             # Linux: sha256sum -c
+
+chmod +x "leet-$PLATFORM"
+sudo mv "leet-$PLATFORM" /usr/local/bin/leet         # or anywhere on your $PATH
+```
+
+`$PLATFORM` resolves to one of `darwin-arm64`, `darwin-x64`, `linux-x64`, or
+`linux-arm64`. The checksum step is optional but should print `OK` — keep the
+downloaded filename as-is until after you've verified it, since the `.sha256`
+file refers to the binary by its platform name.
+
+> On macOS, a binary downloaded with `curl` isn't quarantined, so it runs
+> as-is. If you download it via a browser instead, Gatekeeper will block it —
+> clear the flag with `xattr -d com.apple.quarantine leet`.
 
 ### From source (Bun)
 
-```sh
-bun install          # no runtime deps
-bun link             # optional: exposes `leet` on your PATH
-# or just run directly:
-bun run src/cli.ts <command>
-```
-
-Compile your own standalone binary:
+Requires [Bun](https://bun.sh) ≥ 1.0 (native TypeScript, no build step):
 
 ```sh
-bun run compile      # produces ./leet (bundled lists are embedded)
+git clone https://github.com/DIvkov575/leet-cli
+cd leet-cli
+bun install                  # no runtime deps — this is a no-op, and that's expected
+bun run src/cli.ts lists     # run it directly
 ```
+
+To put `leet` on your `PATH`, either link it or compile a real binary:
+
+```sh
+bun link             # symlinks `leet` into ~/.bun/bin
+bun run compile      # or: produces a standalone ./leet (lists embedded)
+```
+
+> `bun link` only works if **`~/.bun/bin` is on your `PATH`** — Bun's installer
+> normally adds it to your shell profile. If `leet` still isn't found after
+> linking, add `export PATH="$HOME/.bun/bin:$PATH"` to your `~/.zshrc` /
+> `~/.bashrc`, or just use `bun run compile` and move the resulting `./leet`
+> somewhere on your `PATH`.
+
+### Verify it works
+
+```sh
+leet lists        # -> the bundled company lists; works offline, no setup needed
+leet --version    # -> the installed version (0.3.1+)
+leet              # -> the interactive browser (q to quit)
+```
+
+If `leet lists` prints the company lists, you're done — everything else is
+optional.
+
+### Uninstall
+
+The binary goes away with `brew uninstall leet` (or `rm $(which leet)`). Your
+progress and settings live **outside** the install, in
+`$XDG_DATA_HOME/leet-cli` (default `~/.local/share/leet-cli`) — delete that
+directory to remove them too.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `leet: command not found` after `bun link` | `~/.bun/bin` isn't on your `PATH` — see the note above |
+| `brew install` complains your **Command Line Tools / Xcode are too outdated** | The formula ships a prebuilt binary but isn't bottled, so Homebrew still wants a working toolchain. Update via *System Settings → Software Update*, or skip Homebrew and use the [direct download](#direct-download-no-homebrew) |
+| `leet test` fails with a compiler error | Install a C++17 compiler (`xcode-select --install` on macOS), or point `leet config cxx <path>` at one |
+| `leet import owner/repo` fails to fetch | Install and authenticate the `gh` CLI (`gh auth login`) |
+| LeetCode commands report an expired session | Re-run `leet auth` — the session cookie expires periodically |
 
 ### Problem-list caching
 
@@ -101,6 +188,7 @@ leet mark-solved [owner/repo]    # mark problems done locally from the folders p
 leet setup [--list <name>]       # pre-cache a study set for offline solve
 leet refresh <list|--all>        # refresh acceptance/difficulty from LeetCode
 leet config [key value|--unset]  # show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
+leet version                     # print the version (also --version, -v)
 ```
 
 Every command has a one-line summary in `leet help`; the LeetCode-account
