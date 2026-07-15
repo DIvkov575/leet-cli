@@ -10,6 +10,8 @@
  * the best available substitute when no official starter exists.
  */
 
+import { assertOnline } from "./net.ts";
+
 const RAW_BASE = "https://raw.githubusercontent.com/neetcode-gh/leetcode/main";
 const TREE_API = "https://api.github.com/repos/neetcode-gh/leetcode/git/trees/main?recursive=1";
 
@@ -40,6 +42,7 @@ async function loadIndex(): Promise<Map<string, string>> {
   if (indexPromise) return indexPromise;
   indexPromise = (async () => {
     try {
+      assertOnline("fetch NeetCode community solutions");
       const res = await fetch(TREE_API, {
         headers: { "User-Agent": "leet-cli", Accept: "application/vnd.github+json" },
       });

@@ -8,6 +8,7 @@
  * Requires the session cookie AND a CSRF token (POSTs are CSRF-protected).
  */
 import type { LeetCodeAuth } from "./leetcode-progress.ts";
+import { assertOnline } from "./net.ts";
 
 const BASE = "https://leetcode.com";
 const QUESTION_ID_QUERY = `query q($titleSlug: String!) { question(titleSlug: $titleSlug) { questionId } }`;
@@ -43,6 +44,7 @@ function authHeaders(auth: LeetCodeAuth, slug: string): Record<string, string> {
 
 /** Look up the backend questionId the submit endpoint requires. */
 async function questionId(auth: LeetCodeAuth, slug: string): Promise<string> {
+  assertOnline("submit solutions to LeetCode");
   const res = await fetch(`${BASE}/graphql`, {
     method: "POST",
     headers: authHeaders(auth, slug),

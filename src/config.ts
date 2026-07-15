@@ -50,6 +50,12 @@ export interface Config {
    * "neetcode150" | "neetcode250". Default "neetcode250". Cyclable in-view.
    */
   roadmapSubset?: string;
+  /**
+   * When true, no command reaches the network for problem data — previews and
+   * scaffolds serve only from the local cache and degrade with a clear message
+   * on a miss. Also settable per-invocation via the LEET_OFFLINE env var.
+   */
+  offline?: boolean;
 }
 
 /** A settings key that keeps the same discipline as an env fallback. */
@@ -60,7 +66,7 @@ export type ConfigKey = keyof Config;
  * `multiselect` fields open a checkbox submenu over a set of choices supplied
  * by the caller (the bundled list names, for `recommendExclude`).
  */
-export type ConfigFieldKind = "text" | "multiselect";
+export type ConfigFieldKind = "text" | "multiselect" | "boolean";
 
 /** Describes each editable setting for the config UI (order = display order). */
 export interface ConfigField {
@@ -110,10 +116,18 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
     kind: "text",
     fallback: "neetcode250 (or: all, blind75, neetcode150)",
   },
+  {
+    key: "offline",
+    label: "Offline mode",
+    kind: "boolean",
+    fallback: "off (or set LEET_OFFLINE=1)",
+  },
 ] as const;
 
 /** The keys that hold a string array rather than a string. */
 const LIST_KEYS: ConfigKey[] = ["recommendExclude"];
+/** The keys that hold a boolean. */
+const BOOL_KEYS: ConfigKey[] = ["offline"];
 
 /**
  * Add/remove `name` from a multiselect field's value. Pure, so the TUI's
@@ -162,6 +176,8 @@ function sanitize(raw: Record<string, unknown>): Config {
         .map((x) => x.trim())
         .filter((x) => x !== "");
       if (items.length > 0) (cfg[key] as string[]) = items;
+    } else if (BOOL_KEYS.includes(key)) {
+      if (v === true) (cfg[key] as boolean) = true; // only store when on; false == unset
     } else if (typeof v === "string" && v.trim() !== "") {
       (cfg[key] as string) = v.trim();
     }

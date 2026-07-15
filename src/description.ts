@@ -15,9 +15,10 @@ import { getCachedDescription, putCachedDescription } from "./cache.ts";
 import { fetchMarkdownFromRepo } from "./repo.ts";
 import { fetchProblem } from "./leetcode.ts";
 import { htmlToText } from "./render.ts";
+import { isOffline } from "./net.ts";
 
 /** Where a resolved description came from (for status/debug messaging). */
-export type DescriptionSource = "cache" | "repo" | "live";
+export type DescriptionSource = "cache" | "repo" | "live" | "offline";
 
 export interface ResolvedDescription {
   text: string;
@@ -57,6 +58,18 @@ export function descriptionBodyFromMarkdown(md: string): string {
 export async function resolveDescription(problem: Problem): Promise<ResolvedDescription> {
   const cached = await getCachedDescription(problem.slug);
   if (cached !== null) return { text: cached, source: "cache" };
+
+  // Past the cache we need the network. In offline mode, don't attempt it —
+  // return a clear, non-throwing placeholder so the preview degrades gracefully
+  // instead of surprising the user with a fetch (or an error).
+  if (isOffline()) {
+    return {
+      text:
+        "(not cached — offline mode is on)\n\n" +
+        "Run `leet setup` (or preview this problem once) while online to cache it.",
+      source: "offline",
+    };
+  }
 
   const md = await fetchMarkdownFromRepo(problem.id, problem.slug);
   if (md !== null) {

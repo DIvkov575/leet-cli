@@ -4,6 +4,7 @@
  * in a freshly-installed binary. This is the bulk source for prefetch: the repo
  * holds every synced problem's `<id>-<slug>.cpp`.
  */
+import { assertOnline, isOffline } from "./net.ts";
 
 /** The solutions repo, overridable via LEET_REPO. */
 export function repoSlug(): string {
@@ -17,6 +18,7 @@ export function repoSlug(): string {
  * than erroring. Capped at `limit`.
  */
 export async function listUserRepos(limit = 200): Promise<string[]> {
+  if (isOffline()) return []; // no gh calls offline; the field degrades to plain text
   try {
     const proc = Bun.spawn(
       ["gh", "repo", "list", "--limit", String(limit), "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"],
@@ -61,6 +63,7 @@ export function repoRawUrl(id: number, slug: string): string {
  * caller can surface them.
  */
 async function fetchRepoFile(path: string, slug: string): Promise<string | null> {
+  assertOnline("fetch packaged files from the solutions repo");
   const res = await fetch(repoRawUrlFor(path), { headers: { "User-Agent": "leet-cli" } });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`repo fetch failed for ${slug}: ${res.status} ${res.statusText}`);

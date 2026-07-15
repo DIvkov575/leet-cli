@@ -24,6 +24,7 @@ import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { NEETCODE_PATTERNS } from "./tags.ts";
+import { setConfigOffline } from "./net.ts";
 import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
   loadConfig,
@@ -74,7 +75,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, recommendExclude)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, roadmapChart/Subset, offline)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
 
 Filters (for ls / random):
@@ -362,7 +363,8 @@ async function cmdConfig(p: Parsed): Promise<void> {
   if (!key) {
     for (const f of CONFIG_FIELDS) {
       const raw = cfg[f.key];
-      const v = Array.isArray(raw) ? raw.join(", ") : raw;
+      const v =
+        f.kind === "boolean" ? (raw ? "on" : "") : Array.isArray(raw) ? raw.join(", ") : raw;
       console.log(`${f.key.padEnd(18)} ${v ? v : `(unset — ${f.fallback})`}`);
     }
     return;
@@ -403,6 +405,17 @@ async function cmdConfig(p: Parsed): Promise<void> {
     (cfg[field.key] as string[]) = resolved;
     await saveConfig(cfg);
     console.log(`${field.key} = ${resolved.join(", ") || "(none)"}`);
+    return;
+  }
+
+  if (field.kind === "boolean") {
+    const on = ["1", "true", "on", "yes"].includes(value.toLowerCase());
+    const off = ["0", "false", "off", "no"].includes(value.toLowerCase());
+    if (!on && !off) throw new UserError(`${field.key} takes on|off (got "${value}")`);
+    if (on) (cfg[field.key] as boolean) = true;
+    else delete cfg[field.key];
+    await saveConfig(cfg);
+    console.log(`${field.key} = ${on ? "on" : "off"}`);
     return;
   }
 
@@ -1350,6 +1363,9 @@ async function cmdRefresh(p: Parsed): Promise<void> {
 
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
+  // Prime the network gate from config so offline mode set in config.json (not
+  // just the LEET_OFFLINE env var) takes effect for every command.
+  setConfigOffline((await loadConfig()).offline);
   switch (command) {
     case undefined:
       // Bare `leet` drops into the interactive TUI; if there's no terminal

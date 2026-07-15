@@ -18,6 +18,7 @@ import type { Problem } from "./types.ts";
 import { getCached, putCached } from "./cache.ts";
 import { resolveDescription } from "./description.ts";
 import { commentLinesFromText } from "./render.ts";
+import { isOffline, OfflineError } from "./net.ts";
 
 /** Length of the leading run of `//` header lines. */
 function headerEnd(lines: string[]): number {
@@ -83,6 +84,12 @@ export async function buildSolutionFile(
 ): Promise<string> {
   const cached = await getCached(problem.slug);
   if (cached !== null) return ensureStatement(cached, problem);
+  // Cache miss needs the network to package the stub. In offline mode, surface a
+  // clear error rather than letting the underlying fetch throw a raw OfflineError
+  // mid-scaffold — the CLI/TUI turn this into an actionable message.
+  if (isOffline()) {
+    throw new OfflineError(`scaffold ${problem.slug} (not cached)`);
+  }
   const fresh = await scaffoldFresh();
   await putCached(problem.slug, fresh).catch(() => {});
   return ensureStatement(fresh, problem); // belt-and-suspenders

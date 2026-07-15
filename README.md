@@ -54,6 +54,16 @@ leet setup --list uber               # pre-cache a different list
 LEET_NO_SETUP=1 leet                 # suppress the first-run suggestion
 ```
 
+**Fully offline mode.** Browsing, filtering, search, and the roadmap are always
+network-free (they read only embedded/on-disk data). To *guarantee* nothing ever
+reaches the network — even a preview or scaffold on a cache miss — turn on
+offline mode. A miss then shows a clear "not cached" message instead of fetching:
+
+```sh
+LEET_OFFLINE=1 leet ls neetcode-250 --tag Graphs   # per-invocation
+leet config offline on                             # persistent
+```
+
 `refresh` and any downloaded lists are written to `$XDG_DATA_HOME/leet-cli/lists`
 and shadow the embedded copies.
 

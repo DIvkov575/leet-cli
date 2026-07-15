@@ -4,6 +4,7 @@ import { availableLists, loadList } from "./lib.ts";
 import type { Problem } from "./types.ts";
 import { getAdapter, type ImportAdapter } from "./adapters.ts";
 import { fetchSolvedSlugs, type LeetCodeAuth } from "./leetcode-progress.ts";
+import { assertOnline } from "./net.ts";
 
 /**
  * Import a solved-problems source (e.g. a NeetCode GitHub sync) and resolve it
@@ -117,6 +118,7 @@ export async function listSourcePaths(source: string, ref?: string): Promise<str
 
 /** Fetch the recursive git tree from GitHub via the authenticated `gh` CLI. */
 async function listGitHubPaths(ownerRepo: string, ref?: string): Promise<string[]> {
+  assertOnline("read a GitHub repo via gh");
   const sha = ref ?? (await defaultBranch(ownerRepo));
   const proc = Bun.spawn(
     ["gh", "api", `repos/${ownerRepo}/git/trees/${sha}?recursive=1`],
