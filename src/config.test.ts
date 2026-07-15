@@ -97,7 +97,6 @@ describe("CONFIG_FIELDS metadata", () => {
       "recommend",
       "recommendExclude",
       "syncRepo",
-      "roadmapChart",
       "roadmapSubset",
       "offline",
     ]);

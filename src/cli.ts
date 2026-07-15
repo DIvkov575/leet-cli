@@ -77,7 +77,7 @@ Usage:
   leet import <path|owner/repo>    Mark done from a NeetCode sync (or --adapter leetcode)
   leet auth                        Grab your LeetCode session from a local browser (Firefox/Chrome)
   leet refresh <list|--all>        Refresh acceptance/difficulty from LeetCode
-  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, roadmapChart/Subset, offline)
+  leet config [key value|--unset]  Show or set settings (editor, solutionsDir, cxx, recommend, roadmapSubset, offline)
   leet setup [--list <name>]       Pre-cache a study set (default neetcode-250) for offline solve
   leet version                     Print the version (also --version, -v)
 

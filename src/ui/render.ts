@@ -6,15 +6,14 @@
  */
 import type { Problem } from "../types.ts";
 import { CONFIG_FIELDS, type Config, type ConfigField, type RoadmapSubset } from "../config.ts";
-import { NEETCODE_PATTERNS, topicsByPattern } from "../tags.ts";
+import { NEETCODE_PATTERNS } from "../tags.ts";
 import {
   roadmapChildren,
   neetcodeChart,
-  fullChart,
   type Chart,
   type ChartNode,
 } from "../roadmap.ts";
-import { fit, paint, diffColor } from "./ansi.ts";
+import { fit, paint, diffColor, visibleLength } from "./ansi.ts";
 import { layoutColumns, computeTop, wrapText, type Columns } from "./layout.ts";
 import { renderMenuBar } from "./menu.ts";
 import { solveCommand } from "./controls.ts";
@@ -64,7 +63,7 @@ const HELP_LINES = [
   "  Tags & roadmap",
   "    T             filter the list by NeetCode pattern (checklist)",
   "    m             open the roadmap — a box flowchart of the patterns;",
-  "                  ↑↓←→ move · Enter filters to a pattern · c chart · Tab subset",
+  "                  ↑↓←→ move · Enter filters to a pattern · Tab subset",
   "",
   "  Sync (menu bar → Sync): authenticate, pull solved from LeetCode,",
   "  and push solutions to your account (with a confirm before submitting).",
@@ -79,8 +78,12 @@ function panelHeader(label: string, focused: boolean, width: number): string {
 /** The footer hint / status line, shared across layouts. */
 function footerLine(s: State, cols: number): string {
   if (s.input) {
-    const label = s.input.kind === "search" ? "fuzzy /" : "import: ";
-    return paint(fit(` ${label}${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
+    // The search query is shown in the always-visible search bar, so the footer
+    // just carries the keys; import (no dedicated bar) shows its value here.
+    if (s.input.kind === "search") {
+      return paint(fit(" search — type to filter · Enter keep · Esc clear", cols), "yellow");
+    }
+    return paint(fit(` import: ${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
   }
   if (s.prefetch) return paint(fit(` ${s.prefetch}`, cols), "yellow");
   if (s.suggestSetup) {
@@ -160,7 +163,31 @@ function styleProblemRow(s: State, p: Problem, selected: boolean, focused: boole
   return prefix + " " + paint(diffCell, diffColor(p.difficulty)) + pad;
 }
 
-/** The Problems panel: header (view + counts + filters) then the filtered rows. */
+/**
+ * The always-visible search bar (row under the Problems header). Shows the live
+ * fuzzy query with a caret while it's being edited, the committed query when
+ * one is set, or a dim hint otherwise — plus the result count. This is the
+ * "search bar": `/` focuses it, typing filters live, Esc clears.
+ */
+function searchBar(s: State, width: number): string {
+  const editing = s.input?.kind === "search";
+  const query = editing ? s.input!.value : s.search;
+  if (editing) {
+    const body = `  / ${query}▏`;
+    const count = `${s.filtered.length} match${s.filtered.length === 1 ? "" : "es"}`;
+    const room = Math.max(0, width - visibleLength(body) - count.length - 1);
+    return paint(fit(`${body}${" ".repeat(room)}${count} `, width), "yellow");
+  }
+  if (query) {
+    const body = `  / ${query}`;
+    const count = `${s.filtered.length} match${s.filtered.length === 1 ? "" : "es"}`;
+    const room = Math.max(0, width - visibleLength(body) - count.length - 1);
+    return paint(fit(`${body}${" ".repeat(room)}${count} `, width), "cyan");
+  }
+  return paint(fit("  / search — title · tag · company", width), "dim");
+}
+
+/** The Problems panel: header, an always-visible search bar, then the rows. */
 function problemsPanel(s: State, width: number, height: number, focused: boolean): string[] {
   const tagLabel =
     s.tagFilter.size === 0
@@ -168,22 +195,16 @@ function problemsPanel(s: State, width: number, height: number, focused: boolean
       : s.tagFilter.size === 1
         ? `#${[...s.tagFilter][0]}`
         : `#${s.tagFilter.size} tags`;
-  const settings = [
-    `${s.doneFilter}`,
-    s.diff ?? "any",
-    tagLabel,
-    `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`,
-    s.search ? `"${s.search}"` : "",
-  ]
+  const settings = [`${s.doneFilter}`, s.diff ?? "any", tagLabel, `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`]
     .filter(Boolean)
     .join(" · ");
   const total = s.showingRecommended ? s.recommended.length : s.list.problems.length;
   const label = `${currentViewTitle(s)}  ${s.filtered.length}/${total}  ${settings}`;
-  const bodyH = height - 1;
+  const bodyH = height - 2; // header + search bar
   const cols5 = layoutColumns(width, s.maxId);
   s.top = computeTop(s.cursor, s.filtered.length, bodyH, s.top);
 
-  const lines = [panelHeader(label, focused, width)];
+  const lines = [panelHeader(label, focused, width), searchBar(s, width)];
   for (let i = 0; i < bodyH; i++) {
     const idx = s.top + i;
     const p = s.filtered[idx];
@@ -508,6 +529,14 @@ function center(text: string, width: number): string {
   return " ".repeat(left) + text + " ".repeat(pad - left);
 }
 
+/** Per-box completion state, derived from the subset-scoped counts. */
+type BoxStatus = "done" | "started" | "empty";
+
+function boxStatus(c: { done: number; total: number }): BoxStatus {
+  if (c.total === 0) return "empty";
+  return c.done >= c.total ? "done" : "started";
+}
+
 /**
  * Dynamically size the boxes so a chart fits `cols` nicely: box width scales to
  * the widest row's node count and the longest label, clamped to a readable range.
@@ -516,22 +545,37 @@ function roadmapBoxWidth(chart: Chart, cols: number): number {
   const widestRow = Math.max(1, ...chart.rows.map((r) => r.length));
   const longestLabel = Math.max(...chart.rows.flat().map((n) => n.label.length), 4);
   const perSlot = Math.floor((cols - 2) / widestRow) - 1;
-  return Math.max(9, Math.min(perSlot, Math.max(longestLabel + 2, 11)));
+  return Math.max(11, Math.min(perSlot, Math.max(longestLabel + 4, 13)));
 }
 
-/** Lay out one row of chart nodes as fixed-width boxes evenly spread across `cols`. */
+/**
+ * Box-drawing character sets. The cursor box is drawn with a *double* border so
+ * the selection is visible as an ASCII change, not a colour highlight — colour
+ * is reserved for completion state (see `colorSegments`).
+ */
+const SINGLE = { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" };
+const DOUBLE = { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" };
+
+/**
+ * Lay out one row of chart nodes as fixed-width boxes evenly spread across
+ * `cols`. Each box is four lines tall: top border, label, `done/total` count,
+ * bottom border — so the count is *inside* the box and the whole chart visibly
+ * changes when the subset (hence the counts) changes.
+ */
 function layoutBoxRow(
   nodes: ChartNode[],
   boxW: number,
   cols: number,
   cursorId: string,
-): { boxes: PlacedBox[]; top: string; mid: string; bot: string } {
+  counts: Map<string, { done: number; total: number }>,
+): { boxes: PlacedBox[]; lines: string[] } {
   const n = nodes.length;
   const inner = boxW - 2;
   const used = n * boxW;
   const gap = Math.max(1, Math.floor((cols - used) / (n + 1)));
   const top = Array(cols).fill(" ");
-  const mid = Array(cols).fill(" ");
+  const label = Array(cols).fill(" ");
+  const countLn = Array(cols).fill(" ");
   const bot = Array(cols).fill(" ");
   const put = (arr: string[], colStart: number, str: string): void => {
     for (let i = 0; i < str.length && colStart + i >= 0 && colStart + i < cols; i++) arr[colStart + i] = str[i]!;
@@ -539,15 +583,20 @@ function layoutBoxRow(
   const boxes: PlacedBox[] = [];
   let x = gap;
   for (const node of nodes) {
-    const sel = node.id === cursorId;
-    const l = sel ? "▶" : node.kind === "topic" ? "┆" : "│";
-    put(top, x, "┌" + "─".repeat(inner) + "┐");
-    put(mid, x, l + center(node.label.slice(0, inner), inner) + l);
-    put(bot, x, "└" + "─".repeat(inner) + "┘");
+    const b = node.id === cursorId ? DOUBLE : SINGLE;
+    const c = counts.get(node.pattern) ?? { done: 0, total: 0 };
+    const countText = c.total > 0 ? `${c.done}/${c.total}` : "—";
+    put(top, x, b.tl + b.h.repeat(inner) + b.tr);
+    put(label, x, b.v + center(node.label.slice(0, inner), inner) + b.v);
+    put(countLn, x, b.v + center(countText, inner) + b.v);
+    put(bot, x, b.bl + b.h.repeat(inner) + b.br);
     boxes.push({ node, left: x, width: boxW, center: x + Math.floor(boxW / 2) });
     x += boxW + gap;
   }
-  return { boxes, top: top.join(""), mid: mid.join(""), bot: bot.join("") };
+  return {
+    boxes,
+    lines: [top.join(""), label.join(""), countLn.join(""), bot.join("")],
+  };
 }
 
 /**
@@ -568,60 +617,58 @@ function connectorRow(parents: PlacedBox[], children: PlacedBox[], edges: Array<
   return row.join("");
 }
 
-/** Colour a laid-out label row: selected reverse-cyan, fully-solved green. */
-function colorBoxRow(
-  mid: string,
+/**
+ * Colour every box segment on one raw line by its completion status: fully-done
+ * patterns are green, partially-started ones cyan, and untouched ones dim. The
+ * cursor is *not* coloured here — it's shown by the double border in the layout,
+ * so selecting a box changes its outline, never its highlight.
+ */
+function colorSegments(
+  line: string,
   boxes: PlacedBox[],
   counts: Map<string, { done: number; total: number }>,
-  cursorId: string,
 ): string {
   let out = "";
   let col = 0;
   for (const box of boxes) {
-    out += mid.slice(col, box.left);
-    const seg = mid.slice(box.left, box.left + box.width);
-    const c = counts.get(box.node.pattern) ?? { done: 0, total: 0 };
-    if (box.node.id === cursorId) out += paint(seg, "rev", "cyan");
-    else if (box.node.kind === "topic") out += paint(seg, "dim");
-    else if (c.total > 0 && c.done === c.total) out += paint(seg, "green");
-    else out += seg;
+    out += line.slice(col, box.left);
+    const seg = line.slice(box.left, box.left + box.width);
+    const status = boxStatus(counts.get(box.node.pattern) ?? { done: 0, total: 0 });
+    if (status === "done") out += paint(seg, "green");
+    else if (status === "started") out += paint(seg, "cyan");
+    else out += paint(seg, "dim");
     col = box.left + box.width;
   }
-  out += mid.slice(col);
+  out += line.slice(col);
   return out;
 }
 
-/** The chart for the current roadmap mode (NeetCode DAG or full pattern→topics). */
-function roadmapChart(s: State): Chart {
-  return s.roadmap!.chart === "full" ? fullChart(topicsByPattern()) : neetcodeChart();
-}
-
 /**
- * Roadmap overlay: a top-to-bottom box flowchart. In "neetcode" mode it's the
- * 18-pattern DAG; in "full" mode each pattern also fans out to its LeetCode
- * topics. Counts are over the *global* problem union, scoped to the chosen subset.
+ * Roadmap overlay: a top-to-bottom box flowchart of the 18 NeetCode patterns.
+ * Counts are over the *global* problem union, scoped to the chosen subset, and
+ * baked into each box — so switching subset (Tab) redraws the whole chart.
+ * Completed patterns are green, started cyan, untouched dim; the cursor box is
+ * outlined with a double border (no colour highlight).
  */
 export function renderRoadmap(s: State, rows: number, cols: number): string[] {
   const rm = s.roadmap!;
   const counts = patternCounts(s.allProblems, s.completed, rm.subset);
-  const chart = roadmapChart(s);
+  const chart = neetcodeChart();
   const flat = chart.rows.flat();
   if (rm.cursor >= flat.length) rm.cursor = 0;
   const cursor = flat[rm.cursor] ?? flat[0]!;
 
   const c = counts.get(cursor.pattern) ?? { done: 0, total: 0 };
   const unlocks = roadmapChildren(cursor.pattern);
-  const chartName = rm.chart === "full" ? "full (pattern→topics)" : "neetcode";
   const detail =
     `  ▶ ${cursor.pattern}` +
-    (cursor.kind === "topic" ? ` · topic: ${cursor.label}` : "") +
     (c.total > 0 ? `  ${c.done}/${c.total} done` : "  (none in scope)") +
     (unlocks.length ? `  → ${unlocks.join(", ")}` : "");
 
   const content: string[] = [
     paint(fit(detail, cols), "cyan"),
     paint(
-      fit(`  chart: ${chartName} [c]  ·  subset: ${rm.subset} [Tab]  ·  ↑↓←→ move · Enter study · Esc`, cols),
+      fit(`  subset: ${rm.subset} [Tab]  ·  ↑↓←→ move · Enter study · Esc`, cols),
       "dim",
     ),
     "",
@@ -630,11 +677,13 @@ export function renderRoadmap(s: State, rows: number, cols: number): string[] {
   const boxW = roadmapBoxWidth(chart, cols);
   let prev: PlacedBox[] | null = null;
   for (const nodes of chart.rows) {
-    const { boxes, top, mid, bot } = layoutBoxRow(nodes, boxW, cols, cursor.id);
+    const { boxes, lines } = layoutBoxRow(nodes, boxW, cols, cursor.id, counts);
     if (prev) content.push(connectorRow(prev, boxes, chart.edges, cols));
-    content.push(top);
-    content.push(colorBoxRow(mid, boxes, counts, cursor.id));
-    content.push(bot);
+    // Border lines plain; the two text lines carry the completion colour.
+    content.push(lines[0]!);
+    content.push(colorSegments(lines[1]!, boxes, counts));
+    content.push(colorSegments(lines[2]!, boxes, counts));
+    content.push(lines[3]!);
     prev = boxes;
   }
   return renderOverlay(content, rows, cols, " Roadmap ");

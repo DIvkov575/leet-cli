@@ -8,10 +8,9 @@ import {
   roadmapLevelOf,
   roadmapMove,
   neetcodeChart,
-  fullChart,
   chartMove,
 } from "./roadmap.ts";
-import { topicsByPattern, NEETCODE_PATTERNS } from "./tags.ts";
+import { NEETCODE_PATTERNS } from "./tags.ts";
 
 describe("roadmap graph integrity", () => {
   test("every pattern in the graph is a real NeetCode pattern", () => {
@@ -125,23 +124,6 @@ describe("neetcodeChart", () => {
     const expected = ROADMAP_EDGES.flatMap(([p, cs]) => cs.map((c) => `${p}->${c}`)).sort();
     const got = chart.edges.map(([a, b]) => `${a}->${b}`).sort();
     expect(got).toEqual(expected);
-  });
-});
-
-describe("fullChart", () => {
-  const chart = fullChart(topicsByPattern());
-  test("includes both pattern and topic nodes", () => {
-    const kinds = new Set(chart.rows.flat().map((n) => n.kind));
-    expect(kinds.has("pattern")).toBe(true);
-    expect(kinds.has("topic")).toBe(true);
-  });
-  test("every topic node filters to a real pattern and sits below it", () => {
-    const level = new Map(chart.rows.flatMap((r, i) => r.map((n) => [n.id, i] as const)));
-    for (const n of chart.rows.flat()) {
-      if (n.kind !== "topic") continue;
-      const parent = chart.rows.flat().find((p) => p.kind === "pattern" && p.pattern === n.pattern)!;
-      expect(level.get(n.id)!).toBeGreaterThan(level.get(parent.id)!);
-    }
   });
 });
 

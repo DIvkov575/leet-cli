@@ -41,13 +41,9 @@ export interface Config {
   /** Matching CSRF token (LEETCODE_CSRF env var); optional. */
   leetcodeCsrf?: string;
   /**
-   * Which chart the roadmap view shows: "neetcode" (the 18-pattern DAG) or
-   * "full" (each pattern expanded to its LeetCode topics). Default "neetcode".
-   */
-  roadmapChart?: string;
-  /**
-   * Which curated subset the roadmap counts against: "all" | "blind75" |
-   * "neetcode150" | "neetcode250". Default "neetcode250". Cyclable in-view.
+   * Which curated subset the roadmap is drawn for: "blind75" | "neetcode150" |
+   * "neetcode250" | "all". Default "neetcode250". Cyclable in-view; every box's
+   * done/total count is scoped to it, so the whole chart redraws per subset.
    */
   roadmapSubset?: string;
   /**
@@ -105,16 +101,10 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
     fallback: "$LEET_SYNC_REPO, else unset",
   },
   {
-    key: "roadmapChart",
-    label: "Roadmap chart",
-    kind: "text",
-    fallback: "neetcode (or: full)",
-  },
-  {
     key: "roadmapSubset",
     label: "Roadmap subset",
     kind: "text",
-    fallback: "neetcode250 (or: all, blind75, neetcode150)",
+    fallback: "neetcode250 (or: blind75, neetcode150, all)",
   },
   {
     key: "offline",
@@ -224,18 +214,12 @@ export function resolveCxx(cfg: Config, env: Env = process.env): string {
   return cfg.cxx || env.CXX || "c++";
 }
 
-/** Roadmap chart kinds and curated subsets (used for validation + cycling). */
-export const ROADMAP_CHARTS = ["neetcode", "full"] as const;
-export type RoadmapChart = (typeof ROADMAP_CHARTS)[number];
-export const ROADMAP_SUBSETS = ["all", "blind75", "neetcode150", "neetcode250"] as const;
+/**
+ * Curated subsets the roadmap can be drawn for, in cycle order (Tab advances
+ * through them). Progression: blind75 ⊂ neetcode150 ⊂ neetcode250 ⊂ all.
+ */
+export const ROADMAP_SUBSETS = ["blind75", "neetcode150", "neetcode250", "all"] as const;
 export type RoadmapSubset = (typeof ROADMAP_SUBSETS)[number];
-
-/** Roadmap chart type: config `roadmapChart` if valid, else "neetcode". */
-export function resolveRoadmapChart(cfg: Config): RoadmapChart {
-  return (ROADMAP_CHARTS as readonly string[]).includes(cfg.roadmapChart ?? "")
-    ? (cfg.roadmapChart as RoadmapChart)
-    : "neetcode";
-}
 
 /** Roadmap subset: config `roadmapSubset` if valid, else "neetcode250". */
 export function resolveRoadmapSubset(cfg: Config): RoadmapSubset {

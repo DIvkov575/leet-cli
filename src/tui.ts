@@ -4,6 +4,7 @@ import { loadCompleted } from "./progress.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
 import { setupHasRun } from "./setup.ts";
+import { EMBEDDED_ARTIFACTS } from "./artifacts.ts";
 import { recompute, listRows0, type State } from "./ui/state.ts";
 import { renderFrame } from "./ui/render.ts";
 import { createActions } from "./ui/actions.ts";
@@ -37,6 +38,15 @@ export { renderFrame, filterRepoSuggestions, configValueCell, renderTagPicker, r
 // ─── pure layout / logic helpers (tested) ─────────────────────────────────
 
 // ─── runtime ───────────────────────────────────────────────────────────────
+
+/**
+ * Whether the compiled-in artifact bundle actually holds problem data. True on
+ * any real build (the bundle ships hundreds of problems); false only for a dev
+ * run against an empty/placeholder bundle, where the pre-cache prompt still helps.
+ */
+function bundleCoversStudySet(): boolean {
+  return Object.keys(EMBEDDED_ARTIFACTS).length > 0;
+}
 
 async function openUrl(url: string): Promise<void> {
   const cmd =
@@ -86,8 +96,12 @@ export async function runTui(list?: ProblemList): Promise<void> {
     });
 
   const recommended = rankRecommended(config, completed);
-  // First run: suggest pre-caching, opt-in (only when opening bare, no list arg).
-  const suggestSetup = !list && !process.env.LEET_NO_SETUP && !(await setupHasRun());
+  // Every bundled problem's statement + scaffold ships embedded in the binary
+  // (see artifacts.ts), so a fresh install is already offline-ready — there's
+  // nothing to pre-cache. The opt-in prompt only appears if that bundle is
+  // somehow unavailable (e.g. a dev run against an empty bundle).
+  const suggestSetup =
+    !list && !process.env.LEET_NO_SETUP && !bundleCoversStudySet() && !(await setupHasRun());
 
   // Bare launch focuses the Lists panel; an explicit list jumps into Problems.
   const initialListName = initial.name;

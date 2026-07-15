@@ -9,6 +9,7 @@
   "scripts": {
     "start": "bun run src/cli.ts",
     "build:data": "bun run scripts/build-data.ts && bun run scripts/gen-embed.ts",
+    "build:artifacts": "bun run scripts/build-artifacts.ts",
     "gen:embed": "bun run scripts/gen-embed.ts",
     "test": "bun test",
     "compile": "bun run scripts/gen-embed.ts && bun build src/cli.ts --compile --outfile leet",
