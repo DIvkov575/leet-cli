@@ -372,6 +372,12 @@ interface LogsState {
 interface State {
   list: ProblemList;
   listNames: string[];
+  /**
+   * The de-duplicated union of every bundled list's problems. The roadmap counts
+   * against this (subset-scoped), so its DAG is a global, list-independent view —
+   * not whatever list happens to be selected.
+   */
+  allProblems: Problem[];
   /** Problem ids per bundled list, for the Lists panel's unsolved/total counts. */
   listMeta: Map<string, number[]>;
   /** Ranked recommendations; shown as their own pseudo-list in the Lists panel. */
@@ -1010,17 +1016,17 @@ export function filterRepoSuggestions(
  * counts every tagged problem. Patterns with no problems in scope report zeros.
  */
 function patternCounts(
-  s: State,
+  source: Problem[],
+  completed: Set<number>,
   subset?: RoadmapSubset,
 ): Map<string, { done: number; total: number }> {
   const counts = new Map<string, { done: number; total: number }>();
-  const source = s.showingRecommended ? s.recommended.map((r) => r.problem) : s.list.problems;
   for (const p of source) {
     if (!p.pattern) continue;
     if (subset && subset !== "all" && !(p.subsets ?? []).includes(subset)) continue;
     const c = counts.get(p.pattern) ?? { done: 0, total: 0 };
     c.total++;
-    if (s.completed.has(p.id)) c.done++;
+    if (completed.has(p.id)) c.done++;
     counts.set(p.pattern, c);
   }
   return counts;
@@ -1032,7 +1038,9 @@ function patternCounts(
  * `a` selects all, `n` clears, Space toggles, Enter/Esc closes.
  */
 export function renderTagPicker(s: State, rows: number, cols: number): string[] {
-  const counts = patternCounts(s);
+  // The tag picker filters the current list, so its counts reflect that list.
+  const source = s.showingRecommended ? s.recommended.map((r) => r.problem) : s.list.problems;
+  const counts = patternCounts(source, s.completed);
   const patterns = NEETCODE_PATTERNS;
   const sel = s.tagPicker!.index;
   const content: string[] = ["  Filter by NeetCode pattern", ""];
@@ -1163,12 +1171,14 @@ function roadmapChart(s: State): Chart {
 /**
  * Roadmap overlay: a top-to-bottom box flowchart. In "neetcode" mode it's the
  * 18-pattern DAG; in "full" mode each pattern also fans out to its LeetCode
- * topics. Counts are scoped to the chosen subset. Boxes size to the terminal;
- * the selected box is marked ▶ and a detail line stays pinned at the top.
+ * topics. Counts are over the *global* problem union, scoped to the chosen
+ * subset (all / blind75 / neetcode150 / neetcode250) — the DAG is a
+ * list-independent progress view. Boxes size to the terminal; the selected box
+ * is marked ▶ and a detail line stays pinned at the top.
  */
 export function renderRoadmap(s: State, rows: number, cols: number): string[] {
   const rm = s.roadmap!;
-  const counts = patternCounts(s, rm.subset);
+  const counts = patternCounts(s.allProblems, s.completed, rm.subset);
   const chart = roadmapChart(s);
   const flat = chart.rows.flat();
   if (rm.cursor >= flat.length) rm.cursor = 0;
@@ -1434,6 +1444,10 @@ export async function runTui(list?: ProblemList): Promise<void> {
   for (const l of allLists) listMeta.set(l.name, l.problems.map((p) => p.id));
   // The synthetic "all" list's counts come from the de-duped union of every id.
   listMeta.set(ALL_LIST_NAME, [...new Set(allLists.flatMap((l) => l.problems.map((p) => p.id)))]);
+  // De-duplicated union of every problem (by id), for the global roadmap counts.
+  const allProblemsById = new Map<number, Problem>();
+  for (const l of allLists) for (const p of l.problems) if (!allProblemsById.has(p.id)) allProblemsById.set(p.id, p);
+  const allProblems = [...allProblemsById.values()];
 
   const completed = await loadCompleted();
   const config = await loadConfig();
@@ -1457,6 +1471,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
   const state: State = {
     list: initial,
     listNames,
+    allProblems,
     listMeta,
     recommended,
     showingRecommended: false,
