@@ -12,7 +12,7 @@ import {
   type SortKey,
 } from "../lib.ts";
 import type { Recommendation } from "../recommend.ts";
-import type { Config, ConfigKey, RoadmapChart, RoadmapSubset } from "../config.ts";
+import type { Config, ConfigKey, RoadmapSubset } from "../config.ts";
 import type { DoneFilter } from "./controls.ts";
 import { fuzzyRankProblems } from "../fuzzy.ts";
 
@@ -135,11 +135,11 @@ export interface State {
   /** Tag-picker overlay (checklist of patterns), or null. */
   tagPicker: { index: number } | null;
   /**
-   * Roadmap overlay, or null. `chart` picks the NeetCode DAG vs the full
-   * pattern→topics chart; `subset` scopes the done/total counts. `cursor` is a
-   * flat index into the chart's node list.
+   * Roadmap overlay, or null. The chart is always the 18-pattern NeetCode DAG;
+   * `subset` scopes every box's done/total count (so the chart redraws per
+   * subset). `cursor` is a flat index into the chart's node list.
    */
-  roadmap: { cursor: number; chart: RoadmapChart; subset: RoadmapSubset } | null;
+  roadmap: { cursor: number; subset: RoadmapSubset } | null;
   search: string;
   sortKey: SortKey;
   sortDesc: boolean;

@@ -316,6 +316,24 @@ describe("renderFrame layout", () => {
     expect(joined).toContain("todo");
     expect(joined).toContain("acc↓");
   });
+
+  test("an always-visible search bar shows the hint when no query is set", () => {
+    const joined = strip(renderFrame(makeState(), 12, 120).join("\n"));
+    expect(joined).toContain("/ search"); // the search bar is always drawn
+  });
+
+  test("search bar shows a committed query and a live match count", () => {
+    const s = makeState({ search: "two", filtered: [makeState().list.problems[1]] });
+    const joined = strip(renderFrame(s, 12, 120).join("\n"));
+    expect(joined).toContain("/ two"); // committed query rendered in the bar
+    expect(joined).toContain("1 match"); // result count
+  });
+
+  test("while typing, the search bar shows the draft with a caret", () => {
+    const s = makeState({ input: { kind: "search", value: "med" } });
+    const joined = strip(renderFrame(s, 12, 120).join("\n"));
+    expect(joined).toContain("/ med▏"); // live draft + caret in the bar
+  });
 });
 
 describe("fullscreen reading mode", () => {
@@ -524,26 +542,21 @@ describe("renderFrame tag picker", () => {
 });
 
 describe("renderFrame roadmap", () => {
-  test("neetcode chart: boxes, connectors, subset/chart toggles, detail line", () => {
-    const s = makeState({ roadmap: { cursor: 0, chart: "neetcode", subset: "neetcode250" } });
-    const f = renderFrame(s, 34, 90);
+  test("neetcode DAG: boxes, connectors, subset toggle, detail line", () => {
+    const s = makeState({ roadmap: { cursor: 0, subset: "neetcode250" } });
+    const f = renderFrame(s, 40, 90);
     for (const line of f) expect(strip(line).length).toBe(90);
     const joined = strip(f.join("\n"));
     expect(joined).toContain("Roadmap"); // overlay title
-    expect(joined).toContain("┌"); // box borders are drawn
+    expect(joined).toContain("┌"); // single-border box for a non-cursor pattern
+    expect(joined).toContain("╔"); // double-border box for the cursor pattern
     expect(joined).toContain("Two Pointers"); // a level-1 box label
     expect(joined).toContain("v"); // connectors between levels
     // Cursor 0 = Arrays & Hashing → its full name appears in the detail line.
     expect(joined).toContain("Arrays & Hashing");
-    expect(joined).toContain("chart: neetcode");
     expect(joined).toContain("subset: neetcode250");
-  });
-
-  test("full chart: pattern boxes fan out to topic boxes", () => {
-    const s = makeState({ roadmap: { cursor: 0, chart: "full", subset: "all" } });
-    const joined = strip(renderFrame(s, 50, 120).join("\n"));
-    expect(joined).toContain("chart: full");
-    expect(joined).toContain("┆"); // topic boxes use dashed edges
+    // The chart toggle is gone — only NeetCode patterns are shown.
+    expect(joined).not.toContain("chart:");
   });
 
   test("counts are global (allProblems), not the current list", () => {
@@ -554,15 +567,15 @@ describe("renderFrame roadmap", () => {
     const s = makeState({
       list: { name: "tiny", title: "Tiny", problems: [] }, // empty current list
       allProblems: [{ id: 1, title: "Easy One", slug: "easy-one", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", patternSource: "neetcode", topics: ["array"], subsets: ["neetcode250"] }, extra],
-      roadmap: { cursor: 0, chart: "neetcode", subset: "all" },
+      roadmap: { cursor: 0, subset: "all" },
     });
-    const joined = strip(renderFrame(s, 34, 90).join("\n"));
+    const joined = strip(renderFrame(s, 40, 90).join("\n"));
     // Arrays & Hashing is cursor 0; detail line shows 0/2 (two global AH problems)
     // even though the current list is empty.
     expect(joined).toContain("0/2 done");
   });
 
-  test("subset scopes the global counts", () => {
+  test("subset scopes the global counts and redraws the box count", () => {
     const mk = (subset: string) =>
       strip(
         renderFrame(
@@ -571,14 +584,17 @@ describe("renderFrame roadmap", () => {
               { id: 1, title: "A", slug: "a", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["blind75", "neetcode250"] },
               { id: 2, title: "B", slug: "b", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["neetcode250"] },
             ],
-            roadmap: { cursor: 0, chart: "neetcode", subset },
+            roadmap: { cursor: 0, subset },
           }),
-          34,
+          40,
           90,
         ).join("\n"),
       );
+    // Detail line + the in-box count both reflect the subset.
     expect(mk("all")).toContain("0/2 done"); // both
+    expect(mk("all")).toContain("0/2"); // baked into the box body
     expect(mk("blind75")).toContain("0/1 done"); // only the blind75 one
+    expect(mk("blind75")).toContain("0/1"); // box body changed with the subset
   });
 });
 

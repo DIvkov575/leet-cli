@@ -4,9 +4,9 @@
  * shared state and dispatches keys to navigation or to `actions`. Split out of
  * the old `runTui` mega-closure so the (large) key map is isolated.
  */
-import { CONFIG_FIELDS, ROADMAP_CHARTS, ROADMAP_SUBSETS, resolveRoadmapChart, resolveRoadmapSubset, toggleSelection } from "../config.ts";
-import { NEETCODE_PATTERNS, topicsByPattern } from "../tags.ts";
-import { neetcodeChart, fullChart, chartMove } from "../roadmap.ts";
+import { CONFIG_FIELDS, ROADMAP_SUBSETS, resolveRoadmapSubset, toggleSelection } from "../config.ts";
+import { NEETCODE_PATTERNS } from "../tags.ts";
+import { neetcodeChart, chartMove } from "../roadmap.ts";
 import { MENU_ITEMS, type MenuAction } from "./menu.ts";
 import { cycleDoneFilter, cycleDifficulty, cycleSortState } from "./controls.ts";
 import { previewBody, filterRepoSuggestions, fieldHasRepoSuggest } from "./render.ts";
@@ -56,11 +56,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         state.tagPicker = { index: 0 };
         break;
       case "roadmap":
-        state.roadmap = {
-          cursor: 0,
-          chart: resolveRoadmapChart(ctx.config),
-          subset: resolveRoadmapSubset(ctx.config),
-        };
+        state.roadmap = { cursor: 0, subset: resolveRoadmapSubset(ctx.config) };
         break;
       case "sort": {
         const next = cycleSortState(state.sortKey, state.sortDesc);
@@ -70,6 +66,12 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         break;
       }
       case "search":
+        // Focus Problems so the always-visible search bar (which carries the
+        // live query) is on screen while typing.
+        if (state.focus !== "problems") {
+          state.focus = "problems";
+          state.lastPanel = "problems";
+        }
         state.input = { kind: "search", value: state.search };
         break;
       case "list":
@@ -307,7 +309,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
     // ── roadmap overlay ── (box flowchart; Enter studies a pattern) ──
     if (state.roadmap) {
       const rm = state.roadmap;
-      const chart = rm.chart === "full" ? fullChart(topicsByPattern()) : neetcodeChart();
+      const chart = neetcodeChart();
       const flat = chart.rows.flat();
       switch (key) {
         case "\x03":
@@ -333,12 +335,6 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
         case "\x1b[C":
           rm.cursor = chartMove(chart, rm.cursor, "right");
           break;
-        case "c": {
-          const i = ROADMAP_CHARTS.indexOf(rm.chart);
-          rm.chart = ROADMAP_CHARTS[(i + 1) % ROADMAP_CHARTS.length]!;
-          rm.cursor = 0;
-          break;
-        }
         case "\t":
         case "\x1b[Z": {
           const i = ROADMAP_SUBSETS.indexOf(rm.subset);

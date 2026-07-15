@@ -126,25 +126,27 @@ directory to remove them too.
 
 ### Problem-list caching
 
-The bundled lists are **embedded in the binary**, so browsing works with no
-network at all. Problem *statements* and C++ stubs are fetched lazily and cached
-the first time you `solve` or preview a problem — nothing is downloaded up front.
+**Everything ships in the binary.** The bundled lists, *and* every problem's
+statement and packaged C++ file (stub + test harness), are embedded at build
+time (`artifacts/bundle.json`). A freshly installed `leet` browses, previews,
+`solve`s, and `test`s every bundled problem with **zero network access** — there
+is nothing to download and no first-run setup step. Rebuild the bundle (the only
+network-touching step, at build time) with `bun run build:artifacts` after the
+lists or the solutions repo change.
 
-For offline study, you can pre-cache a whole set. On **first launch** the picker
-offers this as a one-time suggestion (press **P** to pre-cache `neetcode-250`,
-any other key to dismiss) — it's opt-in, never a silent background download. Or
-do it explicitly:
+On a preview/solve the on-disk cache is checked first (it may hold a `refresh`ed
+copy), then the embedded bundle; the network is only ever a last resort for a
+problem outside the bundled lists.
 
 ```sh
-leet setup                           # pre-cache neetcode-250 (repo over HTTPS, LeetCode fallback)
+leet setup                           # (optional) warm the on-disk cache too
 leet setup --list uber               # pre-cache a different list
-LEET_NO_SETUP=1 leet                 # suppress the first-run suggestion
 ```
 
-**Fully offline mode.** Browsing, filtering, search, and the roadmap are always
-network-free (they read only embedded/on-disk data). To *guarantee* nothing ever
-reaches the network — even a preview or scaffold on a cache miss — turn on
-offline mode. A miss then shows a clear "not cached" message instead of fetching:
+**Fully offline mode.** Browsing, filtering, search, the roadmap, previews, and
+scaffolds are all network-free out of the box. To *guarantee* nothing ever
+reaches the network — even for a problem outside the bundle — turn on offline
+mode. A miss then shows a clear "not cached" message instead of fetching:
 
 ```sh
 LEET_OFFLINE=1 leet ls neetcode-250 --tag Graphs   # per-invocation
@@ -296,19 +298,18 @@ leet make-list easy-dp --from neetcode-250 --tag "1-D Dynamic Programming" -d ea
 ```
 
 In the **TUI**: press `T` for the pattern-filter checklist, or `m` to open the
-**roadmap** — a box flowchart of the patterns with per-pattern done/total counts;
-`↑↓←→` move between boxes and Enter filters the list to a pattern. Two views,
-toggled with `c`:
+**roadmap** — a box flowchart of the 18 NeetCode patterns (the neetcode.io/roadmap
+shape). Each box carries its **done/total** count for the current subset; a
+finished pattern is green, one in progress is cyan, untouched is dim. `↑↓←→` move
+between boxes (the cursor box is drawn with a double border), and `Enter` filters
+the list to a pattern.
 
-- **neetcode** — the 18-pattern prerequisite DAG (the neetcode.io/roadmap shape).
-- **full** — the same DAG, but each pattern also fans out to its LeetCode topics.
-
-`Tab` cycles which curated subset the counts are scoped to (`all` → `blind75` →
-`neetcode150` → `neetcode250`). Defaults come from config:
+`Tab` cycles which curated subset the whole chart is drawn for — `blind75` →
+`neetcode150` → `neetcode250` → `all`. Because every box's count is scoped to the
+subset, the chart visibly redraws as you cycle. The default comes from config:
 
 ```sh
-leet config roadmapChart full          # default to the full pattern→topics chart
-leet config roadmapSubset neetcode150   # default the counts to NeetCode 150
+leet config roadmapSubset neetcode150   # default the roadmap to NeetCode 150
 ```
 
 ## Interactive mode
@@ -558,6 +559,7 @@ src/
   harness.ts          generate the embedded C++ test harness
   runner.ts           compile + run a solution, capture output (Logs panel)
   cache.ts / repo.ts / prefetch.ts   local solution cache + repo/live prefetch
+  artifacts.ts        compiled-in offline bundle (every problem's cpp + statement)
   setup.ts            proactive study-set pre-caching
   sync.ts             package problems into a GitHub repo (leet sync)
   package.ts          per-problem artifacts (md / cpp / tests) for sync
@@ -566,6 +568,7 @@ src/
   cli.ts              argument parsing and command dispatch
 scripts/
   build-data.ts       parse data/raw/*.txt into data/*.json
+  build-artifacts.ts  fetch every problem's cpp + statement into artifacts/bundle.json
   gen-embed.ts        regenerate src/lists.generated.ts from data/*.json
   gen-formula.ts      render the Homebrew formula from a release's checksums
   setup.ts            postinstall / `bun run setup` pre-cache entry point
