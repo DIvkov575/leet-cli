@@ -29,6 +29,10 @@
         "hash-table",
         "math",
         "two-pointers"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -46,6 +50,11 @@
         "string-matching",
         "binary-tree",
         "hash-function"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {

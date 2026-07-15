@@ -21,7 +21,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = join(ROOT, "data");
 const ARTIFACT = join(ROOT, "scripts", "data", "tags-source.json");
 
-type TagSource = Record<string, { neetcodePattern: string | null; topics: string[] }>;
+type TagSource = Record<
+  string,
+  { neetcodePattern: string | null; topics: string[]; subsets?: string[] }
+>;
 const source = (await Bun.file(ARTIFACT).json()) as TagSource;
 
 const files = (await readdir(DATA_DIR)).filter((f) => f.endsWith(".json"));
@@ -48,6 +51,8 @@ for (const file of files) {
       delete p.patternSource;
     }
     p.topics = topics;
+    if (src.subsets && src.subsets.length > 0) p.subsets = src.subsets;
+    else delete p.subsets;
     enriched++;
   }
   await Bun.write(path, JSON.stringify(list, null, 2) + "\n");

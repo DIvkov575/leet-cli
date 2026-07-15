@@ -153,6 +153,125 @@ export function roadmapShortLabel(pattern: string): string {
   return SHORT_LABELS[pattern] ?? pattern;
 }
 
+// ─── generic chart model (drives both the NeetCode and full charts) ──────────
+
+/**
+ * One node in a roadmap chart. `id` is stable (pattern name or topic slug);
+ * `pattern` is the NeetCode pattern the node filters to when selected (a topic
+ * node still filters by its parent pattern, since problems are tagged by
+ * pattern). `kind` distinguishes pattern boxes from topic boxes.
+ */
+export interface ChartNode {
+  id: string;
+  label: string;
+  level: number;
+  kind: "pattern" | "topic";
+  pattern: string;
+}
+
+/** A laid-out chart: nodes grouped into level-rows, plus parent→child edges. */
+export interface Chart {
+  /** Rows of nodes, top level first. */
+  rows: ChartNode[][];
+  /** Edges as [parentId, childId], for drawing connectors. */
+  edges: Array<[string, string]>;
+}
+
+/** The NeetCode chart: the 18-pattern DAG (one box per pattern). */
+export function neetcodeChart(): Chart {
+  const level = roadmapLevelOf();
+  const byId = new Map<string, ChartNode>();
+  const rows = roadmapLevels().map((row) =>
+    row.map((p) => {
+      const node: ChartNode = {
+        id: p,
+        label: roadmapShortLabel(p),
+        level: level.get(p)!,
+        kind: "pattern",
+        pattern: p,
+      };
+      byId.set(p, node);
+      return node;
+    }),
+  );
+  const edges: Array<[string, string]> = [];
+  for (const [parent, children] of ROADMAP_EDGES) {
+    for (const c of children) edges.push([parent, c]);
+  }
+  return { rows, edges };
+}
+
+/**
+ * The full chart: the same pattern DAG, but each pattern also fans out to its
+ * LeetCode topic boxes on the level just below it. More specific — every tag is
+ * shown — while keeping the roadmap's prerequisite flow between patterns.
+ *
+ * `topicsFor` supplies the topic slugs per pattern (injected so roadmap.ts stays
+ * independent of tags.ts). Topics are capped at `maxTopics` per pattern to keep
+ * rows readable; the rest are summarised by the count in the render layer.
+ */
+export function fullChart(
+  topicsFor: Map<string, string[]>,
+  maxTopics = 4,
+): Chart {
+  // Patterns keep their DAG levels but doubled, so each pattern's topic row can
+  // slot between it and the next pattern level.
+  const patLevel = roadmapLevelOf();
+  const byId = new Map<string, ChartNode>();
+  const edges: Array<[string, string]> = [];
+  const rowsByLevel = new Map<number, ChartNode[]>();
+  const push = (n: ChartNode): void => {
+    byId.set(n.id, n);
+    (rowsByLevel.get(n.level) ?? rowsByLevel.set(n.level, []).get(n.level)!).push(n);
+  };
+
+  for (const p of roadmapPatterns()) {
+    const lv = patLevel.get(p)! * 2;
+    push({ id: p, label: roadmapShortLabel(p), level: lv, kind: "pattern", pattern: p });
+    // Topic children on the odd level directly beneath this pattern.
+    const topics = (topicsFor.get(p) ?? []).slice(0, maxTopics);
+    topics.forEach((t) => {
+      const id = `${p} ${t}`; // namespaced so the same topic under two patterns is distinct
+      push({ id, label: t, level: lv + 1, kind: "topic", pattern: p });
+      edges.push([p, id]);
+    });
+  }
+  // Pattern→pattern edges from the DAG (parent pattern to child pattern).
+  for (const [parent, children] of ROADMAP_EDGES) {
+    for (const c of children) edges.push([parent, c]);
+  }
+  const maxLevel = Math.max(...[...rowsByLevel.keys()]);
+  const rows: ChartNode[][] = [];
+  for (let lv = 0; lv <= maxLevel; lv++) {
+    const row = rowsByLevel.get(lv);
+    if (row && row.length > 0) rows.push(row);
+  }
+  return { rows, edges };
+}
+
+/**
+ * Grid navigation over a laid-out chart. Given the flat node list (row-major)
+ * and the current index, move in `dir` and return the new index (clamped).
+ */
+export function chartMove(
+  chart: Chart,
+  cursor: number,
+  dir: "up" | "down" | "left" | "right",
+): number {
+  const flat = chart.rows.flat();
+  const cur = flat[cursor];
+  if (!cur) return cursor;
+  const rowIdx = chart.rows.findIndex((r) => r.includes(cur));
+  const row = chart.rows[rowIdx]!;
+  const col = row.indexOf(cur);
+  const at = (n: ChartNode): number => flat.indexOf(n);
+  if (dir === "left") return col > 0 ? at(row[col - 1]!) : cursor;
+  if (dir === "right") return col < row.length - 1 ? at(row[col + 1]!) : cursor;
+  const trow = chart.rows[dir === "up" ? rowIdx - 1 : rowIdx + 1];
+  if (!trow || trow.length === 0) return cursor;
+  return at(trow[Math.min(col, trow.length - 1)]!);
+}
+
 /**
  * Move the flat-index `cursor` (into `roadmapPatterns()`) in a grid direction,
  * matching the box layout: left/right step within a level; up/down jump to the

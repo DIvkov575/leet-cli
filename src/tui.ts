@@ -22,11 +22,17 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   resolveSyncRepo,
+  resolveRoadmapChart,
+  resolveRoadmapSubset,
+  ROADMAP_CHARTS,
+  ROADMAP_SUBSETS,
   CONFIG_FIELDS,
   toggleSelection,
   type Config,
   type ConfigField,
   type ConfigKey,
+  type RoadmapChart,
+  type RoadmapSubset,
 } from "./config.ts";
 import { prefetchProblems } from "./prefetch.ts";
 import { recommendProblems, excludeLists, type Recommendation } from "./recommend.ts";
@@ -34,13 +40,14 @@ import { setupHasRun, markSetupDone } from "./setup.ts";
 import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { compileAndRun } from "./runner.ts";
-import { NEETCODE_PATTERNS } from "./tags.ts";
+import { NEETCODE_PATTERNS, topicsByPattern } from "./tags.ts";
 import {
-  roadmapLevels,
   roadmapChildren,
-  roadmapShortLabel,
-  roadmapPatterns,
-  roadmapMove,
+  neetcodeChart,
+  fullChart,
+  chartMove,
+  type Chart,
+  type ChartNode,
 } from "./roadmap.ts";
 import { authFromBrowser } from "./auth.ts";
 import { fetchSolvedSlugs } from "./leetcode-progress.ts";
@@ -378,8 +385,12 @@ interface State {
   tagFilter: Set<string>;
   /** Tag-picker overlay (checklist of patterns), or null. */
   tagPicker: { index: number } | null;
-  /** Roadmap overlay (branching pattern tree), or null. */
-  roadmap: { cursor: number } | null;
+  /**
+   * Roadmap overlay, or null. `chart` picks the NeetCode DAG vs the full
+   * pattern→topics chart; `subset` scopes the done/total counts. `cursor` is a
+   * flat index into the chart's node list.
+   */
+  roadmap: { cursor: number; chart: RoadmapChart; subset: RoadmapSubset } | null;
   search: string;
   sortKey: SortKey;
   sortDesc: boolean;
@@ -536,8 +547,8 @@ const HELP_LINES = [
   "",
   "  Tags & roadmap",
   "    T             filter the list by NeetCode pattern (checklist)",
-  "    m             open the roadmap — a box flowchart of the 18 patterns;",
-  "                  ↑↓←→ move between boxes, Enter filters the list to one",
+  "    m             open the roadmap — a box flowchart of the patterns;",
+  "                  ↑↓←→ move · Enter filters to a pattern · c chart · Tab subset",
   "",
   "  Sync (menu bar → Sync): authenticate, pull solved from LeetCode,",
   "  and push solutions to your account (with a confirm before submitting).",
@@ -993,14 +1004,19 @@ export function filterRepoSuggestions(
 
 /**
  * Done/total problem counts per NeetCode pattern, computed over the current
- * list's problems (the pool the Problems panel draws from). Patterns with no
- * problems in the pool report zeros.
+ * list's problems (the pool the Problems panel draws from), optionally scoped to
+ * a curated subset (blind75 / neetcode150 / neetcode250). "all" or undefined
+ * counts every tagged problem. Patterns with no problems in scope report zeros.
  */
-function patternCounts(s: State): Map<string, { done: number; total: number }> {
+function patternCounts(
+  s: State,
+  subset?: RoadmapSubset,
+): Map<string, { done: number; total: number }> {
   const counts = new Map<string, { done: number; total: number }>();
   const source = s.showingRecommended ? s.recommended.map((r) => r.problem) : s.list.problems;
   for (const p of source) {
     if (!p.pattern) continue;
+    if (subset && subset !== "all" && !(p.subsets ?? []).includes(subset)) continue;
     const c = counts.get(p.pattern) ?? { done: 0, total: 0 };
     c.total++;
     if (s.completed.has(p.id)) c.done++;
@@ -1032,54 +1048,15 @@ export function renderTagPicker(s: State, rows: number, cols: number): string[] 
   return renderOverlay(content, rows, cols, " Tag filter ");
 }
 
-/** One laid-out roadmap box: its pattern, text lines, and horizontal span. */
-interface RoadmapBox {
-  pattern: string;
+/** A node placed on the grid: its chart node plus horizontal span. */
+interface PlacedBox {
+  node: ChartNode;
   left: number; // column of the box's left edge
   width: number; // box outer width (includes borders)
   center: number; // column of the box's horizontal centre (for connectors)
 }
 
-/**
- * Lay out one level's patterns as a row of fixed-width boxes, evenly spread
- * across `cols`. Returns the boxes (with their column spans) and the three text
- * lines (top border / label / bottom border) for the row.
- */
-function layoutRoadmapLevel(
-  patterns: string[],
-  cols: number,
-  counts: Map<string, { done: number; total: number }>,
-  cursorPattern: string,
-): { boxes: RoadmapBox[]; top: string; mid: string; bot: string } {
-  const n = patterns.length;
-  const boxW = Math.max(11, Math.min(15, Math.floor((cols - 2) / Math.max(n, 1)) - 1));
-  const inner = boxW - 2;
-  // Evenly distribute the row's boxes: total slack split into n+1 gaps.
-  const used = n * boxW;
-  const gap = Math.max(1, Math.floor((cols - used) / (n + 1)));
-  const top = Array(cols).fill(" ");
-  const mid = Array(cols).fill(" ");
-  const bot = Array(cols).fill(" ");
-  const boxes: RoadmapBox[] = [];
-  let x = gap;
-  for (const p of patterns) {
-    const label = roadmapShortLabel(p).slice(0, inner);
-    const c = counts.get(p) ?? { done: 0, total: 0 };
-    const sel = p === cursorPattern;
-    const l = sel ? "▶" : "│"; // mark the selected box's borders
-    const put = (arr: string[], col: number, str: string): void => {
-      for (let i = 0; i < str.length && col + i < cols; i++) arr[col + i] = str[i]!;
-    };
-    put(top, x, "┌" + "─".repeat(inner) + "┐");
-    put(mid, x, l + center(label, inner) + l);
-    put(bot, x, "└" + "─".repeat(inner) + "┘");
-    boxes.push({ pattern: p, left: x, width: boxW, center: x + Math.floor(boxW / 2) });
-    x += boxW + gap;
-  }
-  return { boxes, top: top.join(""), mid: mid.join(""), bot: bot.join("") };
-}
-
-/** Centre `text` within `width` columns (pad both sides). */
+/** Centre `text` within `width` columns (pad both sides), truncating if needed. */
 function center(text: string, width: number): string {
   if (text.length >= width) return text.slice(0, width);
   const pad = width - text.length;
@@ -1088,94 +1065,143 @@ function center(text: string, width: number): string {
 }
 
 /**
- * A connector row between two box levels: for each parent→child edge whose
- * child sits on the next level, drop a `│` from the parent's centre and a `v`
- * into the child's top. (A lightweight flow indication — not full routing —
- * kept readable at terminal width.)
+ * Dynamically size the boxes so a chart fits `cols` nicely: box width scales to
+ * the widest row's node count and the longest label, clamped to a readable
+ * range. Wider terminals get roomier boxes; narrow ones shrink gracefully.
  */
-function roadmapConnectors(
-  parents: RoadmapBox[],
-  children: RoadmapBox[],
+function roadmapBoxWidth(chart: Chart, cols: number): number {
+  const widestRow = Math.max(1, ...chart.rows.map((r) => r.length));
+  const longestLabel = Math.max(...chart.rows.flat().map((n) => n.label.length), 4);
+  // Leave a 1-col gap between boxes and margins: per-slot budget.
+  const perSlot = Math.floor((cols - 2) / widestRow) - 1;
+  // Prefer to show the whole label (+2 borders) when it fits the budget.
+  return Math.max(9, Math.min(perSlot, Math.max(longestLabel + 2, 11)));
+}
+
+/**
+ * Lay out one row of chart nodes as fixed-width boxes evenly spread across
+ * `cols`. Returns the placed boxes and the three text lines (top/label/bottom).
+ */
+function layoutBoxRow(
+  nodes: ChartNode[],
+  boxW: number,
   cols: number,
-): string {
+  cursorId: string,
+): { boxes: PlacedBox[]; top: string; mid: string; bot: string } {
+  const n = nodes.length;
+  const inner = boxW - 2;
+  const used = n * boxW;
+  const gap = Math.max(1, Math.floor((cols - used) / (n + 1)));
+  const top = Array(cols).fill(" ");
+  const mid = Array(cols).fill(" ");
+  const bot = Array(cols).fill(" ");
+  const put = (arr: string[], col: number, str: string): void => {
+    for (let i = 0; i < str.length && col + i >= 0 && col + i < cols; i++) arr[col + i] = str[i]!;
+  };
+  const boxes: PlacedBox[] = [];
+  let x = gap;
+  for (const node of nodes) {
+    const sel = node.id === cursorId;
+    const l = sel ? "▶" : node.kind === "topic" ? "┆" : "│"; // topic boxes use a lighter edge
+    put(top, x, "┌" + "─".repeat(inner) + "┐");
+    put(mid, x, l + center(node.label.slice(0, inner), inner) + l);
+    put(bot, x, "└" + "─".repeat(inner) + "┘");
+    boxes.push({ node, left: x, width: boxW, center: x + Math.floor(boxW / 2) });
+    x += boxW + gap;
+  }
+  return { boxes, top: top.join(""), mid: mid.join(""), bot: bot.join("") };
+}
+
+/**
+ * A connector row between two placed levels: for each edge whose parent is above
+ * and child directly below, drop a `│` from the parent centre and a `v` at the
+ * child. Edges spanning more than one level are left implicit (kept readable).
+ */
+function connectorRow(parents: PlacedBox[], children: PlacedBox[], edges: Array<[string, string]>, cols: number): string {
   const row = Array(cols).fill(" ");
-  const childByPattern = new Map(children.map((b) => [b.pattern, b]));
-  for (const parent of parents) {
-    for (const childName of roadmapChildren(parent.pattern)) {
-      const child = childByPattern.get(childName);
-      if (!child) continue; // child is on a further level; skip (kept simple)
-      if (parent.center < cols) row[parent.center] = "│";
-      if (child.center < cols) row[child.center] = "v";
-    }
+  const parentById = new Map(parents.map((b) => [b.node.id, b]));
+  const childById = new Map(children.map((b) => [b.node.id, b]));
+  for (const [pid, cid] of edges) {
+    const parent = parentById.get(pid);
+    const child = childById.get(cid);
+    if (!parent || !child) continue;
+    if (parent.center >= 0 && parent.center < cols) row[parent.center] = "│";
+    if (child.center >= 0 && child.center < cols) row[child.center] = "v";
   }
   return row.join("");
 }
 
-/**
- * Roadmap overlay: the NeetCode pattern DAG as a top-to-bottom flowchart of
- * boxes, one row per prerequisite level, with connectors between levels. The
- * selected box shows a per-pattern done/total count line and is marked with ▶
- * borders; Enter filters the Problems panel to it.
- */
-export function renderRoadmap(s: State, rows: number, cols: number): string[] {
-  const counts = patternCounts(s);
-  const levels = roadmapLevels();
-  const flat = roadmapPatterns();
-  const cursorPattern = flat[s.roadmap!.cursor] ?? flat[0]!;
-
-  // Detail line for the selected pattern (full name + count + what it unlocks).
-  // Kept at the top, right under the title, so it's always visible even when the
-  // flowchart is tall enough to fill the rest of the overlay.
-  const c = counts.get(cursorPattern) ?? { done: 0, total: 0 };
-  const unlocks = roadmapChildren(cursorPattern);
-  const detail =
-    `  ▶ ${cursorPattern}` +
-    (c.total > 0 ? `  ${c.done}/${c.total} done` : "  (no problems in this list)") +
-    (unlocks.length ? `  → unlocks ${unlocks.join(", ")}` : "");
-
-  const content: string[] = [
-    paint(fit(detail, cols), "cyan"),
-    paint(fit("  ↑↓←→ move · Enter study this pattern · Esc close", cols), "dim"),
-    "",
-  ];
-  let prev: RoadmapBox[] | null = null;
-  for (const level of levels) {
-    const { boxes, top, mid, bot } = layoutRoadmapLevel(level, cols, counts, cursorPattern);
-    if (prev) content.push(roadmapConnectors(prev, boxes, cols));
-    // Colour the label row: selected reverse, fully-solved green, else plain.
-    content.push(top);
-    content.push(colorRoadmapMid(mid, boxes, counts, cursorPattern));
-    content.push(bot);
-    prev = boxes;
-  }
-  return renderOverlay(content, rows, cols, " Roadmap ");
-}
-
-/**
- * Colour a laid-out label row: reverse-video the selected box, green a
- * fully-solved one. Done by overwriting each box's inner label span in place so
- * the box-drawing borders are preserved.
- */
-function colorRoadmapMid(
+/** Colour a laid-out label row: selected reverse-cyan, fully-solved green. */
+function colorBoxRow(
   mid: string,
-  boxes: RoadmapBox[],
+  boxes: PlacedBox[],
   counts: Map<string, { done: number; total: number }>,
-  cursorPattern: string,
+  cursorId: string,
 ): string {
-  // Rebuild the row segment-by-segment so ANSI codes wrap whole boxes.
   let out = "";
   let col = 0;
   for (const box of boxes) {
-    out += mid.slice(col, box.left); // gap before the box
+    out += mid.slice(col, box.left);
     const seg = mid.slice(box.left, box.left + box.width);
-    const c = counts.get(box.pattern) ?? { done: 0, total: 0 };
-    if (box.pattern === cursorPattern) out += paint(seg, "rev", "cyan");
+    const c = counts.get(box.node.pattern) ?? { done: 0, total: 0 };
+    if (box.node.id === cursorId) out += paint(seg, "rev", "cyan");
+    else if (box.node.kind === "topic") out += paint(seg, "dim");
     else if (c.total > 0 && c.done === c.total) out += paint(seg, "green");
     else out += seg;
     col = box.left + box.width;
   }
   out += mid.slice(col);
   return out;
+}
+
+/** The chart for the current roadmap mode (NeetCode DAG or full pattern→topics). */
+function roadmapChart(s: State): Chart {
+  return s.roadmap!.chart === "full" ? fullChart(topicsByPattern()) : neetcodeChart();
+}
+
+/**
+ * Roadmap overlay: a top-to-bottom box flowchart. In "neetcode" mode it's the
+ * 18-pattern DAG; in "full" mode each pattern also fans out to its LeetCode
+ * topics. Counts are scoped to the chosen subset. Boxes size to the terminal;
+ * the selected box is marked ▶ and a detail line stays pinned at the top.
+ */
+export function renderRoadmap(s: State, rows: number, cols: number): string[] {
+  const rm = s.roadmap!;
+  const counts = patternCounts(s, rm.subset);
+  const chart = roadmapChart(s);
+  const flat = chart.rows.flat();
+  if (rm.cursor >= flat.length) rm.cursor = 0;
+  const cursor = flat[rm.cursor] ?? flat[0]!;
+
+  const c = counts.get(cursor.pattern) ?? { done: 0, total: 0 };
+  const unlocks = roadmapChildren(cursor.pattern);
+  const chartName = rm.chart === "full" ? "full (pattern→topics)" : "neetcode";
+  const detail =
+    `  ▶ ${cursor.pattern}` +
+    (cursor.kind === "topic" ? ` · topic: ${cursor.label}` : "") +
+    (c.total > 0 ? `  ${c.done}/${c.total} done` : "  (none in scope)") +
+    (unlocks.length ? `  → ${unlocks.join(", ")}` : "");
+
+  const content: string[] = [
+    paint(fit(detail, cols), "cyan"),
+    paint(
+      fit(`  chart: ${chartName} [c]  ·  subset: ${rm.subset} [Tab]  ·  ↑↓←→ move · Enter study · Esc`, cols),
+      "dim",
+    ),
+    "",
+  ];
+
+  const boxW = roadmapBoxWidth(chart, cols);
+  let prev: PlacedBox[] | null = null;
+  for (const nodes of chart.rows) {
+    const { boxes, top, mid, bot } = layoutBoxRow(nodes, boxW, cols, cursor.id);
+    if (prev) content.push(connectorRow(prev, boxes, chart.edges, cols));
+    content.push(top);
+    content.push(colorBoxRow(mid, boxes, counts, cursor.id));
+    content.push(bot);
+    prev = boxes;
+  }
+  return renderOverlay(content, rows, cols, " Roadmap ");
 }
 
 /** Render the settings overlay: one row per editable field, showing current value or fallback. */
@@ -2114,7 +2140,11 @@ export async function runTui(list?: ProblemList): Promise<void> {
         state.tagPicker = { index: 0 };
         break;
       case "roadmap":
-        state.roadmap = { cursor: 0 };
+        state.roadmap = {
+          cursor: 0,
+          chart: resolveRoadmapChart(config),
+          subset: resolveRoadmapSubset(config),
+        };
         break;
       case "sort": {
         const next = cycleSortState(state.sortKey, state.sortDesc);
@@ -2388,7 +2418,8 @@ export async function runTui(list?: ProblemList): Promise<void> {
       // ── roadmap overlay ── (box flowchart; Enter studies a pattern) ──
       if (state.roadmap) {
         const rm = state.roadmap;
-        const flat = roadmapPatterns();
+        const chart = rm.chart === "full" ? fullChart(topicsByPattern()) : neetcodeChart();
+        const flat = chart.rows.flat();
         switch (key) {
           case "\x03":
             finish();
@@ -2399,31 +2430,48 @@ export async function runTui(list?: ProblemList): Promise<void> {
             break;
           case "k":
           case "\x1b[A":
-            rm.cursor = roadmapMove(rm.cursor, "up");
+            rm.cursor = chartMove(chart, rm.cursor, "up");
             break;
           case "j":
           case "\x1b[B":
-            rm.cursor = roadmapMove(rm.cursor, "down");
+            rm.cursor = chartMove(chart, rm.cursor, "down");
             break;
           case "h":
           case "\x1b[D":
-            rm.cursor = roadmapMove(rm.cursor, "left");
+            rm.cursor = chartMove(chart, rm.cursor, "left");
             break;
           case "l":
           case "\x1b[C":
-            rm.cursor = roadmapMove(rm.cursor, "right");
+            rm.cursor = chartMove(chart, rm.cursor, "right");
             break;
+          case "c": {
+            // Cycle the chart type; reset the cursor since the node list changes.
+            const i = ROADMAP_CHARTS.indexOf(rm.chart);
+            rm.chart = ROADMAP_CHARTS[(i + 1) % ROADMAP_CHARTS.length]!;
+            rm.cursor = 0;
+            break;
+          }
+          case "\t":
+          case "\x1b[Z": {
+            // Cycle the counting subset.
+            const i = ROADMAP_SUBSETS.indexOf(rm.subset);
+            const dir = key === "\t" ? 1 : -1;
+            rm.subset = ROADMAP_SUBSETS[(i + dir + ROADMAP_SUBSETS.length) % ROADMAP_SUBSETS.length]!;
+            break;
+          }
           case "\r":
           case "\n": {
-            // Study this pattern: set the tag filter to just it, close, focus Problems.
-            const pat = flat[rm.cursor]!;
-            state.tagFilter = new Set([pat]);
-            state.roadmap = null;
-            state.focus = "problems";
-            state.lastPanel = "problems";
-            state.cursor = 0;
-            state.top = 0;
-            recompute(state);
+            // Study this node: filter the Problems panel to its pattern, close.
+            const node = flat[rm.cursor];
+            if (node) {
+              state.tagFilter = new Set([node.pattern]);
+              state.roadmap = null;
+              state.focus = "problems";
+              state.lastPanel = "problems";
+              state.cursor = 0;
+              state.top = 0;
+              recompute(state);
+            }
             break;
           }
           default:

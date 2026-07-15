@@ -198,8 +198,20 @@ leet make-list easy-dp --from neetcode-250 --tag "1-D Dynamic Programming" -d ea
 ```
 
 In the **TUI**: press `T` for the pattern-filter checklist, or `m` to open the
-**roadmap** — the branching tree of all 18 patterns with per-pattern done/total
-counts; hit Enter on a pattern to filter the list to it.
+**roadmap** — a box flowchart of the patterns with per-pattern done/total counts;
+`↑↓←→` move between boxes and Enter filters the list to a pattern. Two views,
+toggled with `c`:
+
+- **neetcode** — the 18-pattern prerequisite DAG (the neetcode.io/roadmap shape).
+- **full** — the same DAG, but each pattern also fans out to its LeetCode topics.
+
+`Tab` cycles which curated subset the counts are scoped to (`all` → `blind75` →
+`neetcode150` → `neetcode250`). Defaults come from config:
+
+```sh
+leet config roadmapChart full          # default to the full pattern→topics chart
+leet config roadmapSubset neetcode150   # default the counts to NeetCode 150
+```
 
 ## Interactive mode
 

@@ -523,8 +523,8 @@ describe("renderFrame tag picker", () => {
 });
 
 describe("renderFrame roadmap", () => {
-  test("renders the pattern flowchart as boxes with counts and drilling hint", () => {
-    const s = makeState({ roadmap: { cursor: 0 } });
+  test("neetcode chart: boxes, connectors, subset/chart toggles, detail line", () => {
+    const s = makeState({ roadmap: { cursor: 0, chart: "neetcode", subset: "neetcode250" } });
     const f = renderFrame(s, 34, 90);
     for (const line of f) expect(strip(line).length).toBe(90);
     const joined = strip(f.join("\n"));
@@ -534,7 +534,15 @@ describe("renderFrame roadmap", () => {
     expect(joined).toContain("v"); // connectors between levels
     // Cursor 0 = Arrays & Hashing → its full name appears in the detail line.
     expect(joined).toContain("Arrays & Hashing");
-    expect(joined).toContain("Enter study this pattern");
+    expect(joined).toContain("chart: neetcode");
+    expect(joined).toContain("subset: neetcode250");
+  });
+
+  test("full chart: pattern boxes fan out to topic boxes", () => {
+    const s = makeState({ roadmap: { cursor: 0, chart: "full", subset: "all" } });
+    const joined = strip(renderFrame(s, 50, 120).join("\n"));
+    expect(joined).toContain("chart: full");
+    expect(joined).toContain("┆"); // topic boxes use dashed edges
   });
 });
 

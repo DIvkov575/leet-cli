@@ -14,6 +14,11 @@
       "topics": [
         "string",
         "stack"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -29,6 +34,10 @@
         "math",
         "string",
         "simulation"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -45,6 +54,9 @@
         "tree",
         "depth-first-search",
         "binary-tree"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {

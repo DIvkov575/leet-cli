@@ -24,6 +24,11 @@ export interface Problem {
   patternSource?: PatternSource;
   /** LeetCode's official topic tags (slugs), e.g. ["array", "hash-table"]. */
   topics?: string[];
+  /**
+   * NeetCode curated-set memberships this problem belongs to, any of
+   * "blind75" | "neetcode150" | "neetcode250". Absent/empty if it's in none.
+   */
+  subsets?: string[];
 }
 
 export interface ProblemList {

@@ -18,6 +18,9 @@
         "sorting",
         "heap-priority-queue",
         "counting"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {

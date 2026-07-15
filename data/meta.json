@@ -14,6 +14,11 @@
       "topics": [
         "array",
         "hash-table"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -29,6 +34,11 @@
         "array",
         "dynamic-programming",
         "greedy"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -44,6 +54,11 @@
         "array",
         "divide-and-conquer",
         "dynamic-programming"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -59,6 +74,10 @@
         "array",
         "binary-search",
         "divide-and-conquer"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -74,6 +93,9 @@
         "array",
         "hash-table",
         "prefix-sum"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -104,6 +126,10 @@
         "dynamic-programming",
         "stack",
         "monotonic-stack"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -120,6 +146,9 @@
         "binary-search",
         "sliding-window",
         "prefix-sum"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -137,6 +166,9 @@
         "divide-and-conquer",
         "sorting",
         "counting"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -151,6 +183,11 @@
       "topics": [
         "array",
         "dynamic-programming"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -179,6 +216,9 @@
       "topics": [
         "math",
         "binary-search"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -194,6 +234,11 @@
         "hash-table",
         "string",
         "sliding-window"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -224,6 +269,11 @@
         "array",
         "hash-table",
         "matrix"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -239,6 +289,11 @@
         "math",
         "dynamic-programming",
         "combinatorics"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -268,6 +323,11 @@
         "hash-table",
         "string",
         "sorting"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -284,6 +344,11 @@
         "hash-table",
         "string",
         "sorting"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -299,6 +364,11 @@
         "array",
         "dynamic-programming",
         "breadth-first-search"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -345,6 +415,11 @@
       "topics": [
         "string",
         "stack"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -360,6 +435,9 @@
         "array",
         "two-pointers",
         "sorting"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -400,6 +478,11 @@
       "topics": [
         "array",
         "sorting"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -414,6 +497,9 @@
       "topics": [
         "array",
         "two-pointers"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -456,6 +542,9 @@
       "topics": [
         "two-pointers",
         "string"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -471,6 +560,10 @@
         "array",
         "binary-search",
         "matrix"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -514,6 +607,10 @@
       "topics": [
         "array",
         "binary-search"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -528,6 +625,11 @@
       "topics": [
         "linked-list",
         "two-pointers"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -545,6 +647,10 @@
         "sorting",
         "heap-priority-queue",
         "quickselect"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -560,6 +666,9 @@
         "array",
         "two-pointers",
         "sorting"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -574,6 +683,9 @@
       "topics": [
         "array",
         "two-pointers"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -588,6 +700,10 @@
       "topics": [
         "array",
         "binary-search"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -603,6 +719,9 @@
         "string",
         "stack",
         "recursion"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -623,6 +742,9 @@
         "bucket-sort",
         "radix-sort",
         "counting-sort"
+      ],
+      "subsets": [
+        "neetcode250"
       ]
     },
     {
@@ -637,6 +759,11 @@
       "topics": [
         "array",
         "dynamic-programming"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -651,6 +778,11 @@
       "topics": [
         "array",
         "binary-search"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -665,6 +797,10 @@
       "topics": [
         "array",
         "dynamic-programming"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -679,6 +815,10 @@
       "topics": [
         "array",
         "backtracking"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     }
   ]

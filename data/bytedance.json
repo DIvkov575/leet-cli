@@ -16,6 +16,10 @@
         "linked-list",
         "design",
         "doubly-linked-list"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -33,6 +37,11 @@
         "breadth-first-search",
         "union-find",
         "matrix"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {
@@ -48,6 +57,11 @@
         "array",
         "binary-search",
         "dynamic-programming"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {

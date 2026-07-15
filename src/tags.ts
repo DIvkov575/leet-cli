@@ -110,6 +110,20 @@ const TOPIC_PATTERN_MAP = new Map(TOPIC_TO_PATTERN);
 const TOPIC_PRIORITY = TOPIC_TO_PATTERN.map(([t]) => t);
 
 /**
+ * The LeetCode topic slugs that map to each NeetCode pattern (the inverse of
+ * TOPIC_TO_PATTERN), preserving the specific→generic priority order. Used by the
+ * "full" roadmap chart to expand each pattern into its constituent topics.
+ */
+export function topicsByPattern(): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const p of NEETCODE_PATTERNS) m.set(p, []);
+  for (const [topic, pattern] of TOPIC_TO_PATTERN) {
+    (m.get(pattern) ?? m.set(pattern, []).get(pattern)!).push(topic);
+  }
+  return m;
+}
+
+/**
  * Infer the most likely NeetCode pattern from a problem's LeetCode topic slugs.
  * Returns null when none of the topics are known (very rare — usually SQL-only).
  */

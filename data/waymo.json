@@ -33,6 +33,11 @@
         "breadth-first-search",
         "union-find",
         "matrix"
+      ],
+      "subsets": [
+        "blind75",
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {

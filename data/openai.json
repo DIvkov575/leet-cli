@@ -15,6 +15,10 @@
         "array",
         "breadth-first-search",
         "matrix"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     },
     {

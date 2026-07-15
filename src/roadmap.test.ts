@@ -7,8 +7,11 @@ import {
   roadmapLevels,
   roadmapLevelOf,
   roadmapMove,
+  neetcodeChart,
+  fullChart,
+  chartMove,
 } from "./roadmap.ts";
-import { NEETCODE_PATTERNS } from "./tags.ts";
+import { topicsByPattern, NEETCODE_PATTERNS } from "./tags.ts";
 
 describe("roadmap graph integrity", () => {
   test("every pattern in the graph is a real NeetCode pattern", () => {
@@ -108,5 +111,51 @@ describe("roadmapMove", () => {
   });
   test("down from the last level stays put", () => {
     expect(roadmapMove(idx("Math & Geometry"), "down")).toBe(idx("Math & Geometry"));
+  });
+});
+
+describe("neetcodeChart", () => {
+  const chart = neetcodeChart();
+  test("has 18 pattern nodes, all kind=pattern", () => {
+    const nodes = chart.rows.flat();
+    expect(nodes).toHaveLength(18);
+    expect(nodes.every((n) => n.kind === "pattern")).toBe(true);
+  });
+  test("edges mirror ROADMAP_EDGES", () => {
+    const expected = ROADMAP_EDGES.flatMap(([p, cs]) => cs.map((c) => `${p}->${c}`)).sort();
+    const got = chart.edges.map(([a, b]) => `${a}->${b}`).sort();
+    expect(got).toEqual(expected);
+  });
+});
+
+describe("fullChart", () => {
+  const chart = fullChart(topicsByPattern());
+  test("includes both pattern and topic nodes", () => {
+    const kinds = new Set(chart.rows.flat().map((n) => n.kind));
+    expect(kinds.has("pattern")).toBe(true);
+    expect(kinds.has("topic")).toBe(true);
+  });
+  test("every topic node filters to a real pattern and sits below it", () => {
+    const level = new Map(chart.rows.flatMap((r, i) => r.map((n) => [n.id, i] as const)));
+    for (const n of chart.rows.flat()) {
+      if (n.kind !== "topic") continue;
+      const parent = chart.rows.flat().find((p) => p.kind === "pattern" && p.pattern === n.pattern)!;
+      expect(level.get(n.id)!).toBeGreaterThan(level.get(parent.id)!);
+    }
+  });
+});
+
+describe("chartMove", () => {
+  const chart = neetcodeChart();
+  const flat = chart.rows.flat();
+  const at = (p: string) => flat.findIndex((n) => n.id === p);
+  test("right steps within a row", () => {
+    expect(chartMove(chart, at("Two Pointers"), "right")).toBe(at("Stack"));
+  });
+  test("down descends to the next level", () => {
+    expect(chartMove(chart, at("Arrays & Hashing"), "down")).toBe(at("Two Pointers"));
+  });
+  test("up from a bottom row returns toward the root", () => {
+    expect(chartMove(chart, at("Stack"), "up")).toBe(at("Arrays & Hashing"));
   });
 });

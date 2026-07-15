@@ -15,6 +15,10 @@
         "linked-list",
         "math",
         "recursion"
+      ],
+      "subsets": [
+        "neetcode150",
+        "neetcode250"
       ]
     }
   ]
