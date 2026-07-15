@@ -1,6 +1,6 @@
 {
   "name": "leet-cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A terminal workflow for LeetCode company problem lists: browse, solve, test, and sync solved status with your LeetCode account.",
   "type": "module",
   "bin": {
