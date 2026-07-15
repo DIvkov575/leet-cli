@@ -24,6 +24,7 @@ import { resolveDescription } from "./description.ts";
 import { htmlToText, renderProblem, renderTable } from "./render.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { NEETCODE_PATTERNS } from "./tags.ts";
+import { fuzzyRankProblems } from "./fuzzy.ts";
 import { setConfigOffline } from "./net.ts";
 import { loadCompleted, saveCompleted, updateCompleted } from "./progress.ts";
 import {
@@ -81,7 +82,7 @@ Usage:
 Filters (for ls / random):
   --difficulty, -d  easy|medium|hard
   --min-acc <n>     minimum acceptance %        --max-acc <n>  maximum acceptance %
-  --search, -s <q>  title substring match
+  --search, -s <q>  fuzzy match over title, tags, and company (ranked by relevance)
   --tag, -t <p,…>   NeetCode pattern(s), e.g. "Two Pointers,Stack" or arrays-hashing
   --done            only completed problems     --todo         only not-completed
   --sort <key>      id|acc|difficulty|title (default id)   --desc  reverse order
@@ -226,7 +227,7 @@ function filtersFrom(values: Parsed["values"], completed?: Set<number>): FilterO
     difficulty: parseDifficulty(values.difficulty as string | undefined),
     minAcceptance: num(values["min-acc"], "--min-acc"),
     maxAcceptance: num(values["max-acc"], "--max-acc"),
-    search: values.search as string | undefined,
+    // `search` is handled by the fuzzy ranker in applyView, not here.
     patterns: parsePatterns(values.tag as string | undefined),
     completed,
     done,
@@ -256,9 +257,21 @@ function parsePatterns(raw: string | undefined): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-function applyView(problems: Problem[], values: Parsed["values"], completed: Set<number>): Problem[] {
+function applyView(
+  problems: Problem[],
+  values: Parsed["values"],
+  completed: Set<number>,
+  companiesOf?: (p: Problem) => readonly string[],
+): Problem[] {
   let out = filterProblems(problems, filtersFrom(values, completed));
-  out = sortProblems(out, parseSort(values.sort as string | undefined), Boolean(values.desc));
+  const query = (values.search as string | undefined)?.trim();
+  if (query) {
+    // Fuzzy search defines the order (by relevance) — sort flags are ignored
+    // while searching, so the best match stays on top.
+    out = fuzzyRankProblems(out, query, companiesOf);
+  } else {
+    out = sortProblems(out, parseSort(values.sort as string | undefined), Boolean(values.desc));
+  }
   const limit = num(values.limit, "--limit");
   if (limit !== undefined) out = out.slice(0, limit);
   return out;
@@ -270,6 +283,26 @@ function output(problems: Problem[], values: Parsed["values"], completed: Set<nu
   } else {
     console.log(renderTable(problems, completed));
   }
+}
+
+/**
+ * Build a slug → list-names map across every bundled list, for fuzzy "company"
+ * matching (a problem's companies are the lists it appears in). Offline: reads
+ * only embedded/on-disk lists.
+ */
+async function companiesBySlug(): Promise<(p: Problem) => string[]> {
+  const names = await availableLists();
+  const lists = await Promise.all(names.map((n) => loadList(n)));
+  const bySlug = new Map<string, string[]>();
+  for (const l of lists) {
+    if (l.name === ALL_LIST_NAME) continue;
+    for (const p of l.problems) {
+      const arr = bySlug.get(p.slug) ?? [];
+      arr.push(l.name);
+      bySlug.set(p.slug, arr);
+    }
+  }
+  return (p: Problem) => bySlug.get(p.slug) ?? [];
 }
 
 async function openUrl(url: string): Promise<void> {
@@ -307,7 +340,9 @@ async function cmdLs(p: Parsed): Promise<void> {
   if (!name) throw new UserError("usage: leet ls <list> [filters]");
   const list = await loadList(name);
   const completed = await loadCompleted();
-  output(applyView(list.problems, p.values, completed), p.values, completed);
+  // Company matching only adds value when searching across lists (e.g. `all`).
+  const companiesOf = p.values.search ? await companiesBySlug() : undefined;
+  output(applyView(list.problems, p.values, completed, companiesOf), p.values, completed);
 }
 
 /**
@@ -333,9 +368,10 @@ async function cmdMakeList(p: Parsed): Promise<void> {
   const from = (p.values.from as string | undefined) ?? ALL_LIST_NAME;
   const source = await loadList(from);
   const completed = await loadCompleted();
+  const companiesOf = p.values.search ? await companiesBySlug() : undefined;
   // Reuse the same view pipeline as `ls`, minus the --limit truncation surprise
   // (a saved list should be the full filtered set unless the user asked to cap).
-  const problems = applyView(source.problems, p.values, completed);
+  const problems = applyView(source.problems, p.values, completed, companiesOf);
   if (problems.length === 0) {
     throw new UserError(`no problems matched — refusing to save an empty list "${name}".`);
   }

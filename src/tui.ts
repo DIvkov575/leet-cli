@@ -41,6 +41,7 @@ import { scaffoldContent, scaffoldFilename } from "./scaffold.ts";
 import { buildSolutionFile, hasStatementBlock, withStatement } from "./solution-file.ts";
 import { compileAndRun } from "./runner.ts";
 import { NEETCODE_PATTERNS, topicsByPattern } from "./tags.ts";
+import { fuzzyRankProblems } from "./fuzzy.ts";
 import {
   roadmapChildren,
   neetcodeChart,
@@ -466,12 +467,17 @@ function recompute(s: State): void {
     : s.list.problems;
   const out = filterProblems(source, {
     difficulty: s.diff,
-    search: s.search || undefined,
     completed: s.completed,
     patterns: s.tagFilter.size > 0 ? [...s.tagFilter] : undefined,
     done,
   });
-  s.filtered = sortProblems(out, s.sortKey, s.sortDesc);
+  // Search is fuzzy (title + pattern + topics + company) and defines the order
+  // by relevance; without a query, the chosen sort applies.
+  if (s.search.trim()) {
+    s.filtered = fuzzyRankProblems(out, s.search, (p) => listsContaining(s, p.id));
+  } else {
+    s.filtered = sortProblems(out, s.sortKey, s.sortDesc);
+  }
   if (s.cursor >= s.filtered.length) s.cursor = Math.max(0, s.filtered.length - 1);
 }
 
@@ -569,7 +575,7 @@ function panelHeader(label: string, focused: boolean, width: number): string {
 /** The footer hint / status line, shared across layouts. */
 function footerLine(s: State, cols: number): string {
   if (s.input) {
-    const label = s.input.kind === "search" ? "/" : "import: ";
+    const label = s.input.kind === "search" ? "fuzzy /" : "import: ";
     return paint(fit(` ${label}${s.input.value}▏  (Enter apply · Esc cancel)`, cols), "yellow");
   }
   if (s.prefetch) return paint(fit(` ${s.prefetch}`, cols), "yellow");
