@@ -15,7 +15,7 @@ import {
 } from "../roadmap.ts";
 import { fit, paint, diffColor, visibleLength } from "./ansi.ts";
 import { layoutColumns, computeTop, wrapText, type Columns } from "./layout.ts";
-import { renderMenuBar } from "./menu.ts";
+import { renderMenuBar, PALETTE_ITEMS } from "./menu.ts";
 import { solveCommand } from "./controls.ts";
 import {
   current,
@@ -38,8 +38,9 @@ const HELP_LINES = [
   "",
   "  Four hierarchical panels: Lists → Problems → Preview → Logs.",
   "  → / Enter drills deeper (open a list, preview a problem, then its",
-  "  test logs); ← / Esc steps back out. The menu bar (top) holds every",
-  "  action — Tab enters it, ←→ move, Enter fires; Esc returns to your panel.",
+  "  test logs); ← / Esc steps back out. The menu bar (top) has just four",
+  "  entries — Search · Filter · Roadmap · Menu — Tab enters it, ←→ move,",
+  "  Enter fires; Esc returns to your panel. Menu lists everything else.",
   "",
   "  Navigation",
   "    ↑ ↓ / j k     move within the focused panel",
@@ -57,15 +58,20 @@ const HELP_LINES = [
   "    q             quit",
   "",
   "  Direct shortcuts (from any panel)",
-  "    f filter   d difficulty   T tag       S sort    / search",
-  "    m roadmap  L lists        o open      R refresh i import   c config   ? help",
+  "    /  search          f  filter overlay (status·difficulty·sort·tags)",
+  "    m  roadmap         d  difficulty   S  sort   T  tags",
+  "    L  lists           o  open in browser         R  refresh",
+  "    i  import          c  settings                ?  help",
+  "",
+  "  Menu (bar → Menu) is a command palette of everything above with keys —",
+  "  handy when you don't remember a shortcut.",
   "",
   "  Tags & roadmap",
   "    T             filter the list by NeetCode pattern (checklist)",
   "    m             open the roadmap — a box flowchart of the patterns;",
   "                  ↑↓←→ move · Enter filters to a pattern · Tab subset",
   "",
-  "  Sync (menu bar → Sync): authenticate, pull solved from LeetCode,",
+  "  Sync (Menu → Sync): authenticate, pull solved from LeetCode,",
   "  and push solutions to your account (with a confirm before submitting).",
 ];
 
@@ -340,6 +346,8 @@ export function renderFrame(s: State, rows: number, cols: number): string[] {
   if (s.config) return renderConfig(s.config, rows, cols);
   if (s.sync) return renderSync(s.sync, rows, cols);
   if (s.roadmap) return renderRoadmap(s, rows, cols);
+  if (s.filterPanel) return renderFilterPanel(s, rows, cols);
+  if (s.palette) return renderPalette(s, rows, cols);
   if (s.tagPicker) return renderTagPicker(s, rows, cols);
   if (s.fullscreen) return renderFullscreen(s, rows, cols);
 
@@ -511,6 +519,68 @@ export function renderTagPicker(s: State, rows: number, cols: number): string[] 
   content.push("");
   content.push(paint(fit("  Space toggle · a all · n none · Enter/Esc apply", cols), "dim"));
   return renderOverlay(content, rows, cols, " Tag filter ");
+}
+
+/**
+ * Combined Filter overlay: status, difficulty, and sort as ←/→-cyclable rows,
+ * plus a row to open the tag checklist and one to clear everything. This is the
+ * menu bar's "Filter" — it gathers the four narrowing controls that used to be
+ * separate bar items into one place.
+ */
+export function renderFilterPanel(s: State, rows: number, cols: number): string[] {
+  const sel = s.filterPanel!.index;
+  const tagLabel =
+    s.tagFilter.size === 0
+      ? "any"
+      : s.tagFilter.size === 1
+        ? [...s.tagFilter][0]!
+        : `${s.tagFilter.size} patterns`;
+  const items: { label: string; value: string }[] = [
+    { label: "Status", value: s.doneFilter },
+    { label: "Difficulty", value: s.diff ?? "any" },
+    { label: "Sort", value: `${s.sortKey} ${s.sortDesc ? "↓ desc" : "↑ asc"}` },
+    { label: "Tags", value: tagLabel },
+    { label: "Clear all filters", value: "" },
+  ];
+  const labelW = items.reduce((w, it) => Math.max(w, it.label.length), 0);
+  const content: string[] = ["  Filter & sort", ""];
+  items.forEach((it, i) => {
+    const marker = i === sel ? "▸ " : "  ";
+    const arrows = i <= 2 ? "‹ " : "  ";
+    const arrowsR = i <= 2 ? " ›" : "";
+    const row =
+      i === 4
+        ? `  ${marker}${it.label}`
+        : `  ${marker}${it.label.padEnd(labelW)}   ${arrows}${it.value}${arrowsR}`;
+    content.push(i === sel ? paint(fit(row, cols), "rev") : fit(row, cols));
+  });
+  content.push("");
+  content.push(paint(fit("  ↑↓ row · ←→/Space change · Enter/Esc apply · x clear", cols), "dim"));
+  return renderOverlay(content, rows, cols, " Filter ");
+}
+
+/**
+ * Command-palette overlay (the "Menu" bar item): every action that isn't on the
+ * bar, each with its direct hotkey, so it doubles as a discoverable cheatsheet.
+ */
+export function renderPalette(s: State, rows: number, cols: number): string[] {
+  const sel = s.palette!.index;
+  const keyW = PALETTE_ITEMS.reduce((w, it) => Math.max(w, it.key.length), 0);
+  const content: string[] = ["  Menu — pick an action (or use its key anytime)", ""];
+  PALETTE_ITEMS.forEach((it, i) => {
+    const marker = i === sel ? "▸ " : "  ";
+    const key = it.key.padStart(keyW);
+    const row = `  ${marker}${paintKey(key, i === sel)}  ${it.label}`;
+    content.push(i === sel ? paint(fit(row, cols), "rev") : fit(row, cols));
+  });
+  content.push("");
+  content.push(paint(fit("  ↑↓ move · Enter run · Esc close", cols), "dim"));
+  return renderOverlay(content, rows, cols, " Menu ");
+}
+
+/** Dim a palette key hint unless its row is selected (reverse-video handles that). */
+function paintKey(key: string, selected: boolean): string {
+  return selected ? key : paint(key, "dim");
 }
 
 /** A node placed on the grid: its chart node plus horizontal span. */

@@ -38,6 +38,8 @@ function harness() {
     diff: undefined,
     tagFilter: new Set<string>(),
     tagPicker: null,
+    filterPanel: null,
+    palette: null,
     roadmap: null,
     search: "",
     sortKey: "id",
@@ -142,6 +144,49 @@ describe("input handler — overlays", () => {
     expect(h.state.help).toBe(true);
     h.key("\x1b");
     expect(h.state.help).toBe(false);
+  });
+
+  test("f opens the combined filter overlay; ←→ cycle status; x clears", () => {
+    const h = harness();
+    h.key("f");
+    expect(h.state.filterPanel).not.toBeNull();
+    expect(h.state.doneFilter).toBe("all");
+    h.key("\x1b[C"); // right → cycle status forward
+    expect(h.state.doneFilter).toBe("todo");
+    h.key("\x1b[D"); // left → back to all
+    expect(h.state.doneFilter).toBe("all");
+    h.key("\x1b[B"); // down to Difficulty row
+    h.key("\x1b[C"); // right → Easy
+    expect(h.state.diff).toBe("Easy");
+    h.key("x"); // clear everything
+    expect(h.state.diff).toBeUndefined();
+    expect(h.state.doneFilter).toBe("all");
+    h.key("\x1b"); // close
+    expect(h.state.filterPanel).toBeNull();
+  });
+
+  test("filter overlay: Tags row opens the tag picker", () => {
+    const h = harness();
+    h.key("f");
+    h.key("\x1b[B"); // Difficulty
+    h.key("\x1b[B"); // Sort
+    h.key("\x1b[B"); // Tags
+    h.key(" "); // activate → opens tag picker
+    expect(h.state.filterPanel).toBeNull();
+    expect(h.state.tagPicker).not.toBeNull();
+  });
+
+  test("menu bar → Menu opens the command palette; Enter fires an action", () => {
+    const h = harness();
+    h.key("\t"); // enter menu bar (index 0 = Search)
+    h.key("l"); // Filter
+    h.key("l"); // Roadmap
+    h.key("l"); // Menu
+    expect(h.state.menuIndex).toBe(3);
+    h.key("\r"); // activate Menu → palette
+    expect(h.state.palette).not.toBeNull();
+    h.key("\x1b"); // close
+    expect(h.state.palette).toBeNull();
   });
 });
 

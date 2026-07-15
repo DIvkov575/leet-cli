@@ -7,25 +7,28 @@ import type { SortKey } from "../lib.ts";
 
 export type DoneFilter = "all" | "todo" | "done";
 
-/** Cycle the done filter: all → todo → done → all. */
-export function cycleDoneFilter(cur: DoneFilter): DoneFilter {
-  return cur === "all" ? "todo" : cur === "todo" ? "done" : "all";
+/** Cycle the done filter: all → todo → done → all (dir −1 steps backward). */
+export function cycleDoneFilter(cur: DoneFilter, dir: 1 | -1 = 1): DoneFilter {
+  const order: DoneFilter[] = ["all", "todo", "done"];
+  return order[(order.indexOf(cur) + dir + order.length) % order.length]!;
 }
 
-/** Cycle difficulty: undefined → Easy → Medium → Hard → undefined. */
-export function cycleDifficulty(cur: Difficulty | undefined): Difficulty | undefined {
+/** Cycle difficulty: undefined → Easy → Medium → Hard → undefined (dir −1 backward). */
+export function cycleDifficulty(cur: Difficulty | undefined, dir: 1 | -1 = 1): Difficulty | undefined {
   const order: (Difficulty | undefined)[] = [undefined, "Easy", "Medium", "Hard"];
-  return order[(order.indexOf(cur) + 1) % order.length];
+  return order[(order.indexOf(cur) + dir + order.length) % order.length];
 }
 
 /**
  * Cycle sort key + direction together, so a single action steps through every
- * ordering: id↑ → id↓ → acc↑ → acc↓ → difficulty↑ → … → title↓ → id↑.
+ * ordering: id↑ → id↓ → acc↑ → acc↓ → difficulty↑ → … → title↓ → id↑ (dir −1
+ * steps backward through the same sequence).
  */
-export function cycleSortState(key: SortKey, desc: boolean): { key: SortKey; desc: boolean } {
+export function cycleSortState(key: SortKey, desc: boolean, dir: 1 | -1 = 1): { key: SortKey; desc: boolean } {
   const keys: SortKey[] = ["id", "acc", "difficulty", "title"];
+  const total = keys.length * 2;
   const seq = keys.indexOf(key) * 2 + (desc ? 1 : 0);
-  const next = (seq + 1) % (keys.length * 2);
+  const next = (seq + dir + total) % total;
   return { key: keys[Math.floor(next / 2)]!, desc: next % 2 === 1 };
 }
 

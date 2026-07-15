@@ -135,6 +135,18 @@ export interface State {
   /** Tag-picker overlay (checklist of patterns), or null. */
   tagPicker: { index: number } | null;
   /**
+   * Combined Filter overlay (status · difficulty · sort · tags), or null.
+   * `index` selects a row within the overlay. Opened from the menu bar's
+   * "Filter" and the `f` hotkey; the individual toggles still have their own
+   * direct keys (d/S/T) for muscle memory.
+   */
+  filterPanel: { index: number } | null;
+  /**
+   * Command-palette overlay (the "Menu" item), or null. Lists every action not
+   * on the bar with its hotkey; `index` selects one to fire with Enter.
+   */
+  palette: { index: number } | null;
+  /**
    * Roadmap overlay, or null. The chart is always the 18-pattern NeetCode DAG;
    * `subset` scopes every box's done/total count (so the chart redraws per
    * subset). `cursor` is a flat index into the chart's node list.
