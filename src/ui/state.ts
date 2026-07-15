@@ -99,17 +99,24 @@ export type Focus = "lists" | "problems" | "preview" | "logs" | "menu";
 /** Sentinel list name for the "★ Recommended" pseudo-list at the top of Lists. */
 export const RECOMMENDED_LIST = "★ recommended";
 
-/** Captured test-run state for the Logs panel (beside Preview). */
+/**
+ * Captured test/submit output for the Logs panel (beside Preview). `lines` is a
+ * running *transcript*: each test or submit run appends a labelled block rather
+ * than replacing the buffer, so you can compare runs. It resets only when the
+ * selected problem changes (see `invalidateStalePreview`).
+ */
 export interface LogsState {
   /** Slug the log belongs to (so it invalidates when the selection changes). */
   slug: string | null;
   status: "idle" | "running" | "done";
-  /** Captured compile + run output, line-wrapped for the panel width. */
+  /** Accumulated transcript across runs, line-wrapped for the panel width. */
   lines: string[];
   scroll: number;
-  /** Pass/fail summary shown in the panel header once done. */
+  /** Pass/fail summary of the latest run, shown in the panel header once done. */
   summary?: string;
   ok?: boolean;
+  /** Transient status while a run is in flight (e.g. "compiling…"); cleared on done. */
+  note?: string;
 }
 
 export interface State {
@@ -278,4 +285,37 @@ export async function selectListRow(s: State, name: string): Promise<void> {
 /** Human label for the Problems-panel header: list title or "Recommended". */
 export function currentViewTitle(s: State): string {
   return s.showingRecommended ? "Recommended" : s.list.title;
+}
+
+/**
+ * Begin a Logs run for `slug`: mark it running with a transient `note`, keeping
+ * the existing transcript when it belongs to the same problem (so runs append)
+ * and starting fresh when the selection changed.
+ */
+export function logsBeginRun(s: State, slug: string, note: string): void {
+  const keep = s.logs.slug === slug ? s.logs.lines : [];
+  s.logs = { slug, status: "running", lines: keep, scroll: s.logs.slug === slug ? s.logs.scroll : 0, note };
+}
+
+/**
+ * Append a finished run block to the transcript: a divider (when prior output
+ * exists), a `── label ──` header, then the run's lines. Sets the header
+ * summary/ok to this latest run and auto-scrolls so its start is in view.
+ */
+export function logsAppendRun(
+  s: State,
+  slug: string,
+  label: string,
+  lines: string[],
+  summary: string,
+  ok: boolean,
+): void {
+  const prior = s.logs.slug === slug ? s.logs.lines : [];
+  const spacer = prior.length > 0 ? [""] : [];
+  const header = `── ${label} ──`;
+  const combined = [...prior, ...spacer, header, ...lines];
+  // Auto-scroll so the newest block's header (not the blank spacer) is the first
+  // visible line.
+  const scroll = Math.max(0, combined.length - lines.length - 1);
+  s.logs = { slug, status: "done", lines: combined, scroll, summary, ok };
 }

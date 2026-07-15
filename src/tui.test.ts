@@ -437,7 +437,7 @@ describe("renderFrame three-panel layout", () => {
   test("Logs panel prompts to run when idle", () => {
     const s = makeState({ focus: "logs" });
     const joined = strip(renderFrame(s, 16, 160).join("\n"));
-    expect(joined).toContain("Press t to compile & run");
+    expect(joined).toContain("Press t to test");
   });
 
   test("Lists panel shows done/left/total counts for each list", () => {

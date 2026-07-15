@@ -245,6 +245,9 @@ function previewPanel(s: State, width: number, height: number, focused: boolean)
  * lines that look like errors, which are tinted red.
  */
 function colorLogLine(line: string): string {
+  // Run-divider header ("── test ──" / "── submit ──"): dim + bold so runs are
+  // easy to tell apart in the accumulated transcript.
+  if (/^── .+ ──$/.test(line)) return paint(line, "dim", "bold");
   const m = line.match(/^(case \d+: )(PASS|FAIL|ran)(\s+)(.*)$/);
   if (m) {
     const [, head, verdict, gap, rest] = m;
@@ -279,17 +282,22 @@ function logsPanel(s: State, width: number, height: number, focused: boolean): s
   const lines = [head];
   const bodyH = height - 1;
   if (lg.status === "idle") {
-    lines.push(paint(fit("Press t to compile & run the test harness.", width), "dim"));
+    lines.push(paint(fit("Press t to test · u to submit. Runs append here.", width), "dim"));
     for (let i = lines.length; i <= bodyH; i++) lines.push(fit("", width));
     return lines.slice(0, height);
   }
+  // While running (and once done) show the accumulated transcript. During a run
+  // a dim `note` (e.g. "submitting…") trails the prior output rather than wiping it.
+  const body = [...lg.lines];
   if (lg.status === "running") {
-    lines.push(paint(fit("Compiling and running…", width), "dim"));
-    for (let i = lines.length; i <= bodyH; i++) lines.push(fit("", width));
-    return lines.slice(0, height);
+    if (body.length > 0) body.push("");
+    body.push(paint(lg.note ?? "working…", "dim"));
+  } else if (body.length === 0) {
+    body.push(paint("(no output)", "dim"));
   }
-  const body = lg.lines.length > 0 ? lg.lines : [paint("(no output)", "dim")];
-  const view = body.slice(lg.scroll);
+  // Running auto-scrolls to the tail so the live note is visible; done honours scroll.
+  const scroll = lg.status === "running" ? Math.max(0, body.length - bodyH) : lg.scroll;
+  const view = body.slice(scroll);
   for (let i = 0; i < bodyH; i++) lines.push(fit(colorLogLine(view[i] ?? ""), width));
   return lines.slice(0, height);
 }

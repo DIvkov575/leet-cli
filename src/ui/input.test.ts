@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createActions } from "./actions.ts";
 import { createInputHandler } from "./input.ts";
-import { recompute, type State } from "./state.ts";
+import { recompute, logsBeginRun, logsAppendRun, type State } from "./state.ts";
 import type { TuiContext } from "./context.ts";
 import type { Problem } from "../types.ts";
 
@@ -248,5 +248,36 @@ describe("input handler — repaints", () => {
     const before = h.renders();
     h.key("j");
     expect(h.renders()).toBeGreaterThan(before);
+  });
+});
+
+describe("logs transcript (append, don't clear)", () => {
+  test("logsAppendRun accumulates blocks for the same problem", () => {
+    const s = { logs: { slug: null, status: "idle", lines: [], scroll: 0 } } as unknown as State;
+    logsBeginRun(s, "two-sum", "compiling…");
+    expect(s.logs.status).toBe("running");
+    logsAppendRun(s, "two-sum", "test", ["1/1 passed"], "PASS", true);
+    expect(s.logs.status).toBe("done");
+    expect(s.logs.lines).toContain("── test ──");
+    expect(s.logs.lines).toContain("1/1 passed");
+
+    // A second run on the same problem appends rather than replacing.
+    logsBeginRun(s, "two-sum", "submitting…");
+    expect(s.logs.lines).toContain("1/1 passed"); // prior output kept
+    logsAppendRun(s, "two-sum", "submit", ["✓ Accepted"], "Accepted", true);
+    expect(s.logs.lines.filter((l) => l.startsWith("── ")).length).toBe(2); // two blocks
+    expect(s.logs.lines).toContain("1/1 passed"); // first run still present
+    expect(s.logs.lines).toContain("✓ Accepted");
+    // Auto-scroll lands on the newest block's header.
+    expect(s.logs.lines[s.logs.scroll]).toBe("── submit ──");
+  });
+
+  test("switching problems starts a fresh transcript", () => {
+    const s = { logs: { slug: "two-sum", status: "done", lines: ["── test ──", "old"], scroll: 0 } } as unknown as State;
+    logsBeginRun(s, "add-two-numbers", "compiling…");
+    expect(s.logs.lines).not.toContain("old"); // previous problem's log dropped
+    logsAppendRun(s, "add-two-numbers", "test", ["fresh"], "PASS", true);
+    expect(s.logs.lines).toContain("fresh");
+    expect(s.logs.lines).not.toContain("old");
   });
 });
