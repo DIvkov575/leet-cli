@@ -1,8 +1,32 @@
 import type { Difficulty } from "./types.ts";
 import { normalizeDifficulty, parseAcceptance } from "./parse.ts";
 import { assertOnline } from "./net.ts";
+import { loadConfig, resolveLeetCodeAuth } from "./config.ts";
 
 const GRAPHQL_ENDPOINT = "https://leetcode.com/graphql";
+
+/** A LeetCode session for authenticated reads (unlocks Premium content). */
+export interface LeetCodeSession {
+  session: string;
+  csrf?: string;
+}
+
+/**
+ * Resolve the session once per process (env var > config), memoized because a
+ * session doesn't change mid-run and `fetchProblems` fans out many requests.
+ * Undefined means "not signed in" — anonymous requests still work for the
+ * public problem set; only Premium content comes back empty.
+ */
+let authPromise: Promise<LeetCodeSession | null> | undefined;
+function resolveAuth(): Promise<LeetCodeSession | null> {
+  if (!authPromise) authPromise = loadConfig().then((cfg) => resolveLeetCodeAuth(cfg));
+  return authPromise;
+}
+
+/** Reset the memoized session (tests, or after re-authenticating in-process). */
+export function resetLeetCodeAuthCache(): void {
+  authPromise = undefined;
+}
 
 /** Starter code snippet for one language, as returned by LeetCode. */
 export interface CodeSnippet {
@@ -67,14 +91,22 @@ const QUESTION_QUERY = `query questionData($titleSlug: String!) {
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   assertOnline("fetch problem data from LeetCode");
+  // Attach the session cookie when one is configured, so Premium problems return
+  // their content/snippets instead of empty fields. Anonymous otherwise.
+  const auth = await resolveAuth();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    // LeetCode 403s requests without a browser-ish UA / referer.
+    "User-Agent": "Mozilla/5.0 (compatible; leet-cli)",
+    Referer: "https://leetcode.com",
+  };
+  if (auth) {
+    headers.Cookie = `LEETCODE_SESSION=${auth.session}` + (auth.csrf ? `; csrftoken=${auth.csrf}` : "");
+    if (auth.csrf) headers["x-csrftoken"] = auth.csrf;
+  }
   const res = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // LeetCode 403s requests without a browser-ish UA / referer.
-      "User-Agent": "Mozilla/5.0 (compatible; leet-cli)",
-      Referer: "https://leetcode.com",
-    },
+    headers,
     body: JSON.stringify({ query, variables }),
   });
   if (!res.ok) {
