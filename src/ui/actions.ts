@@ -33,7 +33,15 @@ import { fetchNeetcodeCpp } from "../neetcode.ts";
 import { mkdir } from "node:fs/promises";
 import { wrapText } from "./layout.ts";
 import { SUGGESTED_SETUP_LIST } from "./render.ts";
-import { recompute, current, selectListRow, RECOMMENDED_LIST, type SyncAction } from "./state.ts";
+import {
+  recompute,
+  current,
+  selectListRow,
+  logsBeginRun,
+  logsAppendRun,
+  RECOMMENDED_LIST,
+  type SyncAction,
+} from "./state.ts";
 import type { TuiContext } from "./context.ts";
 
 export interface Actions {
@@ -269,26 +277,26 @@ export function createActions(ctx: TuiContext): Actions {
     if (!p) return;
     const config = await loadConfig();
     const dir = resolveSolutionsDir(undefined, config);
-    state.logs = { slug: p.slug, status: "running", lines: [], scroll: 0 };
+    logsBeginRun(state, p.slug, "compiling & running…");
     state.focus = "logs";
     state.lastPanel = "logs";
     render();
 
     const path = await scaffoldToDisk(p, dir);
     if (path === null) {
-      state.logs = { slug: p.slug, status: "done", lines: [state.status], scroll: 0, summary: "scaffold failed", ok: false };
+      logsAppendRun(state, p.slug, "test", [state.status], "scaffold failed", false);
       render();
       return;
     }
     if (!(await Bun.file(path).text()).includes("int main()")) {
-      state.logs = {
-        slug: p.slug,
-        status: "done",
-        lines: ["No test harness for this problem (unsupported signature)."],
-        scroll: 0,
-        summary: "no harness",
-        ok: false,
-      };
+      logsAppendRun(
+        state,
+        p.slug,
+        "test",
+        ["No test harness for this problem (unsupported signature)."],
+        "no harness",
+        false,
+      );
       render();
       return;
     }
@@ -302,7 +310,7 @@ export function createActions(ctx: TuiContext): Actions {
         ? "PASS"
         : `FAIL (exit ${result.exitCode})`;
     if (state.logs.slug === p.slug) {
-      state.logs = { slug: p.slug, status: "done", lines: wrapped, scroll: 0, summary, ok: result.ok };
+      logsAppendRun(state, p.slug, "test", wrapped, summary, result.ok);
       render();
     }
   };
@@ -315,8 +323,9 @@ export function createActions(ctx: TuiContext): Actions {
     if (!p) return;
     const config = await loadConfig();
     const auth = resolveLeetCodeAuth(config);
-    // Reveal the Logs panel so progress + the verdict are visible.
-    state.logs = { slug: p.slug, status: "running", lines: ["Submitting to LeetCode…"], scroll: 0 };
+    // Reveal the Logs panel so progress + the verdict are visible; the running
+    // note shows below the accumulated transcript without wiping it.
+    logsBeginRun(state, p.slug, "submitting to LeetCode…");
     state.focus = "logs";
     state.lastPanel = "logs";
     render();
@@ -325,7 +334,7 @@ export function createActions(ctx: TuiContext): Actions {
       const why = auth
         ? "No CSRF token — re-run Authenticate (Menu → Sync → Authenticate)."
         : "No LeetCode session — authenticate first (Menu → Sync → Authenticate).";
-      state.logs = { slug: p.slug, status: "done", lines: [why], scroll: 0, summary: "not authenticated", ok: false };
+      logsAppendRun(state, p.slug, "submit", [why], "not authenticated", false);
       render();
       return;
     }
@@ -347,7 +356,7 @@ export function createActions(ctx: TuiContext): Actions {
     const log = (lines: string[], summary: string, ok: boolean): void => {
       if (state.logs.slug !== p.slug) return;
       const wrapped = lines.flatMap((l) => (l ? wrapText(l, w) : [""]));
-      state.logs = { slug: p.slug, status: "done", lines: wrapped, scroll: 0, summary, ok };
+      logsAppendRun(state, p.slug, "submit", wrapped, summary, ok);
       render();
     };
 
@@ -356,7 +365,7 @@ export function createActions(ctx: TuiContext): Actions {
         lang: "cpp",
         onRetry: (attempt, waitMs) => {
           if (state.logs.slug !== p.slug) return;
-          state.logs.lines = [`Rate-limited by LeetCode — retry ${attempt} in ${Math.round(waitMs / 1000)}s…`];
+          state.logs.note = `rate-limited — retry ${attempt} in ${Math.round(waitMs / 1000)}s…`;
           render();
         },
       });
