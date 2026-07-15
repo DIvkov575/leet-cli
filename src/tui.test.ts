@@ -551,7 +551,8 @@ describe("renderFrame roadmap", () => {
     expect(joined).toContain("┌"); // single-border box for a non-cursor pattern
     expect(joined).toContain("╔"); // double-border box for the cursor pattern
     expect(joined).toContain("Two Pointers"); // a level-1 box label
-    expect(joined).toContain("v"); // connectors between levels
+    expect(joined).toContain("┴"); // connectors tee into box borders (connected edges)
+    expect(joined).toContain("┬"); // and drop out of parent borders
     // Cursor 0 = Arrays & Hashing → its full name appears in the detail line.
     expect(joined).toContain("Arrays & Hashing");
     expect(joined).toContain("subset: neetcode250");
@@ -595,6 +596,16 @@ describe("renderFrame roadmap", () => {
     expect(mk("all")).toContain("0/2"); // baked into the box body
     expect(mk("blind75")).toContain("0/1 done"); // only the blind75 one
     expect(mk("blind75")).toContain("0/1"); // box body changed with the subset
+  });
+
+  test("edges are connected lines, not floating arrows", () => {
+    const joined = strip(renderFrame(makeState({ roadmap: { cursor: 0, subset: "all" } }), 40, 90).join("\n"));
+    // The old renderer dropped a lone `v` on the child row; the new one routes a
+    // continuous box-drawing path, so there must be no stray 'v' arrow glyphs and
+    // there must be horizontal bus segments joining the vertical drops.
+    expect(joined).not.toMatch(/\bv\b/); // no arrow-style connectors
+    expect(joined).toContain("─"); // horizontal routing between boxes
+    expect(joined).toContain("┐"); // an elbow where a bus turns down
   });
 });
 
