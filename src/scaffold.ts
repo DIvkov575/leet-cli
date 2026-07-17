@@ -48,6 +48,49 @@ export function cppSnippet(snippets: CodeSnippet[]): string {
   return cpp.code;
 }
 
+/**
+ * LeetCode's own struct definitions, ordinarily shipped only inside a doc
+ * comment above the stub (mirroring leetcode.com, where the judge supplies
+ * the real struct) — so a stub referencing ListNode/TreeNode doesn't
+ * actually compile as scaffolded. Each entry is the canonical, full-constructor
+ * form; a solution that only uses the single-arg constructor still compiles
+ * against the full form.
+ */
+const NODE_STRUCTS: Record<string, string> = {
+  ListNode: [
+    "struct ListNode {",
+    "    int val;",
+    "    ListNode *next;",
+    "    ListNode() : val(0), next(nullptr) {}",
+    "    ListNode(int x) : val(x), next(nullptr) {}",
+    "    ListNode(int x, ListNode *next) : val(x), next(next) {}",
+    "};",
+  ].join("\n"),
+  TreeNode: [
+    "struct TreeNode {",
+    "    int val;",
+    "    TreeNode *left;",
+    "    TreeNode *right;",
+    "    TreeNode() : val(0), left(nullptr), right(nullptr) {}",
+    "    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}",
+    "    TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}",
+    "};",
+  ].join("\n"),
+};
+
+/**
+ * Real (compilable) struct definitions for every LeetCode node type the stub
+ * references by whole-word identifier — `ListNode`, `TreeNode`, or both, in
+ * that order. Empty when the stub references neither.
+ */
+function nodeStructDefs(stub: string): string {
+  const defs: string[] = [];
+  for (const [name, def] of Object.entries(NODE_STRUCTS)) {
+    if (new RegExp(`\\b${name}\\b`).test(stub)) defs.push(def);
+  }
+  return defs.join("\n\n");
+}
+
 /** Relative path (from ./solutions) for a scaffolded C++ file, e.g. "1-two-sum.cpp". */
 export function scaffoldFilename(id: number, slug: string): string {
   return `${id}-${slug}.cpp`;
@@ -127,7 +170,8 @@ export function scaffoldContent(input: ScaffoldInput): string {
     if (body.length > 0) header += "//\n" + body.join("\n") + "\n";
   }
   const stub = cppSnippet(input.snippets);
-  const parts = [header, INCLUDES, "", stub];
+  const structs = nodeStructDefs(stub);
+  const parts = structs ? [header, INCLUDES, "", structs, "", stub] : [header, INCLUDES, "", stub];
 
   const meta = parseMeta(input.metaData);
   const cases =

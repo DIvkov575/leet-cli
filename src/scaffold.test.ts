@@ -73,6 +73,128 @@ describe("scaffoldContent", () => {
   });
 });
 
+describe("scaffoldContent — ListNode/TreeNode struct injection", () => {
+  const LISTNODE_STUB = [
+    "/**",
+    " * Definition for singly-linked list.",
+    " * struct ListNode {",
+    " *     int val;",
+    " *     ListNode *next;",
+    " *     ListNode() : val(0), next(nullptr) {}",
+    " *     ListNode(int x) : val(x), next(nullptr) {}",
+    " *     ListNode(int x, ListNode *next) : val(x), next(next) {}",
+    " * };",
+    " */",
+    "class Solution {",
+    "public:",
+    "    ListNode* addTwoNumbers(ListNode* l1, ListNode* l2) {",
+    "    }",
+    "};",
+  ].join("\n");
+
+  const TREENODE_STUB = [
+    "/**",
+    " * Definition for a binary tree node.",
+    " * struct TreeNode {",
+    " *     int val;",
+    " *     TreeNode *left;",
+    " *     TreeNode *right;",
+    " *     TreeNode() : val(0), left(nullptr), right(nullptr) {}",
+    " *     TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}",
+    " *     TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}",
+    " * };",
+    " */",
+    "class Solution {",
+    "public:",
+    "    TreeNode* invertTree(TreeNode* root) {",
+    "    }",
+    "};",
+  ].join("\n");
+
+  test("injects a real (compilable) ListNode struct when the stub references it", () => {
+    const content = scaffoldContent({
+      id: 2,
+      title: "Add Two Numbers",
+      slug: "add-two-numbers",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/add-two-numbers/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: LISTNODE_STUB }],
+    });
+    // Real code, not just the doc comment's indented "* struct ListNode {" text.
+    expect(content).toMatch(/^struct ListNode \{/m);
+  });
+
+  test("injects the struct before class Solution", () => {
+    const content = scaffoldContent({
+      id: 2,
+      title: "Add Two Numbers",
+      slug: "add-two-numbers",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/add-two-numbers/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: LISTNODE_STUB }],
+    });
+    const structAt = content.search(/^struct ListNode \{/m);
+    const classAt = content.indexOf("class Solution {");
+    expect(structAt).toBeGreaterThanOrEqual(0);
+    expect(structAt).toBeLessThan(classAt);
+  });
+
+  test("injects only one ListNode struct even though the stub mentions it twice", () => {
+    const content = scaffoldContent({
+      id: 2,
+      title: "Add Two Numbers",
+      slug: "add-two-numbers",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/add-two-numbers/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: LISTNODE_STUB }],
+    });
+    expect(content.match(/^struct ListNode \{/gm)?.length).toBe(1);
+  });
+
+  test("injects a real TreeNode struct when the stub references it", () => {
+    const content = scaffoldContent({
+      id: 226,
+      title: "Invert Binary Tree",
+      slug: "invert-binary-tree",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/invert-binary-tree/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: TREENODE_STUB }],
+    });
+    expect(content).toMatch(/^struct TreeNode \{/m);
+  });
+
+  test("omits both structs when the stub references neither", () => {
+    const content = scaffoldContent({
+      id: 1,
+      title: "Two Sum",
+      slug: "two-sum",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/two-sum/",
+      snippets: SNIPPETS,
+    });
+    expect(content).not.toMatch(/^struct ListNode \{/m);
+    expect(content).not.toMatch(/^struct TreeNode \{/m);
+  });
+
+  test("does not inject ListNode for an unrelated identifier merely containing the substring", () => {
+    const content = scaffoldContent({
+      id: 1,
+      title: "Two Sum",
+      slug: "two-sum",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/two-sum/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n  int MyListNodeCounter() { return 0; }\n};",
+        },
+      ],
+    });
+    expect(content).not.toMatch(/^struct ListNode \{/m);
+  });
+});
+
 describe("solutionCodeForSubmit", () => {
   test("strips everything from the harness marker down", () => {
     const file = [
