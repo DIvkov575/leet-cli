@@ -30,6 +30,7 @@ const INCLUDES = [
   "#include <cmath>",
   "#include <iostream>",
   "#include <map>",
+  "#include <optional>",
   "#include <queue>",
   "#include <set>",
   "#include <sstream>",

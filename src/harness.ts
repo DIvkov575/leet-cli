@@ -26,6 +26,10 @@ export interface ExampleCase {
   expected: string | null;
 }
 
+/** LeetCode node types this harness can build/compare (see NODE_HELPERS below). */
+const NODE_TYPES = ["ListNode", "TreeNode"] as const;
+type NodeType = (typeof NODE_TYPES)[number];
+
 /** Map a LeetCode metaData type to a C++ type, or null if we can't emit it. */
 export function cppType(leetType: string): string | null {
   const t = leetType.trim();
@@ -39,6 +43,7 @@ export function cppType(leetType: string): string | null {
     void: "void",
   };
   if (t in scalar) return scalar[t]!;
+  if ((NODE_TYPES as readonly string[]).includes(t)) return `${t}*`;
   if (t.endsWith("[]")) {
     const inner = cppType(t.slice(0, -2));
     return inner ? `vector<${inner}>` : null;
@@ -51,12 +56,35 @@ export function cppType(leetType: string): string | null {
   return null;
 }
 
+/** True when a cpp type is exactly the pointer form of a node type, e.g. "ListNode*". */
+function nodeTypeOf(cppT: string): NodeType | null {
+  for (const n of NODE_TYPES) if (cppT === `${n}*`) return n;
+  return null;
+}
+
+/** True when a cpp type is or contains (via vector<...>) a node pointer type. */
+function usesNodeType(cppT: string): boolean {
+  if (nodeTypeOf(cppT)) return true;
+  if (cppT.startsWith("vector<")) return usesNodeType(cppT.slice("vector<".length, -1));
+  return false;
+}
+
 /** Convert a parsed JSON value into a C++ literal for the given cpp type. */
 export function jsonToCppLiteral(value: unknown, type: string): string {
   if (type.startsWith("vector<")) {
     const inner = type.slice("vector<".length, -1);
     if (!Array.isArray(value)) throw new Error(`expected array for ${type}`);
     return `{${value.map((v) => jsonToCppLiteral(v, inner)).join(",")}}`;
+  }
+  const node = nodeTypeOf(type);
+  if (node === "ListNode") {
+    if (!Array.isArray(value)) throw new Error("expected array for ListNode*");
+    return `__buildList({${value.map((v) => jsonToCppLiteral(v, "int")).join(",")}})`;
+  }
+  if (node === "TreeNode") {
+    if (!Array.isArray(value)) throw new Error("expected array for TreeNode*");
+    const items = value.map((v) => (v === null ? "nullopt" : jsonToCppLiteral(v, "int")));
+    return `__buildTree({${items.join(",")}})`;
   }
   switch (type) {
     case "int":
@@ -136,6 +164,72 @@ template <typename T>
 static string __str(const T& v) { ostringstream os; __show(os, v); return os.str(); }
 `;
 
+/** Helpers for ListNode: build from a flat array, compare structurally, print. */
+const LISTNODE_HELPERS = `
+static ListNode* __buildList(const vector<int>& v) {
+  ListNode* head = nullptr; ListNode* tail = nullptr;
+  for (int x : v) {
+    ListNode* node = new ListNode(x);
+    if (!tail) head = tail = node; else { tail->next = node; tail = node; }
+  }
+  return head;
+}
+static bool __eq(ListNode* a, ListNode* b) {
+  while (a && b) { if (a->val != b->val) return false; a = a->next; b = b->next; }
+  return a == nullptr && b == nullptr;
+}
+static void __show(ostream& os, ListNode* v) {
+  os << '[';
+  for (ListNode* n = v; n; n = n->next) { if (n != v) os << ','; os << n->val; }
+  os << ']';
+}
+`;
+
+/**
+ * Helpers for TreeNode: build from a level-order array (LeetCode serialization
+ * — nullopt marks a missing child), compare structurally, print back the same
+ * level-order form.
+ */
+const TREENODE_HELPERS = `
+static TreeNode* __buildTree(const vector<optional<int>>& v) {
+  if (v.empty() || !v[0]) return nullptr;
+  TreeNode* root = new TreeNode(*v[0]);
+  queue<TreeNode*> q; q.push(root);
+  size_t i = 1;
+  while (i < v.size() && !q.empty()) {
+    TreeNode* node = q.front(); q.pop();
+    if (i < v.size()) { if (v[i]) { node->left = new TreeNode(*v[i]); q.push(node->left); } ++i; }
+    if (i < v.size()) { if (v[i]) { node->right = new TreeNode(*v[i]); q.push(node->right); } ++i; }
+  }
+  return root;
+}
+static bool __eq(TreeNode* a, TreeNode* b) {
+  if (!a || !b) return a == b;
+  return a->val == b->val && __eq(a->left, b->left) && __eq(a->right, b->right);
+}
+static void __show(ostream& os, TreeNode* v) {
+  vector<optional<int>> out;
+  queue<TreeNode*> q; if (v) q.push(v);
+  while (!q.empty()) {
+    TreeNode* n = q.front(); q.pop();
+    if (!n) { out.push_back(nullopt); continue; }
+    out.push_back(n->val); q.push(n->left); q.push(n->right);
+  }
+  while (!out.empty() && !out.back()) out.pop_back();
+  os << '[';
+  for (size_t i = 0; i < out.size(); ++i) { if (i) os << ','; if (out[i]) os << *out[i]; else os << "null"; }
+  os << ']';
+}
+`;
+
+/** Node-type helper blocks (builder/compare/show) actually used by a signature. */
+function nodeHelpersFor(types: NodeType[]): string {
+  const blocks: string[] = [];
+  if (types.includes("ListNode")) blocks.push(LISTNODE_HELPERS.trim());
+  if (types.includes("TreeNode")) blocks.push(TREENODE_HELPERS.trim());
+  return blocks.join("\n\n");
+}
+
 /**
  * Generate the `main()` harness that runs each example case against
  * `Solution().<method>(...)` and prints pass/fail.
@@ -161,8 +255,17 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
   const usable = cases.filter((c) => c.args.length === meta.params.length);
   if (usable.length === 0) return { supported: false, reason: "no usable example cases" };
 
+  // Which node builder/compare/show helpers this signature needs, in NODE_TYPES order.
+  const allTypes = [...paramTypes, retType].filter((t): t is string => t !== null);
+  const neededNodeTypes = NODE_TYPES.filter((n) => allTypes.some((t) => t.includes(n)));
+
   const lines: string[] = [];
   lines.push(HELPERS.trimEnd());
+  const nodeHelpers = nodeHelpersFor(neededNodeTypes);
+  if (nodeHelpers) {
+    lines.push("");
+    lines.push(nodeHelpers);
+  }
   lines.push("");
   lines.push("int main() {");
   lines.push("  int __pass = 0, __total = 0;");
@@ -207,7 +310,10 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
     }
     if (expectedExpr !== null) {
       lines.push(`    ${observedType} __exp = ${expectedExpr};`);
-      lines.push(`    bool __ok = (${gotExpr} == __exp);`);
+      const cmp = usesNodeType(observedType)
+        ? `__eq(${gotExpr}, __exp)`
+        : `(${gotExpr} == __exp)`;
+      lines.push(`    bool __ok = ${cmp};`);
       lines.push(`    if (__ok) ++__pass;`);
       lines.push(
         `    cout << "case ${n}: " << (__ok ? "PASS" : "FAIL")` +

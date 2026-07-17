@@ -52,6 +52,10 @@ describe("scaffoldContent", () => {
     expect(content.endsWith("};\n")).toBe(true);
   });
 
+  test("includes <optional>, needed by the TreeNode harness helpers", () => {
+    expect(content).toContain("#include <optional>");
+  });
+
   test("embeds the problem statement as a comment block when contentHtml is given", () => {
     const withDesc = scaffoldContent({
       id: 1,
