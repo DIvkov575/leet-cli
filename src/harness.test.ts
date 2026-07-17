@@ -204,6 +204,44 @@ describe("generateHarness — merge-k-sorted-lists shape (vector<ListNode*>)", (
   });
 });
 
+describe("generateHarness — documented gaps get a specific reason", () => {
+  test("Node (random-pointer list) is a genuinely unmapped type — generic reason", () => {
+    const meta: ProblemMeta = {
+      name: "copyRandomList",
+      params: [{ name: "head", type: "Node" }],
+      return: { type: "Node" },
+    };
+    const r = generateHarness(meta, [{ args: ["[[1,null]]"], expected: "[[1,null]]" }]);
+    expect(r.supported).toBe(false);
+    expect(r.reason).toContain("Node");
+  });
+
+  test("vector<TreeNode*> return (all-possible-full-binary-trees) is order-independent — specific reason", () => {
+    const meta: ProblemMeta = {
+      name: "allPossibleFBT",
+      params: [{ name: "n", type: "integer" }],
+      return: { type: "list<TreeNode>" },
+    };
+    const r = generateHarness(meta, [{ args: ["7"], expected: "[[0,0,0],[0,0,0]]" }]);
+    expect(r.supported).toBe(false);
+    expect(r.reason?.toLowerCase()).toContain("order");
+  });
+
+  test("vector<TreeNode*> return with a TreeNode param too (delete-nodes-and-return-forest)", () => {
+    const meta: ProblemMeta = {
+      name: "delNodes",
+      params: [
+        { name: "root", type: "TreeNode" },
+        { name: "to_delete", type: "integer[]" },
+      ],
+      return: { type: "list<TreeNode>" },
+    };
+    const r = generateHarness(meta, [{ args: ["[1,2,3]", "[2,3]"], expected: "[[1]]" }]);
+    expect(r.supported).toBe(false);
+    expect(r.reason?.toLowerCase()).toContain("order");
+  });
+});
+
 describe("generateHarness — void return with ListNode/TreeNode (structural observe)", () => {
   test("reorder-list shape: void + ListNode param compares structurally post-call", () => {
     const meta: ProblemMeta = {

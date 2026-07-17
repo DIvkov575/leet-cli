@@ -252,6 +252,18 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
     return { supported: false, reason: `unsupported type(s): ${bad.join(", ")}` };
   }
 
+  // A vector<TreeNode*> return (e.g. all-possible-full-binary-trees,
+  // delete-nodes-and-return-forest) is accepted by LeetCode's judge in any
+  // order; a strict ordered-vector comparison would fail correct solutions
+  // that happen to produce the trees in a different order, so this is left
+  // unsupported rather than silently wrong.
+  if (retType === "vector<TreeNode*>") {
+    return {
+      supported: false,
+      reason: "list<TreeNode> return is order-independent on LeetCode's judge — a positional comparison would be unreliable",
+    };
+  }
+
   const usable = cases.filter((c) => c.args.length === meta.params.length);
   if (usable.length === 0) return { supported: false, reason: "no usable example cases" };
 

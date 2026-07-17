@@ -157,6 +157,22 @@ function parseMeta(metaData: string | undefined): ProblemMeta | null {
 }
 
 /**
+ * Slugs whose real LeetCode exampleTestcases carry an extra value per case
+ * beyond what metaData.params declares — a "pos" index for the two cycle
+ * problems (used only by LeetCode's own UI to draw the cycle), or a
+ * reachable-but-undeclared head for delete-node-in-a-linked-list. Structurally
+ * these look identical to a legitimately-supported single-param signature, so
+ * generateHarness can't detect the mismatch on its own: it happily builds a
+ * "supported" harness from the misaligned cases, which then fails *correct*
+ * solutions. Denylisted by slug so no harness is ever generated for them.
+ */
+const HARNESS_DENYLIST = new Set([
+  "linked-list-cycle",
+  "linked-list-cycle-ii",
+  "delete-node-in-a-linked-list",
+]);
+
+/**
  * Build the full contents of a scaffolded C++ solution file: header, includes,
  * starter stub, and either a runnable test harness (when the signature and
  * examples support it) or the example cases as a comment.
@@ -181,7 +197,13 @@ export function scaffoldContent(input: ScaffoldInput): string {
       : [];
 
   if (meta) {
-    const harness = generateHarness(meta, cases);
+    const harness = HARNESS_DENYLIST.has(input.slug)
+      ? {
+          supported: false,
+          reason:
+            "example testcases carry an extra value not declared in metaData (would silently fail correct solutions)",
+        }
+      : generateHarness(meta, cases);
     if (harness.supported && harness.code) {
       // Marker line lets the submit path strip the harness cleanly (LeetCode
       // supplies its own main); it's an ordinary comment to the compiler.

@@ -199,6 +199,124 @@ describe("scaffoldContent — ListNode/TreeNode struct injection", () => {
   });
 });
 
+describe("scaffoldContent — slugs where metaData's param count doesn't match the real testcases", () => {
+  // linked-list-cycle, linked-list-cycle-ii, and delete-node-in-a-linked-list all
+  // have exactly 1 param in metaData, but LeetCode's exampleTestcases carries an
+  // extra line per case (a "pos" index, or an unreachable head) that isn't a real
+  // parameter. Left unguarded, generateHarness happily builds a "supported"
+  // harness from the misaligned cases — which then fails *correct* solutions.
+  // These slugs are denylisted so scaffoldContent never emits that harness.
+  const CYCLE_LISTNODE_STUB = [
+    "class Solution {",
+    "public:",
+    "    bool hasCycle(ListNode *head) {",
+    "    }",
+    "};",
+  ].join("\n");
+
+  test("linked-list-cycle never emits a harness, regardless of metaData", () => {
+    const content = scaffoldContent({
+      id: 141,
+      title: "Linked List Cycle",
+      slug: "linked-list-cycle",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/linked-list-cycle/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: CYCLE_LISTNODE_STUB }],
+      metaData: JSON.stringify({
+        name: "hasCycle",
+        params: [{ name: "head", type: "ListNode" }],
+        return: { type: "boolean" },
+      }),
+      // Real shape: an extra "pos" line per case beyond the single declared param.
+      exampleTestcases: "[3,2,0,-4]\n1\n[1,2]\n0\n[1]\n-1",
+      contentHtml:
+        "<strong>Output:</strong> true\n<strong>Output:</strong> true\n<strong>Output:</strong> false\n",
+    });
+    expect(content).not.toContain("int main()");
+    expect(content.toLowerCase()).toContain("cycle");
+  });
+
+  test("linked-list-cycle-ii never emits a harness", () => {
+    const content = scaffoldContent({
+      id: 142,
+      title: "Linked List Cycle II",
+      slug: "linked-list-cycle-ii",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/linked-list-cycle-ii/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    ListNode *detectCycle(ListNode *head) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "detectCycle",
+        params: [{ name: "head", type: "ListNode" }],
+        return: { type: "ListNode" },
+      }),
+      exampleTestcases: "[3,2,0,-4]\n1\n[1,2]\n0\n[1]\n-1",
+      contentHtml: "<strong>Output:</strong> tail connects to node index 1\n",
+    });
+    expect(content).not.toContain("int main()");
+  });
+
+  test("delete-node-in-a-linked-list never emits a harness", () => {
+    const content = scaffoldContent({
+      id: 237,
+      title: "Delete Node in a Linked List",
+      slug: "delete-node-in-a-linked-list",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/delete-node-in-a-linked-list/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    void deleteNode(ListNode* node) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "deleteNode",
+        params: [{ name: "node", type: "ListNode" }],
+        return: { type: "void" },
+      }),
+      // Real shape: head + node-value, but metaData only declares "node".
+      exampleTestcases: "[4,5,1,9]\n5\n[4,5,1,9]\n1",
+      contentHtml: "<strong>Output:</strong> [4,1,9]\n<strong>Output:</strong> [4,5,9]\n",
+    });
+    expect(content).not.toContain("int main()");
+  });
+
+  test("a different problem that happens to share the method name is unaffected", () => {
+    // Guards against a naive name-based (rather than slug-based) denylist.
+    const content = scaffoldContent({
+      id: 1,
+      title: "Two Sum",
+      slug: "two-sum",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/two-sum/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "twoSum",
+        params: [
+          { name: "nums", type: "integer[]" },
+          { name: "target", type: "integer" },
+        ],
+        return: { type: "integer[]" },
+      }),
+      exampleTestcases: "[2,7,11,15]\n9",
+      contentHtml: "<strong>Output:</strong> [0,1]\n",
+    });
+    expect(content).toContain("int main()");
+  });
+});
+
 describe("solutionCodeForSubmit", () => {
   test("strips everything from the harness marker down", () => {
     const file = [
