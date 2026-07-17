@@ -143,12 +143,18 @@ static string __str(const T& v) { ostringstream os; __show(os, v); return os.str
 export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): HarnessResult {
   const paramTypes = meta.params.map((p) => cppType(p.type));
   const retType = cppType(meta.return.type);
+  // void is only observable via a mutated parameter — the first one, by
+  // convention (the value LeetCode's own examples show as "Output:" for
+  // these in-place-mutation problems). With no parameters there's nothing to
+  // observe at all.
+  const isVoid = retType === "void";
+  const voidObservable = isVoid && meta.params.length > 0;
 
-  if (paramTypes.some((t) => t === null) || retType === null || retType === "void") {
+  if (paramTypes.some((t) => t === null) || retType === null || (isVoid && !voidObservable)) {
     const bad = meta.params
       .filter((_, i) => paramTypes[i] === null)
       .map((p) => `${p.name}:${p.type}`);
-    if (retType === null || retType === "void") bad.push(`return:${meta.return.type}`);
+    if (retType === null || (isVoid && !voidObservable)) bad.push(`return:${meta.return.type}`);
     return { supported: false, reason: `unsupported type(s): ${bad.join(", ")}` };
   }
 
@@ -171,11 +177,13 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
     }
     // Expected output is best-effort: if it's missing or unparseable (some
     // statements format it oddly), still emit a "ran, got=..." case so the
-    // problem is runnable rather than dropped.
+    // problem is runnable rather than dropped. Void problems compare the
+    // first param's post-call value, since there's no return to check.
+    const observedType = voidObservable ? paramTypes[0]! : retType;
     let expectedExpr: string | null = null;
     if (c.expected !== null) {
       try {
-        expectedExpr = jsonToCppLiteral(JSON.parse(c.expected), retType);
+        expectedExpr = jsonToCppLiteral(JSON.parse(c.expected), observedType);
       } catch {
         expectedExpr = null;
       }
@@ -190,18 +198,24 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
       lines.push(`    ${paramTypes[i]} ${name} = ${expr};`);
       return name;
     });
-    lines.push(`    ${retType} __got = Solution().${meta.name}(${argNames.join(", ")});`);
+    const call = `Solution().${meta.name}(${argNames.join(", ")})`;
+    const gotExpr = voidObservable ? argNames[0]! : "__got";
+    if (voidObservable) {
+      lines.push(`    ${call};`);
+    } else {
+      lines.push(`    ${retType} __got = ${call};`);
+    }
     if (expectedExpr !== null) {
-      lines.push(`    ${retType} __exp = ${expectedExpr};`);
-      lines.push(`    bool __ok = (__got == __exp);`);
+      lines.push(`    ${observedType} __exp = ${expectedExpr};`);
+      lines.push(`    bool __ok = (${gotExpr} == __exp);`);
       lines.push(`    if (__ok) ++__pass;`);
       lines.push(
         `    cout << "case ${n}: " << (__ok ? "PASS" : "FAIL")` +
-          ` << "  got=" << __str(__got) << (__ok ? "" : "  expected=" + __str(__exp)) << "\\n";`,
+          ` << "  got=" << __str(${gotExpr}) << (__ok ? "" : "  expected=" + __str(__exp)) << "\\n";`,
       );
     } else {
       lines.push(`    ++__pass;`);
-      lines.push(`    cout << "case ${n}: ran   got=" << __str(__got) << "\\n";`);
+      lines.push(`    cout << "case ${n}: ran   got=" << __str(${gotExpr}) << "\\n";`);
     }
     lines.push(`  }`);
   });

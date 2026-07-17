@@ -96,3 +96,55 @@ describe("generateHarness", () => {
     expect(r.reason).toContain("ListNode");
   });
 });
+
+describe("generateHarness — void return (in-place mutation)", () => {
+  const SORT_COLORS_META: ProblemMeta = {
+    name: "sortColors",
+    params: [{ name: "nums", type: "integer[]" }],
+    return: { type: "void" },
+  };
+
+  test("supports void return by checking the first param's post-call value", () => {
+    const cases = buildCases("[2,0,2,1,1,0]", "<strong>Output:</strong> [0,0,1,1,2,2]", 1);
+    const r = generateHarness(SORT_COLORS_META, cases);
+    expect(r.supported).toBe(true);
+    expect(r.code).toContain("int main()");
+    expect(r.code).toContain("vector<int> __a0 = {2,0,2,1,1,0};");
+    // The call is for side effect only — no return value assigned.
+    expect(r.code).toContain("Solution().sortColors(__a0);");
+    expect(r.code).not.toContain("__got");
+    // Compares the mutated argument, not a return value.
+    expect(r.code).toContain("__exp = {0,0,1,1,2,2}");
+    expect(r.code).toContain("(__a0 == __exp)");
+    expect(r.code).toContain("passed");
+  });
+
+  test("multiple params: still observes the first param only", () => {
+    const meta: ProblemMeta = {
+      name: "merge",
+      params: [
+        { name: "nums1", type: "integer[]" },
+        { name: "m", type: "integer" },
+        { name: "nums2", type: "integer[]" },
+        { name: "n", type: "integer" },
+      ],
+      return: { type: "void" },
+    };
+    const cases = buildCases(
+      "[1,2,3,0,0,0]\n3\n[2,5,6]\n3",
+      "<strong>Output:</strong> [1,2,2,3,5,6]",
+      4,
+    );
+    const r = generateHarness(meta, cases);
+    expect(r.supported).toBe(true);
+    expect(r.code).toContain("Solution().merge(__a0, __a1, __a2, __a3);");
+    expect(r.code).toContain("(__a0 == __exp)");
+  });
+
+  test("reports unsupported when void return has no parameters to observe", () => {
+    const meta: ProblemMeta = { name: "doSomething", params: [], return: { type: "void" } };
+    const r = generateHarness(meta, []);
+    expect(r.supported).toBe(false);
+    expect(r.reason).toContain("void");
+  });
+});
