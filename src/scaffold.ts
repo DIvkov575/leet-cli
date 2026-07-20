@@ -30,6 +30,7 @@ const INCLUDES = [
   "#include <cmath>",
   "#include <iostream>",
   "#include <map>",
+  "#include <optional>",
   "#include <queue>",
   "#include <set>",
   "#include <sstream>",
@@ -48,6 +49,49 @@ export function cppSnippet(snippets: CodeSnippet[]): string {
   return cpp.code;
 }
 
+/**
+ * LeetCode's own struct definitions, ordinarily shipped only inside a doc
+ * comment above the stub (mirroring leetcode.com, where the judge supplies
+ * the real struct) — so a stub referencing ListNode/TreeNode doesn't
+ * actually compile as scaffolded. Each entry is the canonical, full-constructor
+ * form; a solution that only uses the single-arg constructor still compiles
+ * against the full form.
+ */
+const NODE_STRUCTS: Record<string, string> = {
+  ListNode: [
+    "struct ListNode {",
+    "    int val;",
+    "    ListNode *next;",
+    "    ListNode() : val(0), next(nullptr) {}",
+    "    ListNode(int x) : val(x), next(nullptr) {}",
+    "    ListNode(int x, ListNode *next) : val(x), next(next) {}",
+    "};",
+  ].join("\n"),
+  TreeNode: [
+    "struct TreeNode {",
+    "    int val;",
+    "    TreeNode *left;",
+    "    TreeNode *right;",
+    "    TreeNode() : val(0), left(nullptr), right(nullptr) {}",
+    "    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}",
+    "    TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}",
+    "};",
+  ].join("\n"),
+};
+
+/**
+ * Real (compilable) struct definitions for every LeetCode node type the stub
+ * references by whole-word identifier — `ListNode`, `TreeNode`, or both, in
+ * that order. Empty when the stub references neither.
+ */
+function nodeStructDefs(stub: string): string {
+  const defs: string[] = [];
+  for (const [name, def] of Object.entries(NODE_STRUCTS)) {
+    if (new RegExp(`\\b${name}\\b`).test(stub)) defs.push(def);
+  }
+  return defs.join("\n\n");
+}
+
 /** Relative path (from ./solutions) for a scaffolded C++ file, e.g. "1-two-sum.cpp". */
 export function scaffoldFilename(id: number, slug: string): string {
   return `${id}-${slug}.cpp`;
@@ -61,21 +105,41 @@ export function scaffoldFilename(id: number, slug: string): string {
 export const HARNESS_MARKER = "// ===== leet-cli test harness (not submitted) =====";
 
 /**
+ * Sentinels bracketing an injected ListNode/TreeNode struct block (see
+ * `nodeStructDefs`). LeetCode's judge supplies its own definition of these
+ * structs, so the submit path must strip the bracketed block even when no
+ * harness was generated (e.g. a denylisted/gap problem still gets the
+ * struct, just no `HARNESS_MARKER`).
+ */
+export const STRUCT_MARKER_START = "// ===== leet-cli struct defs (not submitted) =====";
+export const STRUCT_MARKER_END = "// ===== end struct defs =====";
+
+/**
  * Extract just the part of a scaffolded file to submit to LeetCode: everything
- * above the harness marker. Files scaffolded before the marker existed (or with
- * no harness) fall back to stripping a trailing `int main()` block, or the whole
- * file if neither is present (a hand-written solution with no harness).
+ * above the harness marker, with any struct-defs block (see `STRUCT_MARKER_*`)
+ * removed first — LeetCode's judge already defines ListNode/TreeNode itself,
+ * so submitting our own copy would redefine it. Files scaffolded before the
+ * markers existed (or with no harness) fall back to stripping a trailing
+ * `int main()` block, or the whole file if neither is present (a hand-written
+ * solution with no harness).
  */
 export function solutionCodeForSubmit(cpp: string): string {
-  const markerAt = cpp.indexOf(HARNESS_MARKER);
-  if (markerAt >= 0) return cpp.slice(0, markerAt).trimEnd() + "\n";
+  const structStart = cpp.indexOf(STRUCT_MARKER_START);
+  const structEndAt = cpp.indexOf(STRUCT_MARKER_END);
+  const withoutStruct =
+    structStart >= 0 && structEndAt > structStart
+      ? cpp.slice(0, structStart) + cpp.slice(structEndAt + STRUCT_MARKER_END.length + 1)
+      : cpp;
+
+  const markerAt = withoutStruct.indexOf(HARNESS_MARKER);
+  if (markerAt >= 0) return withoutStruct.slice(0, markerAt).trimEnd() + "\n";
 
   // Legacy fallback (files/bundle scaffolded before the marker existed): cut off
   // the harness. It begins with the `__show` helper block (preceded by a
   // `template <typename T>` line) and then `int main()`; drop from the earliest
   // of those, including a `template` line that immediately precedes `__show` so
   // we never leave a dangling template head that wouldn't compile.
-  const lines = cpp.split("\n");
+  const lines = withoutStruct.split("\n");
   let cutLine = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
@@ -87,7 +151,7 @@ export function solutionCodeForSubmit(cpp: string): string {
     }
   }
   if (cutLine >= 0) return lines.slice(0, cutLine).join("\n").trimEnd() + "\n";
-  return cpp;
+  return withoutStruct;
 }
 
 /** Render example cases as a comment block (fallback when no harness is generated). */
@@ -113,6 +177,96 @@ function parseMeta(metaData: string | undefined): ProblemMeta | null {
 }
 
 /**
+ * Slugs where metaData's declared param/return types don't match reality in a
+ * way generateHarness can't detect on its own — it happily builds a
+ * "supported" harness that then fails *correct* solutions (verified with real
+ * solutions for each case below). Denylisted by slug, each with its own
+ * accurate reason, so no harness is ever generated for them.
+ */
+const HARNESS_DENYLIST: Record<string, string> = {
+  // metaData declares 1 param, but the real exampleTestcases carry an extra
+  // "pos" value per case (used only by LeetCode's own UI to draw the cycle) —
+  // not a real function parameter.
+  "linked-list-cycle": "example testcases carry an extra pos value not declared in metaData",
+  "linked-list-cycle-ii": "example testcases carry an extra pos value not declared in metaData",
+  // metaData declares 1 param ("node"), but the real exampleTestcases carry an
+  // extra head value per case — the reachable head isn't a real parameter
+  // either, and deleteNode's actual param has no reachable head to compare.
+  "delete-node-in-a-linked-list":
+    "example testcases carry an extra head value not declared in metaData, and the parameter has no reachable head to compare",
+  // metaData declares target/p/q as `integer`, but the real C++ signature
+  // takes TreeNode* — LeetCode's judge looks up the node by value inside the
+  // already-built tree and passes the pointer; the per-parameter literal
+  // builder has no way to do that lookup.
+  "all-nodes-distance-k-in-binary-tree":
+    "metaData declares the target param as integer, but the real signature takes TreeNode* (LeetCode passes a node found by value)",
+  "lowest-common-ancestor-of-a-binary-search-tree":
+    "metaData declares p/q as integer, but the real signature takes TreeNode* (LeetCode passes nodes found by value)",
+};
+
+/**
+ * LeetCode's metaData is occasionally wrong: some problems (e.g.
+ * copy-list-with-random-pointer, populating-next-right-pointers-in-each-node-ii)
+ * report a param/return type of "ListNode"/"TreeNode" even though the actual
+ * C++ stub defines and uses a differently-shaped `Node` struct (an extra
+ * random/next field). Cross-checking against the stub itself — the same
+ * whole-word test nodeStructDefs uses to decide whether to inject a struct —
+ * catches this generically, without needing to know every affected slug.
+ */
+function metaDataClaimsUnusedNodeType(meta: ProblemMeta, stub: string): boolean {
+  const allTypes = [...meta.params.map((p) => p.type), meta.return.type];
+  const claimed = new Set(
+    Object.keys(NODE_STRUCTS).filter((name) => allTypes.some((t) => t.includes(name))),
+  );
+  for (const name of claimed) {
+    if (!new RegExp(`\\b${name}\\b`).test(stub)) return true;
+  }
+  return false;
+}
+
+/**
+ * The generated harness always calls `Solution().<method>(...)` — that only
+ * makes sense when the stub actually defines `class Solution`. Multi-method
+ * "design"/Codec problems (e.g. serialize-and-deserialize-binary-tree) use a
+ * differently-named class, and their metaData.name is the *class* name, not
+ * a callable method — generating a harness for them would emit nonsense like
+ * `Solution().Codec(...)`.
+ */
+function stubHasSolutionClass(stub: string): boolean {
+  return /\bclass\s+Solution\b/.test(stub);
+}
+
+/**
+ * Decide whether to generate a harness for this problem: applies the
+ * structural guards above (slug denylist, node-type/metaData cross-check,
+ * class Solution presence) before falling through to generateHarness's own
+ * type-level checks.
+ */
+function resolveHarness(
+  slug: string,
+  meta: ProblemMeta,
+  cases: ExampleCase[],
+  stub: string,
+): ReturnType<typeof generateHarness> {
+  if (Object.hasOwn(HARNESS_DENYLIST, slug)) {
+    return { supported: false, reason: HARNESS_DENYLIST[slug]! };
+  }
+  if (!stubHasSolutionClass(stub)) {
+    return {
+      supported: false,
+      reason: "the stub defines a multi-method class (not Solution) — no single method to call",
+    };
+  }
+  if (metaDataClaimsUnusedNodeType(meta, stub)) {
+    return {
+      supported: false,
+      reason: "metaData reports ListNode/TreeNode but the stub defines a differently-shaped Node struct",
+    };
+  }
+  return generateHarness(meta, cases);
+}
+
+/**
  * Build the full contents of a scaffolded C++ solution file: header, includes,
  * starter stub, and either a runnable test harness (when the signature and
  * examples support it) or the example cases as a comment.
@@ -127,7 +281,10 @@ export function scaffoldContent(input: ScaffoldInput): string {
     if (body.length > 0) header += "//\n" + body.join("\n") + "\n";
   }
   const stub = cppSnippet(input.snippets);
-  const parts = [header, INCLUDES, "", stub];
+  const structs = nodeStructDefs(stub);
+  const parts = structs
+    ? [header, INCLUDES, "", STRUCT_MARKER_START, structs, STRUCT_MARKER_END, "", stub]
+    : [header, INCLUDES, "", stub];
 
   const meta = parseMeta(input.metaData);
   const cases =
@@ -136,7 +293,7 @@ export function scaffoldContent(input: ScaffoldInput): string {
       : [];
 
   if (meta) {
-    const harness = generateHarness(meta, cases);
+    const harness = resolveHarness(input.slug, meta, cases, stub);
     if (harness.supported && harness.code) {
       // Marker line lets the submit path strip the harness cleanly (LeetCode
       // supplies its own main); it's an ordinary comment to the compiler.
