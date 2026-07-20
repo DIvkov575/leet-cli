@@ -343,6 +343,91 @@ maybe("harness coverage — fixable problems compile and run correctly", () => {
     expect(result.ok).toBe(true);
     expect(result.log).toContain("1/1 passed");
   });
+
+  test("all-possible-full-binary-trees (vector<TreeNode*> return, order-independent): correct solution passes", async () => {
+    const { result } = await scaffoldAndRun(
+      {
+        id: 894,
+        title: "All Possible Full Binary Trees",
+        slug: "all-possible-full-binary-trees",
+        difficulty: "Medium",
+        url: "https://leetcode.com/problems/all-possible-full-binary-trees/",
+        snippets: [
+          {
+            lang: "C++",
+            langSlug: "cpp",
+            code: "class Solution {\npublic:\n    vector<TreeNode*> allPossibleFBT(int n) {\n        \n    }\n};",
+          },
+        ],
+        metaData: JSON.stringify({
+          name: "allPossibleFBT",
+          params: [{ name: "n", type: "integer" }],
+          return: { type: "list<TreeNode>" },
+        }),
+        exampleTestcases: "3",
+        contentHtml: "<strong>Output:</strong> [[0,0,0]]\n",
+      },
+      `if (n % 2 == 0) return {};
+    if (n == 1) return { new TreeNode(0) };
+    vector<TreeNode*> result;
+    for (int left = 1; left < n; left += 2) {
+      int right = n - 1 - left;
+      for (auto* l : allPossibleFBT(left)) {
+        for (auto* r : allPossibleFBT(right)) {
+          result.push_back(new TreeNode(0, l, r));
+        }
+      }
+    }
+    return result;`,
+    );
+    expect(result.compiled).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.log).toContain("1/1 passed");
+  });
+
+  test("delete-nodes-and-return-forest (TreeNode param + vector<TreeNode*> return): correct solution passes", async () => {
+    const { result } = await scaffoldAndRun(
+      {
+        id: 1110,
+        title: "Delete Nodes And Return Forest",
+        slug: "delete-nodes-and-return-forest",
+        difficulty: "Medium",
+        url: "https://leetcode.com/problems/delete-nodes-and-return-forest/",
+        snippets: [
+          {
+            lang: "C++",
+            langSlug: "cpp",
+            code: "class Solution {\npublic:\n    vector<TreeNode*> delNodes(TreeNode* root, vector<int>& to_delete) {\n        \n    }\n};",
+          },
+        ],
+        metaData: JSON.stringify({
+          name: "delNodes",
+          params: [
+            { name: "root", type: "TreeNode" },
+            { name: "to_delete", type: "integer[]" },
+          ],
+          return: { type: "list<TreeNode>" },
+        }),
+        exampleTestcases: "[1,2,3,4,5,6,7]\n[3,5]",
+        contentHtml: "<strong>Output:</strong> [[1,2,null,4],[6],[7]]\n",
+      },
+      `unordered_set<int> del(to_delete.begin(), to_delete.end());
+    vector<TreeNode*> result;
+    dfs(root, true, del, result);
+    return result;
+  }
+  TreeNode* dfs(TreeNode* node, bool isRoot, unordered_set<int>& del, vector<TreeNode*>& result) {
+    if (!node) return nullptr;
+    bool deleted = del.count(node->val) > 0;
+    if (isRoot && !deleted) result.push_back(node);
+    node->left = dfs(node->left, deleted, del, result);
+    node->right = dfs(node->right, deleted, del, result);
+    return deleted ? nullptr : node;`,
+    );
+    expect(result.compiled).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.log).toContain("1/1 passed");
+  });
 });
 
 maybe("harness coverage — documented gaps still compile (struct fix applies)", () => {
@@ -453,32 +538,4 @@ maybe("harness coverage — documented gaps still compile (struct fix applies)",
     expect(compiled).toBe(true);
   });
 
-  test("all-possible-full-binary-trees: no harness (order-independent), still compiles", async () => {
-    const { content, compiled } = await scaffoldAndCheckSyntax(
-      {
-        id: 894,
-        title: "All Possible Full Binary Trees",
-        slug: "all-possible-full-binary-trees",
-        difficulty: "Medium",
-        url: "https://leetcode.com/problems/all-possible-full-binary-trees/",
-        snippets: [
-          {
-            lang: "C++",
-            langSlug: "cpp",
-            code: "class Solution {\npublic:\n    vector<TreeNode*> allPossibleFBT(int n) {\n        \n    }\n};",
-          },
-        ],
-        metaData: JSON.stringify({
-          name: "allPossibleFBT",
-          params: [{ name: "n", type: "integer" }],
-          return: { type: "list<TreeNode>" },
-        }),
-        exampleTestcases: "7",
-        contentHtml: "<strong>Output:</strong> [[0,0,0],[0,0,0]]\n",
-      },
-      "return {}; // stub — only compilation is being checked here",
-    );
-    expect(content).not.toContain("int main()");
-    expect(compiled).toBe(true);
-  });
 });
