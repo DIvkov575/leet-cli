@@ -580,6 +580,34 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
     });
     expect(content).toContain("int main()");
   });
+
+  test("a slug matching an inherited Object.prototype key is not treated as denylisted", () => {
+    // HARNESS_DENYLIST is a plain object; a naive `slug in HARNESS_DENYLIST`
+    // check would match inherited keys like "constructor"/"toString".
+    const content = scaffoldContent({
+      id: 1,
+      title: "Constructor",
+      slug: "constructor",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/constructor/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    int f(int x) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "f",
+        params: [{ name: "x", type: "integer" }],
+        return: { type: "integer" },
+      }),
+      exampleTestcases: "5",
+      contentHtml: "<strong>Output:</strong> 5\n",
+    });
+    expect(content).toContain("int main()");
+    expect(content).not.toContain("No test harness");
+  });
 });
 
 describe("solutionCodeForSubmit", () => {
@@ -623,6 +651,102 @@ describe("solutionCodeForSubmit", () => {
   test("a solution with no harness is returned unchanged", () => {
     const plain = "class Solution {\npublic:\n  int f() { return 1; }\n};\n";
     expect(solutionCodeForSubmit(plain)).toBe(plain);
+  });
+
+  test("strips an injected ListNode struct before the harness marker (LeetCode's judge already defines it)", () => {
+    const withHarness = scaffoldContent({
+      id: 2,
+      title: "Add Two Numbers",
+      slug: "add-two-numbers",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/add-two-numbers/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    ListNode* addTwoNumbers(ListNode* l1, ListNode* l2) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "addTwoNumbers",
+        params: [
+          { name: "l1", type: "ListNode" },
+          { name: "l2", type: "ListNode" },
+        ],
+        return: { type: "ListNode" },
+      }),
+      exampleTestcases: "[2,4,3]\n[5,6,4]",
+      contentHtml: "<strong>Output:</strong> [7,0,8]\n",
+    });
+    expect(withHarness).toContain("int main()"); // sanity: this scaffold does get a harness
+    const submitted = solutionCodeForSubmit(withHarness);
+    expect(submitted).toContain("class Solution {");
+    expect(submitted).not.toMatch(/^struct ListNode \{/m);
+    expect(submitted).not.toContain("int main()");
+  });
+
+  test("strips an injected struct even when no harness was generated (denylisted/gap problem)", () => {
+    // linked-list-cycle is denylisted (HARNESS_DENYLIST), so no harness marker
+    // exists — the struct must still be stripped via the struct's own marker.
+    const noHarness = scaffoldContent({
+      id: 141,
+      title: "Linked List Cycle",
+      slug: "linked-list-cycle",
+      difficulty: "Easy",
+      url: "https://leetcode.com/problems/linked-list-cycle/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    bool hasCycle(ListNode *head) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "hasCycle",
+        params: [{ name: "head", type: "ListNode" }],
+        return: { type: "boolean" },
+      }),
+      exampleTestcases: "[3,2,0,-4]\n1",
+      contentHtml: "<strong>Output:</strong> true\n",
+    });
+    expect(noHarness).not.toContain("int main()"); // sanity: no harness
+    expect(noHarness).toMatch(/^struct ListNode \{/m); // sanity: struct was injected
+    const submitted = solutionCodeForSubmit(noHarness);
+    expect(submitted).toContain("class Solution {");
+    expect(submitted).not.toMatch(/^struct ListNode \{/m);
+  });
+
+  test("strips both structs when a stub references ListNode and TreeNode together", () => {
+    // Guards against a naive "\n\n" boundary search: nodeStructDefs joins
+    // multiple structs with "\n\n", which also appears *between* the two
+    // struct blocks — the strip must use the explicit end marker, not that.
+    const content = scaffoldContent({
+      id: 9999,
+      title: "Hypothetical Both-Node Problem",
+      slug: "hypothetical-both-node-problem",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/hypothetical-both-node-problem/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: "class Solution {\npublic:\n    ListNode* f(TreeNode* root) {\n    }\n};",
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "f",
+        params: [{ name: "root", type: "TreeNode" }],
+        return: { type: "ListNode" },
+      }),
+      exampleTestcases: "[1,2,3]",
+      contentHtml: "<strong>Output:</strong> [1,2,3]\n",
+    });
+    expect(content).toMatch(/^struct ListNode \{/m); // sanity: both injected
+    expect(content).toMatch(/^struct TreeNode \{/m);
+    const submitted = solutionCodeForSubmit(content);
+    expect(submitted).toContain("class Solution {");
+    expect(submitted).not.toMatch(/^struct ListNode \{/m);
+    expect(submitted).not.toMatch(/^struct TreeNode \{/m);
   });
 
   test("scaffoldContent inserts the marker before a generated harness", () => {

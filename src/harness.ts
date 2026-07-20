@@ -162,6 +162,15 @@ static void __show(ostream& os, const vector<T>& v) {
 }
 template <typename T>
 static string __str(const T& v) { ostringstream os; __show(os, v); return os.str(); }
+// Elementwise structural comparison for a vector of node pointers (e.g.
+// vector<ListNode*>/vector<TreeNode*> returns), dispatching to that node
+// type's own __eq overload per element rather than pointer identity.
+template <typename T>
+static bool __eq(const vector<T>& a, const vector<T>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) if (!__eq(a[i], b[i])) return false;
+  return true;
+}
 `;
 
 /** Helpers for ListNode: build from a flat array, compare structurally, print. */

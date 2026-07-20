@@ -204,6 +204,37 @@ describe("generateHarness — merge-k-sorted-lists shape (vector<ListNode*>)", (
   });
 });
 
+describe("generateHarness — vector<ListNode*> RETURN (split-linked-list-in-parts shape)", () => {
+  // Unlike vector<TreeNode*>, LeetCode's judge for a vector<ListNode*> return
+  // (e.g. split-linked-list-in-parts) checks EXACT positional order — there's
+  // no order-independence concern here, so this must be supported, not
+  // rejected the way the TreeNode-vector case is.
+  test("supports a vector<ListNode*> return with elementwise structural comparison", () => {
+    const meta: ProblemMeta = {
+      name: "splitListToParts",
+      params: [
+        { name: "head", type: "ListNode" },
+        { name: "k", type: "integer" },
+      ],
+      return: { type: "list<ListNode>" },
+    };
+    const cases = buildCases(
+      "[1,2,3]\n5",
+      "<strong>Output:</strong> [[1],[2],[3],[],[]]",
+      2,
+    );
+    const r = generateHarness(meta, cases);
+    expect(r.supported).toBe(true);
+    expect(r.code).toContain("vector<ListNode*> __got = Solution().splitListToParts(__a0, __a1);");
+    expect(r.code).toContain(
+      "vector<ListNode*> __exp = {__buildList({1}),__buildList({2}),__buildList({3}),__buildList({}),__buildList({})};",
+    );
+    // Elementwise structural comparison, not the scalar `==` (pointer identity)
+    // and not the single-node __eq(ListNode*,ListNode*) overload directly.
+    expect(r.code).toContain("__eq(__got, __exp)");
+  });
+});
+
 describe("generateHarness — documented gaps get a specific reason", () => {
   test("Node (random-pointer list) is a genuinely unmapped type — generic reason", () => {
     const meta: ProblemMeta = {

@@ -166,7 +166,7 @@ visible from `ProblemMeta` alone (unmapped types, void-with-no-params). The
     Codec/design classes).
   - Return type is `vector<TreeNode*>` (i.e. metaData's `list<TreeNode>`) —
     order-independent on LeetCode's judge, so no positional harness is safe.
-- **Slug-keyed** (`HARNESS_DENYLIST`, 4 entries, each with its own reason) —
+- **Slug-keyed** (`HARNESS_DENYLIST`, 5 entries, each with its own reason) —
   for cases with no structural signal: the misaligned-testcases problems
   (`linked-list-cycle`, `linked-list-cycle-ii`, `delete-node-in-a-linked-list`)
   look identical to a legitimate single-param signature from `ProblemMeta`
@@ -175,7 +175,7 @@ visible from `ProblemMeta` alone (unmapped types, void-with-no-params). The
   `lowest-common-ancestor-of-a-binary-search-tree`) declare an `integer` param
   that's actually `TreeNode*` in the real signature — neither is detectable
   without parsing the real C++ signature out of the stub, which was judged
-  not worth building for 4 known cases (see the second AskUserQuestion
+  not worth building for 5 known cases (see the second AskUserQuestion
   decision during implementation).
 
 Each denylist/structural-guard reason was verified against a real, incorrect
@@ -251,12 +251,54 @@ doc comment already embedded in the bundle rather than retyping it.
 
 ## Known limitation
 
-`resolveHarness`'s slug-keyed denylist (4 entries) and the "no class Solution"
+`resolveHarness`'s slug-keyed denylist (5 entries) and the "no class Solution"
 structural check only cover known/detectable shapes of "LeetCode's own
 metaData doesn't match reality." Since metaData is fetched live per-problem
 (not derivable from a fixed schema), a *new* LeetCode problem exhibiting one
 of these same quirks (misaligned exampleTestcases, node-by-value params, a
 differently-shaped Node struct under a ListNode/TreeNode label, or a
 non-Solution multi-method class) would need to be caught the same way this
-implementation found the existing 4 — by fetching real data and compiling —
+implementation found the existing 5 — by fetching real data and compiling —
 rather than being caught automatically by type-signature inspection alone.
+
+## Post-review fixes
+
+A code review after implementation surfaced two correctness bugs the earlier
+verification pass (real-data compile checks with empty solution bodies) did
+not exercise, both fixed before shipping:
+
+- **Struct injection broke LeetCode submission.** Part 1's injected
+  `struct ListNode`/`struct TreeNode` sits above `HARNESS_MARKER`, but
+  `solutionCodeForSubmit` only stripped from that marker down — so the
+  struct shipped along with every submission, colliding with the struct
+  LeetCode's judge already defines (confirmed with a compile test simulating
+  the judge's own struct + our submitted code: "redefinition of 'struct
+  ListNode'"). Fixed by adding a second pair of markers
+  (`STRUCT_MARKER_START`/`STRUCT_MARKER_END`) bracketing the injected struct
+  block; `solutionCodeForSubmit` now strips that block first, independent of
+  whether a harness exists (the denylisted/gap problems get a struct but no
+  `HARNESS_MARKER`, so they needed the same treatment). A dedicated test
+  covers the case where both structs are injected — `"\n\n"` alone as a
+  boundary is ambiguous there, since `nodeStructDefs` also joins multiple
+  structs with `"\n\n"`.
+- **`vector<ListNode*>` return types generated a non-compiling harness.** The
+  order-independence guard only checked `retType === "vector<TreeNode*>"`
+  (correct — LeetCode's judge accepts any tree order for that shape), but a
+  `vector<ListNode*>` return (e.g. `split-linked-list-in-parts`, where order
+  *is* significant and checked) fell through every guard and reached codegen,
+  which emitted `__eq(__got, __exp)` on two vectors — no such overload
+  existed, only the scalar `__eq(ListNode*, ListNode*)`/`__eq(TreeNode*,
+  TreeNode*)`. Confirmed by compiling the generated harness directly (`no
+  matching function for call to '__eq'`). Fixed with a generic
+  `template<T> __eq(const vector<T>&, const vector<T>&)` in `HELPERS` that
+  dispatches elementwise to the node-specific `__eq`, rather than blocking
+  the case the way `vector<TreeNode*>` is blocked (that would have been
+  factually wrong — this shape has no order-independence problem). Verified
+  end-to-end with a real correct solution (passes) and a broken one (fails
+  with a readable diff).
+
+A third, lower-severity finding was also fixed: `resolveHarness`'s
+`slug in HARNESS_DENYLIST` check matched inherited `Object.prototype` keys
+(e.g. a hypothetical slug `"constructor"` would resolve to the `Object`
+constructor function as its "reason" string). Changed to
+`Object.hasOwn(HARNESS_DENYLIST, slug)`.

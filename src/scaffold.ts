@@ -105,21 +105,41 @@ export function scaffoldFilename(id: number, slug: string): string {
 export const HARNESS_MARKER = "// ===== leet-cli test harness (not submitted) =====";
 
 /**
+ * Sentinels bracketing an injected ListNode/TreeNode struct block (see
+ * `nodeStructDefs`). LeetCode's judge supplies its own definition of these
+ * structs, so the submit path must strip the bracketed block even when no
+ * harness was generated (e.g. a denylisted/gap problem still gets the
+ * struct, just no `HARNESS_MARKER`).
+ */
+export const STRUCT_MARKER_START = "// ===== leet-cli struct defs (not submitted) =====";
+export const STRUCT_MARKER_END = "// ===== end struct defs =====";
+
+/**
  * Extract just the part of a scaffolded file to submit to LeetCode: everything
- * above the harness marker. Files scaffolded before the marker existed (or with
- * no harness) fall back to stripping a trailing `int main()` block, or the whole
- * file if neither is present (a hand-written solution with no harness).
+ * above the harness marker, with any struct-defs block (see `STRUCT_MARKER_*`)
+ * removed first — LeetCode's judge already defines ListNode/TreeNode itself,
+ * so submitting our own copy would redefine it. Files scaffolded before the
+ * markers existed (or with no harness) fall back to stripping a trailing
+ * `int main()` block, or the whole file if neither is present (a hand-written
+ * solution with no harness).
  */
 export function solutionCodeForSubmit(cpp: string): string {
-  const markerAt = cpp.indexOf(HARNESS_MARKER);
-  if (markerAt >= 0) return cpp.slice(0, markerAt).trimEnd() + "\n";
+  const structStart = cpp.indexOf(STRUCT_MARKER_START);
+  const structEndAt = cpp.indexOf(STRUCT_MARKER_END);
+  const withoutStruct =
+    structStart >= 0 && structEndAt > structStart
+      ? cpp.slice(0, structStart) + cpp.slice(structEndAt + STRUCT_MARKER_END.length + 1)
+      : cpp;
+
+  const markerAt = withoutStruct.indexOf(HARNESS_MARKER);
+  if (markerAt >= 0) return withoutStruct.slice(0, markerAt).trimEnd() + "\n";
 
   // Legacy fallback (files/bundle scaffolded before the marker existed): cut off
   // the harness. It begins with the `__show` helper block (preceded by a
   // `template <typename T>` line) and then `int main()`; drop from the earliest
   // of those, including a `template` line that immediately precedes `__show` so
   // we never leave a dangling template head that wouldn't compile.
-  const lines = cpp.split("\n");
+  const lines = withoutStruct.split("\n");
   let cutLine = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
@@ -131,7 +151,7 @@ export function solutionCodeForSubmit(cpp: string): string {
     }
   }
   if (cutLine >= 0) return lines.slice(0, cutLine).join("\n").trimEnd() + "\n";
-  return cpp;
+  return withoutStruct;
 }
 
 /** Render example cases as a comment block (fallback when no harness is generated). */
@@ -228,7 +248,7 @@ function resolveHarness(
   cases: ExampleCase[],
   stub: string,
 ): ReturnType<typeof generateHarness> {
-  if (slug in HARNESS_DENYLIST) {
+  if (Object.hasOwn(HARNESS_DENYLIST, slug)) {
     return { supported: false, reason: HARNESS_DENYLIST[slug]! };
   }
   if (!stubHasSolutionClass(stub)) {
@@ -262,7 +282,9 @@ export function scaffoldContent(input: ScaffoldInput): string {
   }
   const stub = cppSnippet(input.snippets);
   const structs = nodeStructDefs(stub);
-  const parts = structs ? [header, INCLUDES, "", structs, "", stub] : [header, INCLUDES, "", stub];
+  const parts = structs
+    ? [header, INCLUDES, "", STRUCT_MARKER_START, structs, STRUCT_MARKER_END, "", stub]
+    : [header, INCLUDES, "", stub];
 
   const meta = parseMeta(input.metaData);
   const cases =
