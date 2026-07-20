@@ -5,6 +5,7 @@ import {
   type ExampleCase,
   type ProblemMeta,
 } from "./harness.ts";
+import { CUSTOM_HARNESS_SLUGS, CUSTOM_NODE_STRUCTS, generateCustomHarness } from "./custom-harness.ts";
 import { statementCommentLines } from "./render.ts";
 
 /** Metadata needed to render a scaffolded solution file. */
@@ -83,8 +84,14 @@ const NODE_STRUCTS: Record<string, string> = {
  * Real (compilable) struct definitions for every LeetCode node type the stub
  * references by whole-word identifier — `ListNode`, `TreeNode`, or both, in
  * that order. Empty when the stub references neither.
+ *
+ * For the handful of slugs with a differently-shaped custom `Node` struct
+ * (see `CUSTOM_NODE_STRUCTS`), that struct is injected instead — the stub
+ * for these uses the bare identifier `Node`, never `ListNode`/`TreeNode`, so
+ * the whole-word scan below would otherwise find nothing to inject at all.
  */
-function nodeStructDefs(stub: string): string {
+function nodeStructDefs(stub: string, slug: string): string {
+  if (Object.hasOwn(CUSTOM_NODE_STRUCTS, slug)) return CUSTOM_NODE_STRUCTS[slug]!;
   const defs: string[] = [];
   for (const [name, def] of Object.entries(NODE_STRUCTS)) {
     if (new RegExp(`\\b${name}\\b`).test(stub)) defs.push(def);
@@ -177,41 +184,16 @@ function parseMeta(metaData: string | undefined): ProblemMeta | null {
 }
 
 /**
- * Slugs where metaData's declared param/return types don't match reality in a
- * way generateHarness can't detect on its own — it happily builds a
- * "supported" harness that then fails *correct* solutions (verified with real
- * solutions for each case below). Denylisted by slug, each with its own
- * accurate reason, so no harness is ever generated for them.
- */
-const HARNESS_DENYLIST: Record<string, string> = {
-  // metaData declares 1 param, but the real exampleTestcases carry an extra
-  // "pos" value per case (used only by LeetCode's own UI to draw the cycle) —
-  // not a real function parameter.
-  "linked-list-cycle": "example testcases carry an extra pos value not declared in metaData",
-  "linked-list-cycle-ii": "example testcases carry an extra pos value not declared in metaData",
-  // metaData declares 1 param ("node"), but the real exampleTestcases carry an
-  // extra head value per case — the reachable head isn't a real parameter
-  // either, and deleteNode's actual param has no reachable head to compare.
-  "delete-node-in-a-linked-list":
-    "example testcases carry an extra head value not declared in metaData, and the parameter has no reachable head to compare",
-  // metaData declares target/p/q as `integer`, but the real C++ signature
-  // takes TreeNode* — LeetCode's judge looks up the node by value inside the
-  // already-built tree and passes the pointer; the per-parameter literal
-  // builder has no way to do that lookup.
-  "all-nodes-distance-k-in-binary-tree":
-    "metaData declares the target param as integer, but the real signature takes TreeNode* (LeetCode passes a node found by value)",
-  "lowest-common-ancestor-of-a-binary-search-tree":
-    "metaData declares p/q as integer, but the real signature takes TreeNode* (LeetCode passes nodes found by value)",
-};
-
-/**
  * LeetCode's metaData is occasionally wrong: some problems (e.g.
- * copy-list-with-random-pointer, populating-next-right-pointers-in-each-node-ii)
- * report a param/return type of "ListNode"/"TreeNode" even though the actual
- * C++ stub defines and uses a differently-shaped `Node` struct (an extra
- * random/next field). Cross-checking against the stub itself — the same
- * whole-word test nodeStructDefs uses to decide whether to inject a struct —
- * catches this generically, without needing to know every affected slug.
+ * populating-next-right-pointers-in-each-node-ii) report a param/return type
+ * of "ListNode"/"TreeNode" even though the actual C++ stub defines and uses
+ * a differently-shaped `Node` struct (an extra random/next field).
+ * Cross-checking against the stub itself — the same whole-word test
+ * nodeStructDefs uses to decide whether to inject a struct — catches this
+ * generically, without needing to know every affected slug. (The two known
+ * slugs with this exact issue have a hand-written generator in
+ * custom-harness.ts and are dispatched before this check ever runs; this
+ * remains as a safety net for any other problem with the same metaData quirk.)
  */
 function metaDataClaimsUnusedNodeType(meta: ProblemMeta, stub: string): boolean {
   const allTypes = [...meta.params.map((p) => p.type), meta.return.type];
@@ -225,21 +207,26 @@ function metaDataClaimsUnusedNodeType(meta: ProblemMeta, stub: string): boolean 
 }
 
 /**
- * The generated harness always calls `Solution().<method>(...)` — that only
+ * The generic harness always calls `Solution().<method>(...)` — that only
  * makes sense when the stub actually defines `class Solution`. Multi-method
- * "design"/Codec problems (e.g. serialize-and-deserialize-binary-tree) use a
- * differently-named class, and their metaData.name is the *class* name, not
- * a callable method — generating a harness for them would emit nonsense like
- * `Solution().Codec(...)`.
+ * "design"/Codec problems use a differently-named class, and their
+ * metaData.name is the *class* name, not a callable method — generating a
+ * harness for them would emit nonsense like `Solution().Codec(...)`. (The one
+ * known bundled problem with this shape,
+ * serialize-and-deserialize-binary-tree, has a hand-written generator in
+ * custom-harness.ts and is dispatched before this check ever runs; this
+ * remains as a safety net for any other multi-method problem.)
  */
 function stubHasSolutionClass(stub: string): boolean {
   return /\bclass\s+Solution\b/.test(stub);
 }
 
 /**
- * Decide whether to generate a harness for this problem: applies the
- * structural guards above (slug denylist, node-type/metaData cross-check,
- * class Solution presence) before falling through to generateHarness's own
+ * Decide whether to generate a harness for this problem: tries the
+ * hand-written per-slug generator first (custom-harness.ts, for shapes the
+ * generic model can't express at all — a locator param that isn't a real
+ * argument, a differently-shaped Node struct, a multi-method class), then
+ * falls through to the structural guards above and generateHarness's own
  * type-level checks.
  */
 function resolveHarness(
@@ -247,9 +234,13 @@ function resolveHarness(
   meta: ProblemMeta,
   cases: ExampleCase[],
   stub: string,
+  exampleTestcases: string,
+  contentHtml: string,
 ): ReturnType<typeof generateHarness> {
-  if (Object.hasOwn(HARNESS_DENYLIST, slug)) {
-    return { supported: false, reason: HARNESS_DENYLIST[slug]! };
+  if (CUSTOM_HARNESS_SLUGS.has(slug)) {
+    const custom = generateCustomHarness(slug, exampleTestcases, contentHtml);
+    if (custom) return custom;
+    return { supported: false, reason: "example testcases did not parse into any usable case" };
   }
   if (!stubHasSolutionClass(stub)) {
     return {
@@ -281,7 +272,7 @@ export function scaffoldContent(input: ScaffoldInput): string {
     if (body.length > 0) header += "//\n" + body.join("\n") + "\n";
   }
   const stub = cppSnippet(input.snippets);
-  const structs = nodeStructDefs(stub);
+  const structs = nodeStructDefs(stub, input.slug);
   const parts = structs
     ? [header, INCLUDES, "", STRUCT_MARKER_START, structs, STRUCT_MARKER_END, "", stub]
     : [header, INCLUDES, "", stub];
@@ -293,7 +284,14 @@ export function scaffoldContent(input: ScaffoldInput): string {
       : [];
 
   if (meta) {
-    const harness = resolveHarness(input.slug, meta, cases, stub);
+    const harness = resolveHarness(
+      input.slug,
+      meta,
+      cases,
+      stub,
+      input.exampleTestcases ?? "",
+      input.contentHtml ?? "",
+    );
     if (harness.supported && harness.code) {
       // Marker line lets the submit path strip the harness cleanly (LeetCode
       // supplies its own main); it's an ordinary comment to the compiler.

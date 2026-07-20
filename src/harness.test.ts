@@ -247,18 +247,27 @@ describe("generateHarness — documented gaps get a specific reason", () => {
     expect(r.reason).toContain("Node");
   });
 
-  test("vector<TreeNode*> return (all-possible-full-binary-trees) is order-independent — specific reason", () => {
+});
+
+describe("generateHarness — vector<TreeNode*> return is order-independent (all-possible-full-binary-trees shape)", () => {
+  test("supports a vector<TreeNode*> return via order-independent multiset comparison", () => {
     const meta: ProblemMeta = {
       name: "allPossibleFBT",
       params: [{ name: "n", type: "integer" }],
       return: { type: "list<TreeNode>" },
     };
-    const r = generateHarness(meta, [{ args: ["7"], expected: "[[0,0,0],[0,0,0]]" }]);
-    expect(r.supported).toBe(false);
-    expect(r.reason?.toLowerCase()).toContain("order");
+    // Real LeetCode example: n=7 -> 5 distinct full binary trees, in some order.
+    const r = generateHarness(meta, [
+      { args: ["3"], expected: "[[0,0,0]]" },
+    ]);
+    expect(r.supported).toBe(true);
+    expect(r.code).toContain("vector<TreeNode*> __got = Solution().allPossibleFBT(__a0);");
+    // Order-independent comparison, not a positional __eq(vector,vector).
+    expect(r.code).toContain("__eqUnordered(__got, __exp)");
+    expect(r.code).not.toContain("__eq(__got, __exp)");
   });
 
-  test("vector<TreeNode*> return with a TreeNode param too (delete-nodes-and-return-forest)", () => {
+  test("supports a TreeNode param alongside a vector<TreeNode*> return (delete-nodes-and-return-forest shape)", () => {
     const meta: ProblemMeta = {
       name: "delNodes",
       params: [
@@ -267,9 +276,12 @@ describe("generateHarness — documented gaps get a specific reason", () => {
       ],
       return: { type: "list<TreeNode>" },
     };
-    const r = generateHarness(meta, [{ args: ["[1,2,3]", "[2,3]"], expected: "[[1]]" }]);
-    expect(r.supported).toBe(false);
-    expect(r.reason?.toLowerCase()).toContain("order");
+    const r = generateHarness(meta, [{ args: ["[1,2,3,4,5,6,7]", "[3,5]"], expected: "[[1,2,4,null,3],[6],[7]]" }]);
+    expect(r.supported).toBe(true);
+    expect(r.code).toContain("TreeNode* __a0 = __buildTree({1,2,3,4,5,6,7});");
+    expect(r.code).toContain("vector<int> __a1 = {3,5};");
+    expect(r.code).toContain("Solution().delNodes(__a0, __a1)");
+    expect(r.code).toContain("__eqUnordered(__got, __exp)");
   });
 });
 

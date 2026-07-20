@@ -200,11 +200,16 @@ describe("scaffoldContent — ListNode/TreeNode struct injection", () => {
 });
 
 describe("scaffoldContent — the harness model only fits a class Solution", () => {
-  // serialize-and-deserialize-binary-tree (and any similar "design" problem)
-  // uses a multi-method class — here `Codec`, with serialize/deserialize — not
+  // A multi-method class (like `Codec`, with serialize/deserialize) is not
   // `Solution`. metaData.name for these is the CLASS name, not a method, so
   // generateHarness would emit `Solution().Codec(...)`: nonsense C++, since
-  // there's no class named Solution and "Codec" isn't a callable method.
+  // there's no class named Solution and "Codec" isn't a callable method. The
+  // one bundled problem with this exact shape
+  // (serialize-and-deserialize-binary-tree) has its own hand-written
+  // generator in custom-harness.ts and is dispatched before this guard ever
+  // runs (see the "custom-harness dispatch" describe block) — this test uses
+  // a made-up slug to exercise the guard itself as a safety net for any
+  // other multi-method problem.
   test("no harness when the stub has no class Solution at all", () => {
     const stub = [
       "/**",
@@ -225,11 +230,11 @@ describe("scaffoldContent — the harness model only fits a class Solution", () 
       "};",
     ].join("\n");
     const content = scaffoldContent({
-      id: 297,
-      title: "Serialize and Deserialize Binary Tree",
-      slug: "serialize-and-deserialize-binary-tree",
+      id: 999001,
+      title: "Hypothetical Codec Problem",
+      slug: "hypothetical-codec-problem",
       difficulty: "Hard",
-      url: "https://leetcode.com/problems/serialize-and-deserialize-binary-tree/",
+      url: "https://leetcode.com/problems/hypothetical-codec-problem/",
       snippets: [{ lang: "C++", langSlug: "cpp", code: stub }],
       metaData: JSON.stringify({
         name: "Codec",
@@ -273,12 +278,17 @@ describe("scaffoldContent — the harness model only fits a class Solution", () 
 });
 
 describe("scaffoldContent — metaData claims ListNode/TreeNode but the stub uses a different struct", () => {
-  // LeetCode's own metaData is occasionally wrong: copy-list-with-random-pointer
-  // and populating-next-right-pointers-in-each-node-ii report param/return type
-  // "ListNode"/"TreeNode", but the actual C++ stub defines and uses a
-  // differently-shaped `Node` struct (an extra random/next field) — never the
-  // bare identifier ListNode/TreeNode. Trusting metaData blindly would emit a
-  // harness referencing a type that doesn't exist in the file.
+  // LeetCode's own metaData is occasionally wrong: it can report param/return
+  // type "ListNode"/"TreeNode" even though the actual C++ stub defines and
+  // uses a differently-shaped `Node` struct (an extra random/next field) —
+  // never the bare identifier ListNode/TreeNode. Trusting metaData blindly
+  // would emit a harness referencing a type that doesn't exist in the file.
+  // The two bundled problems with this exact shape
+  // (copy-list-with-random-pointer, populating-next-right-pointers-in-each-node-ii)
+  // now have their own hand-written generators in custom-harness.ts and are
+  // dispatched before this guard ever runs — these tests use made-up slugs
+  // to exercise the guard itself as a safety net for any other problem with
+  // the same metaData quirk.
   const RANDOM_POINTER_STUB = [
     "/*",
     "// Definition for a Node.",
@@ -300,11 +310,11 @@ describe("scaffoldContent — metaData claims ListNode/TreeNode but the stub use
 
   test("does not emit a harness when the stub's real type is Node, not ListNode", () => {
     const content = scaffoldContent({
-      id: 138,
-      title: "Copy List with Random Pointer",
-      slug: "copy-list-with-random-pointer",
+      id: 999002,
+      title: "Hypothetical Random Node Problem",
+      slug: "hypothetical-random-node-problem",
       difficulty: "Medium",
-      url: "https://leetcode.com/problems/copy-list-with-random-pointer/",
+      url: "https://leetcode.com/problems/hypothetical-random-node-problem/",
       snippets: [{ lang: "C++", langSlug: "cpp", code: RANDOM_POINTER_STUB }],
       metaData: JSON.stringify({
         name: "copyRandomList",
@@ -341,11 +351,11 @@ describe("scaffoldContent — metaData claims ListNode/TreeNode but the stub use
 
   test("does not emit a harness when metaData claims TreeNode but the stub's real type is Node", () => {
     const content = scaffoldContent({
-      id: 117,
-      title: "Populating Next Right Pointers in Each Node II",
-      slug: "populating-next-right-pointers-in-each-node-ii",
+      id: 999003,
+      title: "Hypothetical Next-Pointer Node Problem",
+      slug: "hypothetical-next-pointer-node-problem",
       difficulty: "Medium",
-      url: "https://leetcode.com/problems/populating-next-right-pointers-in-each-node-ii/",
+      url: "https://leetcode.com/problems/hypothetical-next-pointer-node-problem/",
       snippets: [{ lang: "C++", langSlug: "cpp", code: NEXT_POINTER_TREE_STUB }],
       metaData: JSON.stringify({
         name: "connect",
@@ -402,13 +412,14 @@ describe("scaffoldContent — metaData claims ListNode/TreeNode but the stub use
   });
 });
 
-describe("scaffoldContent — slugs where metaData's param count doesn't match the real testcases", () => {
-  // linked-list-cycle, linked-list-cycle-ii, and delete-node-in-a-linked-list all
-  // have exactly 1 param in metaData, but LeetCode's exampleTestcases carries an
-  // extra line per case (a "pos" index, or an unreachable head) that isn't a real
-  // parameter. Left unguarded, generateHarness happily builds a "supported"
-  // harness from the misaligned cases — which then fails *correct* solutions.
-  // These slugs are denylisted so scaffoldContent never emits that harness.
+describe("scaffoldContent — custom-harness dispatch for previously-denylisted slugs", () => {
+  // linked-list-cycle, linked-list-cycle-ii, delete-node-in-a-linked-list,
+  // all-nodes-distance-k-in-binary-tree, and lowest-common-ancestor-of-a-binary-search-tree
+  // all have a metaData "locator" param that isn't a real function argument
+  // (a cycle position, or a node's value to find inside the built structure).
+  // generateHarness's generic model can't build these; custom-harness.ts has
+  // a hand-written generator for each, dispatched by slug before the generic
+  // path runs.
   const CYCLE_LISTNODE_STUB = [
     "class Solution {",
     "public:",
@@ -417,7 +428,7 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
     "};",
   ].join("\n");
 
-  test("linked-list-cycle never emits a harness, regardless of metaData", () => {
+  test("linked-list-cycle gets a custom harness, not the generic (misaligned) one", () => {
     const content = scaffoldContent({
       id: 141,
       title: "Linked List Cycle",
@@ -427,19 +438,22 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       snippets: [{ lang: "C++", langSlug: "cpp", code: CYCLE_LISTNODE_STUB }],
       metaData: JSON.stringify({
         name: "hasCycle",
-        params: [{ name: "head", type: "ListNode" }],
+        params: [
+          { name: "head", type: "ListNode" },
+          { name: "pos", type: "integer" },
+        ],
         return: { type: "boolean" },
       }),
-      // Real shape: an extra "pos" line per case beyond the single declared param.
       exampleTestcases: "[3,2,0,-4]\n1\n[1,2]\n0\n[1]\n-1",
       contentHtml:
         "<strong>Output:</strong> true\n<strong>Output:</strong> true\n<strong>Output:</strong> false\n",
     });
-    expect(content).not.toContain("int main()");
-    expect(content.toLowerCase()).toContain("cycle");
+    expect(content).toContain("int main()");
+    expect(content).toContain("__buildListWithCycle");
+    expect(content).toContain("Solution().hasCycle(__a0)");
   });
 
-  test("linked-list-cycle-ii never emits a harness", () => {
+  test("linked-list-cycle-ii gets a custom harness", () => {
     const content = scaffoldContent({
       id: 142,
       title: "Linked List Cycle II",
@@ -455,16 +469,20 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       ],
       metaData: JSON.stringify({
         name: "detectCycle",
-        params: [{ name: "head", type: "ListNode" }],
+        params: [
+          { name: "head", type: "ListNode" },
+          { name: "pos", type: "integer" },
+        ],
         return: { type: "ListNode" },
       }),
       exampleTestcases: "[3,2,0,-4]\n1\n[1,2]\n0\n[1]\n-1",
       contentHtml: "<strong>Output:</strong> tail connects to node index 1\n",
     });
-    expect(content).not.toContain("int main()");
+    expect(content).toContain("int main()");
+    expect(content).toContain("Solution().detectCycle(__a0)");
   });
 
-  test("delete-node-in-a-linked-list never emits a harness", () => {
+  test("delete-node-in-a-linked-list gets a custom harness", () => {
     const content = scaffoldContent({
       id: 237,
       title: "Delete Node in a Linked List",
@@ -480,21 +498,21 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       ],
       metaData: JSON.stringify({
         name: "deleteNode",
-        params: [{ name: "node", type: "ListNode" }],
+        params: [
+          { name: "head", type: "ListNode" },
+          { name: "node", type: "integer" },
+        ],
         return: { type: "void" },
       }),
-      // Real shape: head + node-value, but metaData only declares "node".
       exampleTestcases: "[4,5,1,9]\n5\n[4,5,1,9]\n1",
       contentHtml: "<strong>Output:</strong> [4,1,9]\n<strong>Output:</strong> [4,5,9]\n",
     });
-    expect(content).not.toContain("int main()");
+    expect(content).toContain("int main()");
+    expect(content).toContain("__findListNodeByVal");
+    expect(content).toContain("Solution().deleteNode(__target)");
   });
 
-  test("all-nodes-distance-k-in-binary-tree never emits a harness", () => {
-    // Real shape: metaData declares "target" as `integer`, but the actual C++
-    // signature takes `TreeNode* target` — LeetCode's judge looks up the node
-    // by value inside the already-built tree and passes the pointer. The
-    // per-parameter literal builder has no way to do that lookup.
+  test("all-nodes-distance-k-in-binary-tree gets a custom harness", () => {
     const content = scaffoldContent({
       id: 863,
       title: "All Nodes Distance K in Binary Tree",
@@ -520,10 +538,12 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       exampleTestcases: "[3,5,1,6,2,0,8,null,null,7,4]\n5\n2",
       contentHtml: "<strong>Output:</strong> [7,4,1]\n",
     });
-    expect(content).not.toContain("int main()");
+    expect(content).toContain("int main()");
+    expect(content).toContain("__findTreeNodeByVal");
+    expect(content).toContain("Solution().distanceK(__a0, __target, 2)");
   });
 
-  test("lowest-common-ancestor-of-a-binary-search-tree never emits a harness", () => {
+  test("lowest-common-ancestor-of-a-binary-search-tree gets a custom harness", () => {
     const content = scaffoldContent({
       id: 235,
       title: "Lowest Common Ancestor of a Binary Search Tree",
@@ -549,11 +569,12 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       exampleTestcases: "[6,2,8,0,4,7,9,null,null,3,5]\n2\n8",
       contentHtml: "<strong>Output:</strong> 6\n",
     });
-    expect(content).not.toContain("int main()");
+    expect(content).toContain("int main()");
+    expect(content).toContain("Solution().lowestCommonAncestor(__a0, __p, __q)");
   });
 
-  test("a different problem that happens to share the method name is unaffected", () => {
-    // Guards against a naive name-based (rather than slug-based) denylist.
+  test("a different problem that happens to share a method name is unaffected", () => {
+    // Guards against a naive name-based (rather than slug-based) dispatch.
     const content = scaffoldContent({
       id: 1,
       title: "Two Sum",
@@ -579,34 +600,144 @@ describe("scaffoldContent — slugs where metaData's param count doesn't match t
       contentHtml: "<strong>Output:</strong> [0,1]\n",
     });
     expect(content).toContain("int main()");
+    expect(content).not.toContain("__findListNodeByVal");
   });
+});
 
-  test("a slug matching an inherited Object.prototype key is not treated as denylisted", () => {
-    // HARNESS_DENYLIST is a plain object; a naive `slug in HARNESS_DENYLIST`
-    // check would match inherited keys like "constructor"/"toString".
+describe("scaffoldContent — custom-harness dispatch for Node/Codec shapes", () => {
+  test("copy-list-with-random-pointer gets a custom harness with the real Node struct injected", () => {
     const content = scaffoldContent({
-      id: 1,
-      title: "Constructor",
-      slug: "constructor",
-      difficulty: "Easy",
-      url: "https://leetcode.com/problems/constructor/",
+      id: 138,
+      title: "Copy List with Random Pointer",
+      slug: "copy-list-with-random-pointer",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/copy-list-with-random-pointer/",
       snippets: [
         {
           lang: "C++",
           langSlug: "cpp",
-          code: "class Solution {\npublic:\n    int f(int x) {\n    }\n};",
+          code: [
+            "/*",
+            "// Definition for a Node.",
+            "class Node {",
+            "public:",
+            "    int val;",
+            "    Node* next;",
+            "    Node* random;",
+            "    Node(int _val) { val = _val; next = NULL; random = NULL; }",
+            "};",
+            "*/",
+            "class Solution {",
+            "public:",
+            "    Node* copyRandomList(Node* head) {",
+            "    }",
+            "};",
+          ].join("\n"),
         },
       ],
       metaData: JSON.stringify({
-        name: "f",
-        params: [{ name: "x", type: "integer" }],
-        return: { type: "integer" },
+        name: "copyRandomList",
+        params: [{ name: "head", type: "ListNode" }],
+        return: { type: "ListNode" },
       }),
-      exampleTestcases: "5",
-      contentHtml: "<strong>Output:</strong> 5\n",
+      exampleTestcases: "[[7,null],[13,0],[11,4],[10,2],[1,0]]",
+      contentHtml: "<strong>Output:</strong> [[7,null],[13,0],[11,4],[10,2],[1,0]]\n",
     });
     expect(content).toContain("int main()");
-    expect(content).not.toContain("No test harness");
+    expect(content).toContain("class Node {");
+    expect(content).toContain("Node* random;");
+    expect(content).toContain("__buildRandomList");
+    expect(content).not.toMatch(/^struct ListNode \{/m); // no bogus ListNode struct
+  });
+
+  test("populating-next-right-pointers-in-each-node-ii gets a custom harness with the real Node struct injected", () => {
+    const content = scaffoldContent({
+      id: 117,
+      title: "Populating Next Right Pointers in Each Node II",
+      slug: "populating-next-right-pointers-in-each-node-ii",
+      difficulty: "Medium",
+      url: "https://leetcode.com/problems/populating-next-right-pointers-in-each-node-ii/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: [
+            "/*",
+            "// Definition for a Node.",
+            "class Node {",
+            "public:",
+            "    int val;",
+            "    Node* left;",
+            "    Node* right;",
+            "    Node* next;",
+            "    Node() : val(0), left(NULL), right(NULL), next(NULL) {}",
+            "};",
+            "*/",
+            "class Solution {",
+            "public:",
+            "    Node* connect(Node* root) {",
+            "    }",
+            "};",
+          ].join("\n"),
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "connect",
+        params: [{ name: "root", type: "TreeNode" }],
+        return: { type: "TreeNode" },
+      }),
+      exampleTestcases: "[1,2,3,4,5,null,7]",
+      contentHtml: "<strong>Output:</strong> [1,#,2,3,#,4,5,7,#]\n",
+    });
+    expect(content).toContain("int main()");
+    expect(content).toContain("class Node {");
+    expect(content).toContain("Node* next;");
+    expect(content).toContain("__buildNextPointerTree");
+    expect(content).not.toMatch(/^struct TreeNode \{/m);
+  });
+
+  test("serialize-and-deserialize-binary-tree gets a custom harness (Codec class)", () => {
+    const content = scaffoldContent({
+      id: 297,
+      title: "Serialize and Deserialize Binary Tree",
+      slug: "serialize-and-deserialize-binary-tree",
+      difficulty: "Hard",
+      url: "https://leetcode.com/problems/serialize-and-deserialize-binary-tree/",
+      snippets: [
+        {
+          lang: "C++",
+          langSlug: "cpp",
+          code: [
+            "/**",
+            " * Definition for a binary tree node.",
+            " * struct TreeNode {",
+            " *     int val;",
+            " *     TreeNode *left;",
+            " *     TreeNode *right;",
+            " *     TreeNode(int x) : val(x), left(NULL), right(NULL) {}",
+            " * };",
+            " */",
+            "class Codec {",
+            "public:",
+            "    string serialize(TreeNode* root) {",
+            "    }",
+            "    TreeNode* deserialize(string data) {",
+            "    }",
+            "};",
+          ].join("\n"),
+        },
+      ],
+      metaData: JSON.stringify({
+        name: "Codec",
+        params: [{ name: "root", type: "TreeNode" }],
+        return: { type: "string" },
+      }),
+      exampleTestcases: "[1,2,3,null,null,4,5]\n[]",
+      contentHtml: "<strong>Output:</strong> [1,2,3,null,null,4,5]\n<strong>Output:</strong> []\n",
+    });
+    expect(content).toContain("int main()");
+    expect(content).toContain("Codec __ser, __deser;");
+    expect(content).toMatch(/^struct TreeNode \{/m); // the real TreeNode struct IS needed here
   });
 });
 
@@ -685,25 +816,29 @@ describe("solutionCodeForSubmit", () => {
     expect(submitted).not.toContain("int main()");
   });
 
-  test("strips an injected struct even when no harness was generated (denylisted/gap problem)", () => {
-    // linked-list-cycle is denylisted (HARNESS_DENYLIST), so no harness marker
-    // exists — the struct must still be stripped via the struct's own marker.
+  test("strips an injected struct even when no harness was generated (unsupported/gap problem)", () => {
+    // A ListNode problem with a genuinely unsupported second param type: no
+    // harness marker exists — the struct must still be stripped via the
+    // struct's own marker.
     const noHarness = scaffoldContent({
-      id: 141,
-      title: "Linked List Cycle",
-      slug: "linked-list-cycle",
+      id: 999004,
+      title: "Hypothetical Unsupported Param Problem",
+      slug: "hypothetical-unsupported-param-problem",
       difficulty: "Easy",
-      url: "https://leetcode.com/problems/linked-list-cycle/",
+      url: "https://leetcode.com/problems/hypothetical-unsupported-param-problem/",
       snippets: [
         {
           lang: "C++",
           langSlug: "cpp",
-          code: "class Solution {\npublic:\n    bool hasCycle(ListNode *head) {\n    }\n};",
+          code: "class Solution {\npublic:\n    bool hasCycle(ListNode *head, CustomType extra) {\n    }\n};",
         },
       ],
       metaData: JSON.stringify({
         name: "hasCycle",
-        params: [{ name: "head", type: "ListNode" }],
+        params: [
+          { name: "head", type: "ListNode" },
+          { name: "extra", type: "CustomType" },
+        ],
         return: { type: "boolean" },
       }),
       exampleTestcases: "[3,2,0,-4]\n1",

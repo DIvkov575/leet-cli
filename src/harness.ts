@@ -229,6 +229,22 @@ static void __show(ostream& os, TreeNode* v) {
   for (size_t i = 0; i < out.size(); ++i) { if (i) os << ','; if (out[i]) os << *out[i]; else os << "null"; }
   os << ']';
 }
+// Order-independent comparison for a vector<TreeNode*> return: LeetCode's
+// judge accepts the trees in any order, so this checks the same multiset of
+// trees rather than the same sequence (each element of "got" is matched
+// against a distinct, not-yet-used element of "exp").
+static bool __eqUnordered(const vector<TreeNode*>& got, const vector<TreeNode*>& exp) {
+  if (got.size() != exp.size()) return false;
+  vector<bool> used(exp.size(), false);
+  for (auto* g : got) {
+    bool matched = false;
+    for (size_t i = 0; i < exp.size(); ++i) {
+      if (!used[i] && __eq(g, exp[i])) { used[i] = true; matched = true; break; }
+    }
+    if (!matched) return false;
+  }
+  return true;
+}
 `;
 
 /** Node-type helper blocks (builder/compare/show) actually used by a signature. */
@@ -263,15 +279,9 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
 
   // A vector<TreeNode*> return (e.g. all-possible-full-binary-trees,
   // delete-nodes-and-return-forest) is accepted by LeetCode's judge in any
-  // order; a strict ordered-vector comparison would fail correct solutions
-  // that happen to produce the trees in a different order, so this is left
-  // unsupported rather than silently wrong.
-  if (retType === "vector<TreeNode*>") {
-    return {
-      supported: false,
-      reason: "list<TreeNode> return is order-independent on LeetCode's judge — a positional comparison would be unreliable",
-    };
-  }
+  // order, so it's compared as a multiset via __eqUnordered rather than the
+  // positional __eq(vector<T>, vector<T>) used for everything else.
+  const unorderedTreeReturn = retType === "vector<TreeNode*>";
 
   const usable = cases.filter((c) => c.args.length === meta.params.length);
   if (usable.length === 0) return { supported: false, reason: "no usable example cases" };
@@ -331,9 +341,11 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
     }
     if (expectedExpr !== null) {
       lines.push(`    ${observedType} __exp = ${expectedExpr};`);
-      const cmp = usesNodeType(observedType)
-        ? `__eq(${gotExpr}, __exp)`
-        : `(${gotExpr} == __exp)`;
+      const cmp = unorderedTreeReturn
+        ? `__eqUnordered(${gotExpr}, __exp)`
+        : usesNodeType(observedType)
+          ? `__eq(${gotExpr}, __exp)`
+          : `(${gotExpr} == __exp)`;
       lines.push(`    bool __ok = ${cmp};`);
       lines.push(`    if (__ok) ++__pass;`);
       lines.push(
