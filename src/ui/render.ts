@@ -53,7 +53,8 @@ const HELP_LINES = [
   "    Space         toggle done (saved immediately)",
   "    s             solve — scaffold the C++ file and open it",
   "    t             test — compile & run the harness, output in Logs",
-  "    u             submit — upload the solution to LeetCode; verdict in Logs",
+  "    u             submit to LeetCode; on Accepted also pushes the file to",
+  "                  your solutions repo (if it's a git repo). Verdict in Logs",
   "    P             prefetch the current view into the cache (offline)",
   "    Tab           enter the menu bar",
   "    q             quit",
@@ -63,6 +64,7 @@ const HELP_LINES = [
   "    m  roadmap         d  difficulty   S  sort   T  tags",
   "    L  lists           o  open in browser         R  refresh",
   "    i  import          c  settings                ?  help",
+  "    y  sync (auth · pull · push)",
   "",
   "  Menu (bar → Menu) is a command palette of everything above with keys —",
   "  handy when you don't remember a shortcut.",
@@ -72,7 +74,7 @@ const HELP_LINES = [
   "    m             open the roadmap — a box flowchart of the patterns;",
   "                  ↑↓←→ move · Enter filters to a pattern · Tab subset",
   "",
-  "  Sync (Menu → Sync): authenticate, pull solved from LeetCode,",
+  "  Sync (y, or Menu → Sync): authenticate, pull solved from LeetCode,",
   "  and push solutions to your account (with a confirm before submitting).",
 ];
 
