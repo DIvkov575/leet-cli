@@ -211,6 +211,14 @@ describe("input handler — overlays", () => {
       if (prevSession !== undefined) process.env.LEETCODE_SESSION = prevSession;
     }
   });
+
+  test("y opens the Sync overlay directly, from any panel", () => {
+    const h = harness();
+    expect(h.state.sync).toBeNull();
+    h.key("y");
+    expect(h.state.sync).not.toBeNull();
+    expect(h.state.sync?.index).toBe(0);
+  });
 });
 
 describe("input handler — search prompt", () => {

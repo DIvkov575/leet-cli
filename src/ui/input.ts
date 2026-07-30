@@ -680,6 +680,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
       L: "list",
       R: "refresh",
       i: "import",
+      y: "sync",
       c: "config",
       "?": "help",
     };
