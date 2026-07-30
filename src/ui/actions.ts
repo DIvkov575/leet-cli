@@ -434,6 +434,32 @@ export function createActions(ctx: TuiContext): Actions {
         await saveCompleted(state.completed);
         recompute(state);
       }
+      // Accepted → also push this one file to whatever git repo the solutions
+      // dir lives in (no confirmation; mirrors Sync → "Commit + push solutions
+      // dir" but scoped to just this problem).
+      if (v.accepted) {
+        // `dir` (not `path`) is the spawn cwd: it must be a directory, or git
+        // fails with ENOTDIR. See `pushPathsToRepo`.
+        const push = await pushPathsToRepo(dir, [path], `solutions: ${p.id}-${p.slug} (leet-cli)`);
+        lines.push("");
+        switch (push.status) {
+          case "not-a-repo":
+            lines.push(`(${dir} is not inside a git repository — skipped repo push.)`);
+            break;
+          case "no-changes":
+            lines.push(`(${path} already up to date in the repo — nothing to push.)`);
+            break;
+          case "commit-failed":
+            lines.push(`(repo commit failed: ${push.detail})`);
+            break;
+          case "push-failed":
+            lines.push(`(repo push failed: ${push.detail})`);
+            break;
+          case "pushed":
+            lines.push(`(pushed ${path} to the repo.)`);
+            break;
+        }
+      }
       log(lines, v.accepted ? "Accepted" : v.statusMsg, v.accepted);
     } catch (err) {
       log(
