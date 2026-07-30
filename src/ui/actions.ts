@@ -64,6 +64,53 @@ export interface Actions {
   syncPushDir: () => Promise<void>;
 }
 
+/** Run a git command in `cwd`, returning { code, out }. */
+async function gitInDir(args: string[], cwd: string): Promise<{ code: number; out: string }> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, out: (stdout + stderr).trim() };
+}
+
+export type PushResult =
+  | { status: "not-a-repo" }
+  | { status: "no-changes" }
+  | { status: "commit-failed"; detail: string }
+  | { status: "push-failed"; detail: string }
+  | { status: "pushed" };
+
+/**
+ * git add/commit/push for the given paths. `cwdDir` anchors where the repo root
+ * is discovered from (`git rev-parse --show-toplevel`) — it MUST be a directory
+ * (`Bun.spawn`'s `cwd` throws ENOTDIR on a file path), so callers pass the
+ * containing solutions dir even when staging a single file inside it. Never
+ * throws; every outcome is a `PushResult`.
+ */
+export async function pushPathsToRepo(
+  cwdDir: string,
+  paths: string[],
+  commitMessage: string,
+): Promise<PushResult> {
+  try {
+    const root = await gitInDir(["rev-parse", "--show-toplevel"], cwdDir);
+    if (root.code !== 0) return { status: "not-a-repo" };
+    const cwd = root.out;
+    await gitInDir(["add", "--", ...paths], cwd);
+    const status = await gitInDir(["status", "--porcelain", "--", ...paths], cwd);
+    if (status.out === "") return { status: "no-changes" };
+    const commit = await gitInDir(["commit", "-m", commitMessage, "--", ...paths], cwd);
+    if (commit.code !== 0) return { status: "commit-failed", detail: commit.out.split("\n")[0] ?? "" };
+    const push = await gitInDir(["push"], cwd);
+    if (push.code !== 0) return { status: "push-failed", detail: push.out.split("\n").slice(-1)[0] ?? "" };
+    return { status: "pushed" };
+  } catch (err) {
+    return { status: "push-failed", detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** Rough width the Logs panel gets; used to pre-wrap captured output. */
 function logsWidthForCols(cols: number): number {
   return Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
@@ -574,17 +621,6 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
-  // Run a git command in `cwd`, returning { code, out }.
-  const gitInDir = async (args: string[], cwd: string): Promise<{ code: number; out: string }> => {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { code, out: (stdout + stderr).trim() };
-  };
-
   const syncPushDir = async (): Promise<void> => {
     if (!state.sync) return;
     const config = await loadConfig();
@@ -592,35 +628,23 @@ export function createActions(ctx: TuiContext): Actions {
     state.sync.busy = true;
     state.sync.lines = [`Committing + pushing ${dir}…`];
     render();
-    try {
-      const root = await gitInDir(["rev-parse", "--show-toplevel"], dir);
-      if (root.code !== 0) {
+    const result = await pushPathsToRepo(dir, [dir], `solutions: update ${dir} (leet-cli)`);
+    switch (result.status) {
+      case "not-a-repo":
         syncLog(`${dir} is not inside a git repository — nothing to push.`);
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      const cwd = root.out;
-      await gitInDir(["add", "--", dir], cwd);
-      const status = await gitInDir(["status", "--porcelain", "--", dir], cwd);
-      if (status.out === "") {
+        break;
+      case "no-changes":
         syncLog("Nothing to commit — the solutions dir is already up to date.");
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      const commit = await gitInDir(["commit", "-m", `solutions: update ${dir} (leet-cli)`, "--", dir], cwd);
-      if (commit.code !== 0) {
-        syncLog(`commit failed: ${commit.out.split("\n")[0] ?? ""}`);
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      syncLog("committed; pushing…");
-      const push = await gitInDir(["push"], cwd);
-      syncLog(push.code === 0 ? "pushed." : `push failed: ${push.out.split("\n").slice(-1)[0] ?? ""}`);
-    } catch (err) {
-      syncLog(`push-dir failed: ${err instanceof Error ? err.message : String(err)}`);
+        break;
+      case "commit-failed":
+        syncLog(`commit failed: ${result.detail}`);
+        break;
+      case "push-failed":
+        syncLog(`push failed: ${result.detail}`);
+        break;
+      case "pushed":
+        syncLog("committed; pushed.");
+        break;
     }
     state.sync.busy = false;
     render();
