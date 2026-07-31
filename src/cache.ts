@@ -1,7 +1,7 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { embeddedCpp, embeddedDescription } from "./artifacts.ts";
+import { dataDir } from "./config.ts";
 
 /**
  * Local cache of packaged solution files (`<slug>.cpp` — description + stub +
@@ -12,14 +12,6 @@ import { embeddedCpp, embeddedDescription } from "./artifacts.ts";
  * in the on-disk cache, so a freshly installed binary serves every bundled
  * problem's `.cpp` and statement with no network access.
  */
-
-/** Directory holding user state. Honors LEET_DATA_DIR (used by tests), then XDG. */
-function dataDir(): string {
-  return (
-    process.env.LEET_DATA_DIR ??
-    join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "leet-cli")
-  );
-}
 
 /** Directory holding cached solution files. */
 export function cacheDir(): string {

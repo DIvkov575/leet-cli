@@ -30,6 +30,8 @@ import { authFromBrowser } from "../auth.ts";
 import { fetchSolvedSlugs } from "../leetcode-progress.ts";
 import { submitSolution } from "../leetcode-submit.ts";
 import { fetchNeetcodeCpp } from "../neetcode.ts";
+import { pushPathsToRepo } from "../git-push.ts";
+import { pushToNeetRepo } from "../sync-clone.ts";
 import { mkdir } from "node:fs/promises";
 import { wrapText } from "./layout.ts";
 import { SUGGESTED_SETUP_LIST } from "./render.ts";
@@ -387,6 +389,64 @@ export function createActions(ctx: TuiContext): Actions {
         await saveCompleted(state.completed);
         recompute(state);
       }
+      // Accepted → also push this one file to whatever git repo the solutions
+      // dir lives in (no confirmation; mirrors Sync → "Commit + push solutions
+      // dir" but scoped to just this problem).
+      if (v.accepted) {
+        // `dir` (not `path`) is the spawn cwd: it must be a directory, or git
+        // fails with ENOTDIR. See `pushPathsToRepo`.
+        const push = await pushPathsToRepo(dir, [path], `solutions: ${p.id}-${p.slug} (leet-cli)`);
+        lines.push("");
+        switch (push.status) {
+          case "not-a-repo":
+            lines.push(`(${dir} is not inside a git repository — skipped repo push.)`);
+            break;
+          case "no-changes":
+            lines.push(`(${path} already up to date in the repo — nothing to push.)`);
+            break;
+          case "commit-failed":
+            lines.push(`(repo commit failed: ${push.detail})`);
+            break;
+          case "push-failed":
+            lines.push(`(repo push failed: ${push.detail})`);
+            break;
+          case "pushed":
+            lines.push(`(pushed ${path} to the repo.)`);
+            break;
+        }
+      }
+      // Accepted → also push this one file into the configured NeetCode-layout
+      // sync repo (a separate, persistent local clone) — same auto behavior as
+      // the flat-repo push above, just a different destination and layout.
+      if (v.accepted) {
+        const syncRepo = resolveSyncRepo(undefined, config);
+        const neetPush = await pushToNeetRepo(
+          syncRepo ?? "",
+          p.slug,
+          code,
+          `solutions: ${p.id}-${p.slug} (leet-cli)`,
+        );
+        switch (neetPush.status) {
+          case "no-repo":
+            lines.push("(no sync repo configured — skipped neet-layout push.)");
+            break;
+          case "not-a-repo":
+            lines.push("(local sync-repo clone is not a git repository — skipped neet-layout push.)");
+            break;
+          case "no-changes":
+            lines.push(`(${p.slug} already up to date in the sync repo — nothing to push.)`);
+            break;
+          case "commit-failed":
+            lines.push(`(sync-repo commit failed: ${neetPush.detail})`);
+            break;
+          case "push-failed":
+            lines.push(`(sync-repo push failed: ${neetPush.detail})`);
+            break;
+          case "pushed":
+            lines.push(`(pushed ${p.slug} to the sync repo.)`);
+            break;
+        }
+      }
       log(lines, v.accepted ? "Accepted" : v.statusMsg, v.accepted);
     } catch (err) {
       log(
@@ -574,17 +634,6 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
-  // Run a git command in `cwd`, returning { code, out }.
-  const gitInDir = async (args: string[], cwd: string): Promise<{ code: number; out: string }> => {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { code, out: (stdout + stderr).trim() };
-  };
-
   const syncPushDir = async (): Promise<void> => {
     if (!state.sync) return;
     const config = await loadConfig();
@@ -592,35 +641,23 @@ export function createActions(ctx: TuiContext): Actions {
     state.sync.busy = true;
     state.sync.lines = [`Committing + pushing ${dir}…`];
     render();
-    try {
-      const root = await gitInDir(["rev-parse", "--show-toplevel"], dir);
-      if (root.code !== 0) {
+    const result = await pushPathsToRepo(dir, [dir], `solutions: update ${dir} (leet-cli)`);
+    switch (result.status) {
+      case "not-a-repo":
         syncLog(`${dir} is not inside a git repository — nothing to push.`);
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      const cwd = root.out;
-      await gitInDir(["add", "--", dir], cwd);
-      const status = await gitInDir(["status", "--porcelain", "--", dir], cwd);
-      if (status.out === "") {
+        break;
+      case "no-changes":
         syncLog("Nothing to commit — the solutions dir is already up to date.");
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      const commit = await gitInDir(["commit", "-m", `solutions: update ${dir} (leet-cli)`, "--", dir], cwd);
-      if (commit.code !== 0) {
-        syncLog(`commit failed: ${commit.out.split("\n")[0] ?? ""}`);
-        state.sync.busy = false;
-        render();
-        return;
-      }
-      syncLog("committed; pushing…");
-      const push = await gitInDir(["push"], cwd);
-      syncLog(push.code === 0 ? "pushed." : `push failed: ${push.out.split("\n").slice(-1)[0] ?? ""}`);
-    } catch (err) {
-      syncLog(`push-dir failed: ${err instanceof Error ? err.message : String(err)}`);
+        break;
+      case "commit-failed":
+        syncLog(`commit failed: ${result.detail}`);
+        break;
+      case "push-failed":
+        syncLog(`push failed: ${result.detail}`);
+        break;
+      case "pushed":
+        syncLog("committed; pushed.");
+        break;
     }
     state.sync.busy = false;
     render();

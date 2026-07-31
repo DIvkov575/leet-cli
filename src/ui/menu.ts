@@ -59,7 +59,7 @@ export interface PaletteItem {
 export const PALETTE_ITEMS: readonly PaletteItem[] = [
   { label: "Lists", action: "list", key: "L" },
   { label: "Open in browser", action: "open", key: "o" },
-  { label: "Sync (auth · pull · push)", action: "sync", key: "—" },
+  { label: "Sync (auth · pull · push)", action: "sync", key: "y" },
   { label: "Import solved", action: "import", key: "i" },
   { label: "Refresh from LeetCode", action: "refresh", key: "R" },
   { label: "Settings", action: "config", key: "c" },
