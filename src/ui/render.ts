@@ -104,7 +104,7 @@ function footerLine(s: State, cols: number): string {
   if (s.status) return paint(fit(` ${s.status}`, cols), "cyan");
   const hint =
     s.focus === "lists"
-      ? " ↑↓ move · Enter/→ open list · Tab menu · q quit · ? help"
+      ? " ↑↓ move · Enter/→ open list · s solve · t test · u submit · Space done · o open"
       : s.focus === "problems"
         ? " ↑↓ move · Enter preview · s solve · t test · u submit · Space done · ← lists"
         : s.focus === "preview"

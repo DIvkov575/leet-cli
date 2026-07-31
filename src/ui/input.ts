@@ -723,6 +723,23 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
           });
           return;
         }
+        case " ":
+          void actions.toggleDone();
+          return;
+        case "s":
+          void actions.solveCurrent();
+          return;
+        case "t":
+          void actions.runTest();
+          return;
+        case "u":
+          void actions.submitCurrent();
+          return;
+        case "o": {
+          const p = current(state);
+          if (p) void openUrl(p.url);
+          break;
+        }
         default:
           return;
       }

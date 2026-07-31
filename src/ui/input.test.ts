@@ -100,6 +100,49 @@ describe("input handler — navigation", () => {
   });
 });
 
+describe("input handler — Lists panel accepts contextual actions", () => {
+  test("Space toggles done on the current problem from the Lists panel", async () => {
+    // toggleDone() persists via saveCompleted(), which writes to LEET_DATA_DIR —
+    // isolate it so this test can't touch the real user's completed.json.
+    const prevDataDir = process.env.LEET_DATA_DIR;
+    process.env.LEET_DATA_DIR = "/tmp/leet-lists-toggle-" + Math.floor(performance.now());
+    try {
+      const h = harness();
+      h.state.focus = "lists";
+      const p = h.state.filtered[h.state.cursor]!;
+      expect(h.state.completed.has(p.id)).toBe(false);
+      h.key(" ");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.state.completed.has(p.id)).toBe(true);
+      h.key(" ");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.state.completed.has(p.id)).toBe(false);
+    } finally {
+      if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDataDir;
+    }
+  });
+
+  test("o opens the current problem's URL from the Lists panel", async () => {
+    const h = harness();
+    h.state.focus = "lists";
+    const opened: string[] = [];
+    const realSpawn = Bun.spawn;
+    // @ts-expect-error -- stub Bun.spawn to capture the `open`/`xdg-open` call
+    Bun.spawn = (cmd: string[]) => {
+      opened.push(...cmd);
+      return { exited: Promise.resolve(0) };
+    };
+    try {
+      h.key("o");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(opened.some((c) => c === h.state.filtered[h.state.cursor]!.url)).toBe(true);
+    } finally {
+      Bun.spawn = realSpawn;
+    }
+  });
+});
+
 describe("input handler — menu bar", () => {
   test("Tab enters the menu, l/h move, Esc returns", () => {
     const h = harness();

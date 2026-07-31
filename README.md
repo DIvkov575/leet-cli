@@ -332,9 +332,11 @@ around **four hierarchical panels — Lists │ Problems │ Preview │ Logs**:
   (FAIL/compile error) and shows the captured output.
 
 **`→` / `Enter` drills deeper** (open a list → preview a problem → its test
-logs); **`←` / `Esc` steps back out**. From the Problems or Preview panel,
+logs); **`←` / `Esc` steps back out**. From any panel — Lists included —
 **`s`** branches off into *solve* (scaffold the C++ file cache-first and open it
-in your editor) and **`t`** into *test* (compile & run, output in Logs).
+in your editor) and **`t`** into *test* (compile & run, output in Logs); **`u`**
+submits and **`o`** opens in the browser, all acting on whichever problem is
+currently selected.
 
 Press **`F`** from Problems, Preview, or Logs to enter **fullscreen reading
 mode**: the statement (and, on a wide terminal, the test logs beside it) takes
