@@ -347,10 +347,13 @@ solution to LeetCode without opening a browser. It reads the file you've been
 editing (`solve`/`test` scaffold), strips the local test harness, submits, and
 prints the judge verdict — Accepted / Wrong Answer, cases passed, and any
 compile/runtime detail — into the **Logs** panel. An Accepted verdict marks the
-problem done locally, and also commits + pushes that one solution file to
-whatever git repo your solutions directory lives in (if any — no separate
-confirmation, and it's skipped quietly if the directory isn't in a git repo).
-(Needs `leet auth` first, for the session + CSRF token.)
+problem done locally, and also pushes that one solution to every configured
+repo: your flat solutions directory's git repo (if any), and — if you've set a
+sync repo (`leet sync-repo`) — the NeetCode-layout sync repo too, via a
+persistent local clone kept under leet-cli's data dir. Both pushes are
+automatic (no separate confirmation) and skipped quietly, not as errors, if
+the relevant repo isn't set up. (Needs `leet auth` first, for the session +
+CSRF token.)
 
 Every action also lives in a **menu bar** across the top, trimmed to four
 entries — press **Tab** to enter it, `←→` to move, `Enter` to fire: **Search ·
@@ -376,7 +379,7 @@ Core keys:
 | `Space`          | toggle done (saved immediately)                   |
 | `s`              | solve — scaffold the C++ file and open it         |
 | `t`              | test — compile & run the harness (output in Logs) |
-| `u`              | submit to LeetCode; on Accepted, also pushes the file to your solutions repo |
+| `u`              | submit to LeetCode; on Accepted, also pushes to your solutions repo + sync repo |
 | `F`              | fullscreen reading mode (description + logs)      |
 | `Tab`            | enter the menu bar                                |
 | `q` / Ctrl-C     | quit (restores the terminal)                      |
