@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pushPathsToRepo } from "./actions.ts";
+import { pushPathsToRepo } from "./git-push.ts";
 
 function run(args: string[], cwd: string): { code: number; out: string } {
   const proc = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
