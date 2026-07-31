@@ -134,7 +134,7 @@ export function toggleSelection(current: readonly string[] | undefined, name: st
 }
 
 /** Directory holding user state. Honors LEET_DATA_DIR (used by tests), then XDG. */
-function dataDir(): string {
+export function dataDir(): string {
   return (
     process.env.LEET_DATA_DIR ??
     join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "leet-cli")

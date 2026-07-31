@@ -1,8 +1,8 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { loadList } from "./lib.ts";
 import { prefetchProblems, type PrefetchResult } from "./prefetch.ts";
+import { dataDir } from "./config.ts";
 
 /**
  * Proactive pre-caching of a study set so the first `solve`/preview is instant
@@ -13,13 +13,6 @@ import { prefetchProblems, type PrefetchResult } from "./prefetch.ts";
  */
 
 const DEFAULT_LIST = "neetcode-250";
-
-function dataDir(): string {
-  return (
-    process.env.LEET_DATA_DIR ??
-    join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "leet-cli")
-  );
-}
 
 function markerPath(): string {
   return join(dataDir(), ".setup-done");

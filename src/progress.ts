@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, open, rename, stat, unlink } from "node:fs/promises";
+import { dataDir } from "./config.ts";
 
 /**
  * Completion tracking. Completed problems are stored by their global LeetCode
@@ -8,14 +8,6 @@ import { mkdir, open, rename, stat, unlink } from "node:fs/promises";
  * (which rewrites the bundled data) and is shared across every list — a
  * problem marked done in one list reads as done everywhere it appears.
  */
-
-/** Directory holding user state. Honors LEET_DATA_DIR (used by tests), then XDG. */
-function dataDir(): string {
-  return (
-    process.env.LEET_DATA_DIR ??
-    join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "leet-cli")
-  );
-}
 
 function progressPath(): string {
   return join(dataDir(), "completed.json");
