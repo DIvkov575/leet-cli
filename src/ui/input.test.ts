@@ -298,6 +298,117 @@ describe("input handler — overlays", () => {
     }
   });
 
+  test("u, once Accepted, also pushes the solution into the configured neet-layout repo", async () => {
+    const { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const run = (args: string[], cwd: string) => {
+      const proc = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+      return (proc.stdout.toString() + proc.stderr.toString()).trim();
+    };
+
+    const root = mkdtempSync(join(tmpdir(), "leet-submit-neet-"));
+
+    // Flat "gh" solutions repo (same setup as the sibling test).
+    const ghBare = join(root, "gh-bare.git");
+    const solutionsDir = join(root, "solutions");
+    mkdirSync(ghBare);
+    run(["init", "--bare"], ghBare);
+    run(["clone", ghBare, solutionsDir], root);
+    run(["config", "user.email", "test@example.com"], solutionsDir);
+    run(["config", "user.name", "Test"], solutionsDir);
+    run(["config", "commit.gpgsign", "false"], solutionsDir);
+    writeFileSync(join(solutionsDir, ".gitkeep"), "");
+    run(["add", "-A"], solutionsDir);
+    run(["commit", "-m", "seed"], solutionsDir);
+    run(["push"], solutionsDir);
+    writeFileSync(join(solutionsDir, "1-problem-1.cpp"), "class Solution {};\n");
+
+    // Separate "neet" bare remote — a distinct repo from the gh one above.
+    // Pre-clone it into the location pushToNeetRepo's default cloneDir will
+    // use (<LEET_DATA_DIR>/sync-clone), with a commit identity set directly on
+    // the clone — Bun.spawn does not see process.env mutations made at test
+    // runtime, so GIT_AUTHOR_*/user.email must be set via `git config` on the
+    // repo itself, not via process.env.
+    const neetBare = join(root, "neet-bare.git");
+    mkdirSync(neetBare);
+    run(["init", "--bare"], neetBare);
+
+    const prevDataDir = process.env.LEET_DATA_DIR;
+    const prevSession = process.env.LEETCODE_SESSION;
+    const prevCsrf = process.env.LEETCODE_CSRF;
+    const prevSyncRepo = process.env.LEET_SYNC_REPO;
+    const dataDirPath = mkdtempSync(join(tmpdir(), "leet-data-"));
+    process.env.LEET_DATA_DIR = dataDirPath;
+    process.env.LEETCODE_SESSION = "s";
+    process.env.LEETCODE_CSRF = "c";
+    // $LEET_SYNC_REPO outranks config.json in resolveSyncRepo, so a developer
+    // who exports it would otherwise have this test push to their real remote.
+    delete process.env.LEET_SYNC_REPO;
+
+    const neetClone = join(dataDirPath, "sync-clone");
+    run(["clone", neetBare, neetClone], root);
+    run(["config", "user.email", "test@example.com"], neetClone);
+    run(["config", "user.name", "Test"], neetClone);
+    run(["config", "commit.gpgsign", "false"], neetClone);
+    writeFileSync(join(neetClone, "README.md"), "seed\n");
+    run(["add", "-A"], neetClone);
+    run(["commit", "-m", "seed"], neetClone);
+    run(["push"], neetClone);
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "1" } } }), { status: 200 });
+      }
+      if (url.endsWith("/submit/")) {
+        return new Response(JSON.stringify({ submission_id: 1 }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ state: "SUCCESS", status_msg: "Accepted", total_correct: 1, total_testcases: 1 }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      const h = harness();
+      writeFileSync(
+        join(dataDirPath, "config.json"),
+        JSON.stringify({
+          solutionsDir,
+          leetcodeSession: "s",
+          leetcodeCsrf: "c",
+          syncRepo: neetBare, // a local bare-repo path stands in for "owner/repo" in this test
+        }),
+      );
+      h.key("u");
+      const deadline = Date.now() + 15_000;
+      while (h.state.logs.status !== "done" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(h.state.logs.status).toBe("done");
+      expect(h.state.logs.ok).toBe(true);
+
+      const written = readFileSync(
+        join(neetClone, "Data Structures & Algorithms", "problem-1", "submission-0.cpp"),
+        "utf8",
+      );
+      expect(written).toBe("class Solution {};\n");
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDataDir;
+      if (prevSession === undefined) delete process.env.LEETCODE_SESSION;
+      else process.env.LEETCODE_SESSION = prevSession;
+      if (prevCsrf === undefined) delete process.env.LEETCODE_CSRF;
+      else process.env.LEETCODE_CSRF = prevCsrf;
+      if (prevSyncRepo === undefined) delete process.env.LEET_SYNC_REPO;
+      else process.env.LEET_SYNC_REPO = prevSyncRepo;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("y opens the Sync overlay directly, from any panel", () => {
     const h = harness();
     expect(h.state.sync).toBeNull();

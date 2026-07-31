@@ -31,6 +31,7 @@ import { fetchSolvedSlugs } from "../leetcode-progress.ts";
 import { submitSolution } from "../leetcode-submit.ts";
 import { fetchNeetcodeCpp } from "../neetcode.ts";
 import { pushPathsToRepo } from "../git-push.ts";
+import { pushToNeetRepo } from "../sync-clone.ts";
 import { mkdir } from "node:fs/promises";
 import { wrapText } from "./layout.ts";
 import { SUGGESTED_SETUP_LIST } from "./render.ts";
@@ -411,6 +412,38 @@ export function createActions(ctx: TuiContext): Actions {
             break;
           case "pushed":
             lines.push(`(pushed ${path} to the repo.)`);
+            break;
+        }
+      }
+      // Accepted → also push this one file into the configured NeetCode-layout
+      // sync repo (a separate, persistent local clone) — same auto behavior as
+      // the flat-repo push above, just a different destination and layout.
+      if (v.accepted) {
+        const syncRepo = resolveSyncRepo(undefined, config);
+        const neetPush = await pushToNeetRepo(
+          syncRepo ?? "",
+          p.slug,
+          code,
+          `solutions: ${p.id}-${p.slug} (leet-cli)`,
+        );
+        switch (neetPush.status) {
+          case "no-repo":
+            lines.push("(no sync repo configured — skipped neet-layout push.)");
+            break;
+          case "not-a-repo":
+            lines.push("(local sync-repo clone is not a git repository — skipped neet-layout push.)");
+            break;
+          case "no-changes":
+            lines.push(`(${p.slug} already up to date in the sync repo — nothing to push.)`);
+            break;
+          case "commit-failed":
+            lines.push(`(sync-repo commit failed: ${neetPush.detail})`);
+            break;
+          case "push-failed":
+            lines.push(`(sync-repo push failed: ${neetPush.detail})`);
+            break;
+          case "pushed":
+            lines.push(`(pushed ${p.slug} to the sync repo.)`);
             break;
         }
       }
