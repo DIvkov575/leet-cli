@@ -4,9 +4,11 @@
  * a missing or corrupted clone directory is (re-)cloned from scratch; a valid
  * one is `git pull`ed to catch up before use.
  */
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { dataDir } from "./config.ts";
+import { pushPathsToRepo, type PushResult } from "./git-push.ts";
+import { submissionPath } from "./pull-solutions.ts";
 
 /** Default location for the persistent clone; overridable for tests. */
 export function syncCloneDir(): string {
@@ -74,4 +76,36 @@ export async function ensureSyncClone(
   const pull = await capture(["git", "pull"], cloneDir);
   if (pull.code !== 0) throw new Error(`failed to update local clone of ${repo}: ${pull.out}`);
   return { path: cloneDir };
+}
+
+export type NeetPushResult = PushResult | { status: "no-repo" };
+
+/**
+ * Write `code` into `repo`'s local clone at the NeetCode layout path for `slug`
+ * (`Data Structures & Algorithms/<slug>/submission-0.cpp`) and push, using
+ * `commitMessage` verbatim (the caller builds the full message, as with
+ * `pushPathsToRepo`). Returns `no-repo` without touching the network or
+ * filesystem when `repo` is empty (no syncRepo configured) — a normal outcome,
+ * not an error. Never throws: `ensureSyncClone`'s clone/pull failures come back
+ * as `push-failed`, matching `pushPathsToRepo`'s contract, so a failed push
+ * can't take down an unrelated result.
+ */
+export async function pushToNeetRepo(
+  repo: string,
+  slug: string,
+  code: string,
+  commitMessage: string,
+  cloneDir: string = syncCloneDir(),
+): Promise<NeetPushResult> {
+  if (!repo) return { status: "no-repo" };
+  let clonePath: string;
+  try {
+    clonePath = (await ensureSyncClone(repo, cloneDir)).path;
+  } catch (err) {
+    return { status: "push-failed", detail: err instanceof Error ? err.message : String(err) };
+  }
+  const fullPath = join(clonePath, submissionPath(slug, "cpp"));
+  await mkdir(dirname(fullPath), { recursive: true });
+  await Bun.write(fullPath, code);
+  return pushPathsToRepo(clonePath, [fullPath], commitMessage);
 }

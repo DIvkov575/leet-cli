@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureSyncClone } from "./sync-clone.ts";
+import { ensureSyncClone, pushToNeetRepo } from "./sync-clone.ts";
 
 function run(args: string[], cwd: string): { code: number; out: string } {
   const proc = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -110,6 +110,80 @@ describe("ensureSyncClone", () => {
       expect(Bun.file(join(result.path, "README.md")).size).toBeGreaterThan(0);
     } finally {
       cleanup();
+      rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pushToNeetRepo", () => {
+  test("returns no-repo when syncRepo is empty", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "leet-sync-clone-data-"));
+    try {
+      const clonePath = join(dataRoot, "sync-clone");
+      const result = await pushToNeetRepo("", "two-sum", "class Solution {};\n", "solutions", clonePath);
+      expect(result.status).toBe("no-repo");
+      // Short-circuits before any I/O: nothing was cloned or created.
+      expect(existsSync(clonePath)).toBe(false);
+    } finally {
+      rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("writes the solution into the NeetCode layout and pushes", async () => {
+    const { remotePath, cleanup } = makeBareRemote();
+    const dataRoot = mkdtempSync(join(tmpdir(), "leet-sync-clone-data-"));
+    try {
+      // Pre-create the clone (as a repeat push would find it) and give it a
+      // commit identity, so the commit doesn't depend on — or get signed by —
+      // the developer's global git config. Bun.spawn ignores runtime
+      // process.env mutations, so GIT_AUTHOR_* env vars can't do this.
+      const clonePath = join(dataRoot, "sync-clone");
+      run(["clone", remotePath, clonePath], dataRoot);
+      run(["config", "user.email", "test@example.com"], clonePath);
+      run(["config", "user.name", "Test"], clonePath);
+      run(["config", "commit.gpgsign", "false"], clonePath);
+
+      const result = await pushToNeetRepo(
+        remotePath,
+        "two-sum",
+        "class Solution {};\n",
+        "solve two-sum",
+        clonePath,
+      );
+      expect(result.status).toBe("pushed");
+
+      const content = readFileSync(
+        join(clonePath, "Data Structures & Algorithms", "two-sum", "submission-0.cpp"),
+        "utf8",
+      );
+      expect(content).toBe("class Solution {};\n");
+
+      // commitMessage is used verbatim — pushToNeetRepo must not template it.
+      const log = run(["log", "-1", "--pretty=%s"], clonePath);
+      expect(log.out).toBe("solve two-sum");
+      // The solution file is in the commit, not just sitting in the worktree.
+      const committed = run(["show", "--name-only", "--pretty=", "HEAD"], clonePath);
+      expect(committed.out).toBe("Data Structures & Algorithms/two-sum/submission-0.cpp");
+    } finally {
+      cleanup();
+      rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ensureSyncClone throws on clone/pull failure; pushToNeetRepo must report it
+  // rather than propagate, so a push failure can't take down an unrelated result.
+  test("reports push-failed instead of throwing when the clone can't be created", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "leet-sync-clone-data-"));
+    try {
+      const result = await pushToNeetRepo(
+        join(dataRoot, "does-not-exist.git"),
+        "two-sum",
+        "class Solution {};\n",
+        "solutions",
+        join(dataRoot, "sync-clone"),
+      );
+      expect(result.status).toBe("push-failed");
+    } finally {
       rmSync(dataRoot, { recursive: true, force: true });
     }
   });
