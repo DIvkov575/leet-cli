@@ -546,6 +546,9 @@ The TUI **Sync** menu (Tab → Sync) has the full set:
    files to the repo they live in.
 6. **Push solutions to LeetCode** — submit NeetCode solutions to mark Accepted
    (with an in-panel confirm before any real submission).
+7. **Sync everything** — runs steps 2–5 back to back, then plans step 6 (still
+   gated behind its own confirm before submitting). One confirm at the start
+   covers the whole chain.
 
 ## Live data
 

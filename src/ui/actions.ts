@@ -64,6 +64,7 @@ export interface Actions {
   syncPushRun: () => Promise<void>;
   syncPullSolutions: () => Promise<void>;
   syncPushDir: () => Promise<void>;
+  syncAll: () => Promise<void>;
 }
 
 /** Rough width the Logs panel gets; used to pre-wrap captured output. */
@@ -754,6 +755,37 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
+  // Runs the local/repo steps back to back, then hands off to the normal
+  // push-plan confirm gate for the LeetCode-submitting step. Each step writes
+  // its own output into `state.sync.lines`, so between steps we point it at a
+  // fresh scratch array (never `history` itself — self-referential spreading
+  // into `history.push` would duplicate the early-return branches, e.g.
+  // "No session"), then fold that scratch into `history` once the step ends.
+  const syncAll = async (): Promise<void> => {
+    if (!state.sync) return;
+    const history: string[] = ["Sync everything: pull → mark-repo → pull-solutions → push-dir → push…"];
+    state.sync.lines = history;
+    render();
+    const runStep = async (label: string, step: () => Promise<void>): Promise<void> => {
+      if (!state.sync) return;
+      state.sync.lines = [];
+      await step();
+      if (!state.sync) return;
+      history.push(`── ${label} ──`, ...state.sync.lines);
+      state.sync.lines = history;
+      render();
+    };
+    await runStep("pull solved from LeetCode", syncPull);
+    await runStep("mark solved from sync repo", syncMarkRepo);
+    await runStep("pull my solutions → repo", syncPullSolutions);
+    await runStep("commit + push solutions dir", syncPushDir);
+    if (!state.sync) return;
+    history.push("── planning the LeetCode push (final step) ──");
+    state.sync.lines = history;
+    render();
+    await syncPushPlan();
+  };
+
   const runSyncAction = (action: SyncAction): void => {
     if (!state.sync || state.sync.busy) return;
     if (action === "auth") void syncAuth();
@@ -772,6 +804,13 @@ export function createActions(ctx: TuiContext): Actions {
       };
       render();
     } else if (action === "push") void syncPushPlan();
+    else if (action === "all") {
+      state.sync.confirm = {
+        action: "all",
+        prompt: "sync everything (pull, mark, push repo + dir, then plan a push)?",
+      };
+      render();
+    }
   };
 
   return {
@@ -792,5 +831,6 @@ export function createActions(ctx: TuiContext): Actions {
     syncPushRun,
     syncPullSolutions,
     syncPushDir,
+    syncAll,
   };
 }

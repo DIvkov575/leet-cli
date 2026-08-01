@@ -66,6 +66,7 @@ export const SYNC_ACTIONS = [
   { key: "pullSolutions", label: "Pull my solutions → repo", hint: "add LeetCode-solved problems missing from your sync repo" },
   { key: "pushDir", label: "Commit + push solutions dir", hint: "git add/commit/push your ./solutions files to the sync repo" },
   { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
+  { key: "all", label: "Sync everything", hint: "pull → mark-repo → pull-solutions → push-dir, then plan a LeetCode push" },
 ] as const;
 export type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
 
@@ -86,7 +87,7 @@ export interface SyncState {
    * dir), gated behind y/n like `confirmPush`. `prompt` is the footer question;
    * `action` picks which runner fires on `y`.
    */
-  confirm: { action: "pullSolutions" | "pushDir"; prompt: string } | null;
+  confirm: { action: "pullSolutions" | "pushDir" | "all"; prompt: string } | null;
 }
 
 /**
