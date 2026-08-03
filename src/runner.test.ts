@@ -45,4 +45,20 @@ maybe("compileAndRun", () => {
     expect(r.ok).toBe(false);
     expect(r.log.length).toBeGreaterThan(0);
   });
+
+  // Regression: at -O2 with no debug info, undefined behavior (like falling
+  // off the end of a value-returning function) used to crash with a bare
+  // SIGTRAP/SIGABRT and empty stderr — nothing to show the user. ASan+UBSan
+  // (added to the compile flags) turn that into a real file:line diagnostic.
+  test("undefined behavior at runtime → sanitizer reports file:line, not a silent crash", async () => {
+    const path = setup(
+      `int f() { for (int i = 0; i < 0; i++) return i; }\nint main(){ return f(); }\n`,
+    );
+    const r = await compileAndRun(path, cxx!);
+    rmSync(dir, { recursive: true, force: true });
+    expect(r.compiled).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.log).toContain("runtime error");
+    expect(r.log).toMatch(/:\d+:\d+/); // file:line:col of the actual UB site
+  });
 });

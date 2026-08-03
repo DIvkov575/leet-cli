@@ -52,6 +52,7 @@ import {
 import { fetchNeetcodeCpp } from "./neetcode.ts";
 import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
+import { SANITIZE_FLAGS } from "./runner.ts";
 import { version as VERSION } from "../package.json";
 
 const HELP = `leet ${VERSION} — browse bundled LeetCode company lists from the terminal
@@ -738,7 +739,7 @@ async function cmdTest(p: Parsed): Promise<void> {
   const cxx = resolveCxx(config);
   const bin = `${path.replace(/\.cpp$/, "")}.out`;
   console.error(`compiling ${path}…`);
-  const compile = Bun.spawn([cxx, "-std=c++17", "-O2", path, "-o", bin], {
+  const compile = Bun.spawn([cxx, "-std=c++17", "-O2", ...SANITIZE_FLAGS, path, "-o", bin], {
     stdout: "inherit",
     stderr: "inherit",
   });
