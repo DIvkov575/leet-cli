@@ -106,6 +106,12 @@ describe("generateHarness", () => {
     expect(r.code).toContain("passed");
   });
 
+  test("prints each case's argument values, named by param, before calling the method", () => {
+    const cases = buildCases("[2,7,11,15]\n9", "<strong>Output:</strong> [0,1]", 2);
+    const r = generateHarness(TWO_SUM_META, cases);
+    expect(r.code).toContain('cout << "case 1: args: " << "nums=" << __str(__a0) << ", " << "target=" << __str(__a1) << "\\n";');
+  });
+
 });
 
 describe("generateHarness — ListNode", () => {
