@@ -9,7 +9,7 @@ import { NEETCODE_PATTERNS } from "../tags.ts";
 import { neetcodeChart, chartMove } from "../roadmap.ts";
 import { MENU_ITEMS, PALETTE_ITEMS, type MenuAction } from "./menu.ts";
 import { cycleDoneFilter, cycleDifficulty, cycleSortState } from "./controls.ts";
-import { previewBody, filterRepoSuggestions, fieldHasRepoSuggest } from "./render.ts";
+import { previewBody, logsBody, filterRepoSuggestions, fieldHasRepoSuggest } from "./render.ts";
 import { recompute, current, listRows, selectListRow, SYNC_ACTIONS } from "./state.ts";
 import type { TuiContext } from "./context.ts";
 import type { Actions } from "./actions.ts";
@@ -106,6 +106,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
   };
 
   const previewBodyLen = (): number => previewBody(state, ctx.out.columns ?? 80).length;
+  const logsBodyLen = (): number => logsBody(state, ctx.out.columns ?? 80).length;
   const pageStep = (): number => Math.max(1, (ctx.out.rows ?? 24) - 4);
   const invalidateStalePreview = (): void => {
     const p = current(state);
@@ -543,7 +544,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
 
     // ── fullscreen reading mode ── (owns all input while active)
     if (state.fullscreen) {
-      const maxLogScroll = Math.max(0, state.logs.lines.length - 1);
+      const maxLogScroll = Math.max(0, logsBodyLen() - 1);
       switch (key) {
         case "\x03":
         case "q":
@@ -894,7 +895,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
 
     // ── Logs panel ──
     if (state.focus === "logs") {
-      const maxScroll = Math.max(0, state.logs.lines.length - 1);
+      const maxScroll = Math.max(0, logsBodyLen() - 1);
       switch (key) {
         case "q":
           finish();

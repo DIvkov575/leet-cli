@@ -440,6 +440,30 @@ describe("renderFrame three-panel layout", () => {
     expect(joined).toContain("Press t to test");
   });
 
+  test("Logs panel word-wraps long lines at the real panel width instead of truncating them", () => {
+    // Regression: `runTest`/`submitCurrent` used to pre-wrap captured output to
+    // a guessed width, which `logsPanel` then re-truncated (with "…") to the
+    // real, narrower panel width — chopping compiler diagnostics off mid-word.
+    // Storing raw lines and wrapping once at render time (logsBody) fixes it.
+    const longLine = "error: no viable overloaded operator for this expression, see candidates below";
+    const s = makeState({
+      focus: "logs",
+      logs: { slug: "easy-one", status: "done", lines: [longLine], scroll: 0, summary: "compile error", ok: false },
+    });
+    const f = renderFrame(s, 16, 80); // narrow enough that the line must wrap
+    // Logs is the last (rightmost) column — take the text after the last "│"
+    // on each row, since joining whole rows would interleave the Preview
+    // column's text with the Logs column's.
+    const logsColumn = strip(f.join("\n"))
+      .split("\n")
+      .map((line) => line.split("│").pop() ?? "")
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(logsColumn).not.toContain("…");
+    expect(logsColumn).toContain(longLine);
+  });
+
   test("Lists panel shows done/left/total counts for each list", () => {
     const s = makeState({
       listNames: ["demo", "other"],

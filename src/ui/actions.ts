@@ -33,7 +33,6 @@ import { fetchNeetcodeCpp } from "../neetcode.ts";
 import { pushPathsToRepo } from "../git-push.ts";
 import { pushToNeetRepo } from "../sync-clone.ts";
 import { mkdir } from "node:fs/promises";
-import { wrapText } from "./layout.ts";
 import { SUGGESTED_SETUP_LIST } from "./render.ts";
 import {
   recompute,
@@ -65,11 +64,6 @@ export interface Actions {
   syncPullSolutions: () => Promise<void>;
   syncPushDir: () => Promise<void>;
   syncAll: () => Promise<void>;
-}
-
-/** Rough width the Logs panel gets; used to pre-wrap captured output. */
-function logsWidthForCols(cols: number): number {
-  return Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
 }
 
 export function createActions(ctx: TuiContext): Actions {
@@ -304,16 +298,14 @@ export function createActions(ctx: TuiContext): Actions {
       return;
     }
 
-    const w = Math.max(10, logsWidthForCols(ctx.out.columns ?? 80));
     const result = await compileAndRun(path, resolveCxx(config));
-    const wrapped = result.log.split("\n").flatMap((l) => (l ? wrapText(l, w) : [""]));
     const summary = !result.compiled
       ? "compile error"
       : result.ok
         ? "PASS"
         : `FAIL (exit ${result.exitCode})`;
     if (state.logs.slug === p.slug) {
-      logsAppendRun(state, p.slug, "test", wrapped, summary, result.ok);
+      logsAppendRun(state, p.slug, "test", result.log.split("\n"), summary, result.ok);
       render();
     }
   };
@@ -355,11 +347,9 @@ export function createActions(ctx: TuiContext): Actions {
       code = solutionCodeForSubmit(await Bun.file(scaffolded).text());
     }
 
-    const w = Math.max(10, logsWidthForCols(ctx.out.columns ?? 80));
     const log = (lines: string[], summary: string, ok: boolean): void => {
       if (state.logs.slug !== p.slug) return;
-      const wrapped = lines.flatMap((l) => (l ? wrapText(l, w) : [""]));
-      logsAppendRun(state, p.slug, "submit", wrapped, summary, ok);
+      logsAppendRun(state, p.slug, "submit", lines, summary, ok);
       render();
     };
 

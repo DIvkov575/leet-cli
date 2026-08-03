@@ -267,6 +267,25 @@ function colorLogLine(line: string): string {
   return line;
 }
 
+/**
+ * The Logs transcript, word-wrapped to `width`. Captured compiler/harness
+ * output is stored raw (unwrapped) in `state.logs.lines`; wrapping happens
+ * here, at the panel's actual render width, so lines never get pre-wrapped to
+ * a guessed width and then truncated again to a narrower real one (which used
+ * to chop compiler diagnostics off mid-line).
+ */
+export function logsBody(s: State, width: number): string[] {
+  const lg = s.logs;
+  const body = lg.lines.flatMap((l) => (l ? wrapText(l, Math.max(1, width)) : [""]));
+  if (lg.status === "running") {
+    if (body.length > 0) body.push("");
+    body.push(paint(lg.note ?? "working…", "dim"));
+  } else if (body.length === 0) {
+    body.push(paint("(no output)", "dim"));
+  }
+  return body;
+}
+
 function logsPanel(s: State, width: number, height: number, focused: boolean): string[] {
   const lg = s.logs;
   const label =
@@ -291,13 +310,7 @@ function logsPanel(s: State, width: number, height: number, focused: boolean): s
   }
   // While running (and once done) show the accumulated transcript. During a run
   // a dim `note` (e.g. "submitting…") trails the prior output rather than wiping it.
-  const body = [...lg.lines];
-  if (lg.status === "running") {
-    if (body.length > 0) body.push("");
-    body.push(paint(lg.note ?? "working…", "dim"));
-  } else if (body.length === 0) {
-    body.push(paint("(no output)", "dim"));
-  }
+  const body = logsBody(s, width);
   // Running auto-scrolls to the tail so the live note is visible; done honours scroll.
   const scroll = lg.status === "running" ? Math.max(0, body.length - bodyH) : lg.scroll;
   const view = body.slice(scroll);
