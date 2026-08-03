@@ -372,6 +372,14 @@ export function createActions(ctx: TuiContext): Actions {
         lines.push("");
         lines.push(...v.detail.split("\n"));
       }
+      // Wrong Answer: show the failing case so the user doesn't have to open
+      // the browser to see what input/output disagreed with the judge.
+      if (v.failingInput) {
+        lines.push("", "Failing case:", ...v.failingInput.split("\n"));
+      }
+      if (v.actualOutput) lines.push("", "Your output:", ...v.actualOutput.split("\n"));
+      if (v.expectedOutput) lines.push("", "Expected:", ...v.expectedOutput.split("\n"));
+      if (v.stdOutput) lines.push("", "stdout:", ...v.stdOutput.split("\n"));
       lines.push("");
       lines.push(`View: https://leetcode.com/problems/${p.slug}/`);
       // Accepted → mark done locally so the UI reflects it immediately.

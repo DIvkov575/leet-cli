@@ -255,6 +255,77 @@ describe("input handler — overlays", () => {
     }
   });
 
+  test("u, on Wrong Answer, shows the failing case's input/expected/actual output in Logs", async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const solutionsDir = mkdtempSync(join(tmpdir(), "leet-submit-wa-solutions-"));
+    // problem-1 in the harness has id 1, slug "problem-1" — pre-write its
+    // solution file so submitCurrent never falls back to scaffoldToDisk
+    // (which would hit the live LeetCode API this test doesn't stub).
+    writeFileSync(join(solutionsDir, "1-problem-1.cpp"), "class Solution {};\n");
+
+    const prevDataDir = process.env.LEET_DATA_DIR;
+    const prevSession = process.env.LEETCODE_SESSION;
+    const prevCsrf = process.env.LEETCODE_CSRF;
+    const dataDir = mkdtempSync(join(tmpdir(), "leet-submit-wa-data-"));
+    process.env.LEET_DATA_DIR = dataDir;
+    process.env.LEETCODE_SESSION = "s";
+    process.env.LEETCODE_CSRF = "c";
+    writeFileSync(
+      join(dataDir, "config.json"),
+      JSON.stringify({ solutionsDir, leetcodeSession: "s", leetcodeCsrf: "c" }),
+    );
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "1" } } }), { status: 200 });
+      }
+      if (url.endsWith("/submit/")) {
+        return new Response(JSON.stringify({ submission_id: 1 }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          state: "SUCCESS",
+          status_msg: "Wrong Answer",
+          total_correct: 3,
+          total_testcases: 10,
+          input_formatted: "nums = [2,7,11,15], target = 9",
+          expected_output: "[0,1]",
+          code_output: "[1,0]",
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      const h = harness();
+      h.key("u");
+      const deadline = Date.now() + 15_000;
+      while (h.state.logs.status !== "done" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(h.state.logs.status).toBe("done");
+      expect(h.state.logs.ok).toBe(false);
+      const joined = h.state.logs.lines.join(" ");
+      expect(joined).toContain("nums = [2,7,11,15], target = 9");
+      expect(joined).toContain("[0,1]");
+      expect(joined).toContain("[1,0]");
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDataDir;
+      if (prevSession === undefined) delete process.env.LEETCODE_SESSION;
+      else process.env.LEETCODE_SESSION = prevSession;
+      if (prevCsrf === undefined) delete process.env.LEETCODE_CSRF;
+      else process.env.LEETCODE_CSRF = prevCsrf;
+      rmSync(solutionsDir, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   test("u, once Accepted, commits + pushes the solution file to the repo it lives in", async () => {
     const { mkdtempSync, rmSync, mkdirSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");

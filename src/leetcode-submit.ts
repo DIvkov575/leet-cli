@@ -21,8 +21,16 @@ export interface SubmitVerdict {
   /** Passed / total test cases, when reported. */
   passed?: number;
   total?: number;
-  /** Error/runtime detail when not accepted. */
+  /** Compile/runtime error detail when not accepted (prefers the "full_" variant). */
   detail?: string;
+  /** The failing test case's input, when the judge reports one (Wrong Answer). */
+  failingInput?: string;
+  /** What the judge expected the failing case to output. */
+  expectedOutput?: string;
+  /** What the submission actually output for the failing case. */
+  actualOutput?: string;
+  /** Anything the submission printed to stdout while running the failing case. */
+  stdOutput?: string;
 }
 
 function authHeaders(auth: LeetCodeAuth, slug: string): Record<string, string> {
@@ -159,7 +167,16 @@ export async function submitSolution(
       total_correct?: number;
       total_testcases?: number;
       runtime_error?: string;
+      full_runtime_error?: string;
       compile_error?: string;
+      full_compile_error?: string;
+      // Wrong Answer: the failing case's input, judge/actual output, and
+      // whatever the submission printed to stdout while running it.
+      last_testcase?: string;
+      input_formatted?: string;
+      expected_output?: string;
+      code_output?: string;
+      std_output?: string;
     } | null = null;
     try {
       d = JSON.parse(await chk.text());
@@ -174,7 +191,13 @@ export async function submitSolution(
         submissionId,
         passed: d.total_correct,
         total: d.total_testcases,
-        detail: d.compile_error || d.runtime_error || undefined,
+        // Full variants carry the complete compiler/stack output; fall back
+        // to the truncated ones when LeetCode doesn't report a "full_" field.
+        detail: d.full_compile_error || d.compile_error || d.full_runtime_error || d.runtime_error || undefined,
+        failingInput: d.input_formatted || d.last_testcase || undefined,
+        expectedOutput: d.expected_output || undefined,
+        actualOutput: d.code_output || undefined,
+        stdOutput: d.std_output || undefined,
       };
     }
   }
