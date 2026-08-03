@@ -665,6 +665,7 @@ describe("renderFrame sync overlay", () => {
     expect(joined).toContain("Pull my solutions → repo");
     expect(joined).toContain("Commit + push solutions dir");
     expect(joined).toContain("Push solutions to LeetCode");
+    expect(joined).toContain("Sync everything");
     expect(joined).toContain("Signed in as tester.");
   });
 
@@ -689,6 +690,21 @@ describe("renderFrame sync overlay", () => {
     });
     const joined = strip(renderFrame(s, 20, 80).join("\n"));
     expect(joined).toContain("commit + push your local solutions dir?");
+    expect(joined).toContain("y = yes");
+  });
+
+  test("Sync everything's confirm gate shows its prompt", () => {
+    const s = makeState({
+      sync: {
+        index: 6,
+        busy: false,
+        lines: [],
+        confirmPush: null,
+        confirm: { action: "all", prompt: "sync everything (pull, mark, push repo + dir, then plan a push)?" },
+      },
+    });
+    const joined = strip(renderFrame(s, 20, 80).join("\n"));
+    expect(joined).toContain("sync everything (pull, mark, push repo + dir, then plan a push)?");
     expect(joined).toContain("y = yes");
   });
 });

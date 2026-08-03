@@ -75,7 +75,8 @@ const HELP_LINES = [
   "                  ↑↓←→ move · Enter filters to a pattern · Tab subset",
   "",
   "  Sync (y, or Menu → Sync): authenticate, pull solved from LeetCode,",
-  "  and push solutions to your account (with a confirm before submitting).",
+  "  push solutions to your account (with a confirm before submitting), or",
+  "  run \"Sync everything\" to chain all the pull/repo steps then plan a push.",
 ];
 
 /** Panel headers, highlighted (bold cyan) when that panel holds focus. */

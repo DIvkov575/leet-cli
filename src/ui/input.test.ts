@@ -459,6 +459,51 @@ describe("input handler — overlays", () => {
     expect(h.state.sync).not.toBeNull();
     expect(h.state.sync?.index).toBe(0);
   });
+
+  test("Sync everything chains pull/mark/pull-solutions/push-dir, then plans a push", async () => {
+    // Isolate LEET_DATA_DIR so loadConfig()/resolveSyncRepo() see an empty
+    // config — every step should then just log "not configured" and move on,
+    // ending at the push-plan step (which needs auth it also won't have).
+    const prevDataDir = process.env.LEET_DATA_DIR;
+    const prevSession = process.env.LEETCODE_SESSION;
+    const prevSyncRepo = process.env.LEET_SYNC_REPO;
+    process.env.LEET_DATA_DIR = "/tmp/leet-sync-all-" + Math.floor(performance.now());
+    delete process.env.LEETCODE_SESSION;
+    delete process.env.LEET_SYNC_REPO;
+    try {
+      const h = harness();
+      h.key("y");
+      expect(h.state.sync).not.toBeNull();
+      // Move the menu cursor down to "Sync everything" (last entry).
+      for (let i = 0; i < 6; i++) h.key("j");
+      h.key("\r");
+      expect(h.state.sync?.confirm?.action).toBe("all");
+      h.key("y");
+      // Every step here hits an early "not configured"/"no session" return, so
+      // `sync.busy` never flips true — poll for the final marker line instead.
+      const deadline = Date.now() + 5_000;
+      while (
+        !(h.state.sync?.lines.join(" ") ?? "").match(/planning the leetcode push/i) &&
+        Date.now() < deadline
+      ) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const joined = h.state.sync?.lines.join(" ") ?? "";
+      expect(joined).toMatch(/pull solved from leetcode/i);
+      expect(joined).toMatch(/mark solved from sync repo/i);
+      expect(joined).toMatch(/pull my solutions/i);
+      expect(joined).toMatch(/commit \+ push solutions dir/i);
+      expect(joined).toMatch(/planning the leetcode push/i);
+      expect(joined).toMatch(/no session/i); // final push-plan step, no auth configured
+    } finally {
+      if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDataDir;
+      if (prevSession === undefined) delete process.env.LEETCODE_SESSION;
+      else process.env.LEETCODE_SESSION = prevSession;
+      if (prevSyncRepo === undefined) delete process.env.LEET_SYNC_REPO;
+      else process.env.LEET_SYNC_REPO = prevSyncRepo;
+    }
+  });
 });
 
 describe("input handler — search prompt", () => {
