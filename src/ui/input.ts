@@ -497,7 +497,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
           sync.confirm = null;
           if (action === "pullSolutions") void actions.syncPullSolutions();
           else if (action === "pushDir") void actions.syncPushDir();
-          else if (action === "all") void actions.syncAll();
+          else if (action === "pullAll") void actions.syncPullAll();
         } else if (key === "n" || key === "N" || key === "\x1b") {
           sync.confirm = null;
           sync.lines.push("cancelled.");

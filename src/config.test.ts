@@ -10,6 +10,7 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   resolveSyncRepo,
+  resolveNeetcodeRepo,
   CONFIG_FIELDS,
   toggleSelection,
   type Config,
@@ -97,6 +98,7 @@ describe("CONFIG_FIELDS metadata", () => {
       "recommend",
       "recommendExclude",
       "syncRepo",
+      "neetcodeRepo",
       "roadmapSubset",
       "offline",
     ]);
@@ -133,6 +135,26 @@ describe("resolveSyncRepo: arg > env > config > null", () => {
   });
   test("null when nothing set", () => {
     expect(resolveSyncRepo(undefined, {}, {})).toBeNull();
+  });
+});
+
+describe("resolveNeetcodeRepo: arg > env > config > null", () => {
+  test("explicit arg wins", () => {
+    expect(resolveNeetcodeRepo("a/b", { neetcodeRepo: "c/d" }, { LEET_NEETCODE_REPO: "e/f" })).toBe("a/b");
+  });
+  test("env beats config", () => {
+    expect(resolveNeetcodeRepo(undefined, { neetcodeRepo: "c/d" }, { LEET_NEETCODE_REPO: "e/f" })).toBe("e/f");
+  });
+  test("config used when no arg/env", () => {
+    expect(resolveNeetcodeRepo(undefined, { neetcodeRepo: "c/d" }, {})).toBe("c/d");
+  });
+  test("null when nothing set", () => {
+    expect(resolveNeetcodeRepo(undefined, {}, {})).toBeNull();
+  });
+  test("is distinct from resolveSyncRepo (both can be set independently)", () => {
+    const cfg: Config = { syncRepo: "mine/solutions", neetcodeRepo: "me/neetcode-submissions-xxxx" };
+    expect(resolveSyncRepo(undefined, cfg, {})).toBe("mine/solutions");
+    expect(resolveNeetcodeRepo(undefined, cfg, {})).toBe("me/neetcode-submissions-xxxx");
   });
 });
 

@@ -35,6 +35,7 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   resolveSyncRepo,
+  resolveNeetcodeRepo,
   CONFIG_FIELDS,
 } from "./config.ts";
 import { importSource } from "./import.ts";
@@ -1363,14 +1364,18 @@ async function setDone(keys: string[], done: boolean): Promise<void> {
 
 async function cmdImport(p: Parsed): Promise<void> {
   const adapter = (p.values.adapter as string | undefined) ?? "neetcode";
-  const source = p.positionals[0] ?? "";
+  const cfg = await loadConfig();
+  // The neetcode adapter defaults to the configured NeetCode repo (distinct
+  // from `syncRepo`, which is the user's own solution-sync repo) so a bare
+  // `leet import` works once `neetcodeRepo` is set.
+  const source = p.positionals[0] ?? (adapter === "neetcode" ? resolveNeetcodeRepo(undefined, cfg) ?? "" : "");
   const dryRun = Boolean(p.values["dry-run"]);
 
   // The leetcode adapter needs no source (it fetches from the API) but does need
   // a session; every other adapter needs a source path/repo.
   let auth: { session: string; csrf?: string } | undefined;
   if (adapter === "leetcode") {
-    const resolved = resolveLeetCodeAuth(await loadConfig());
+    const resolved = resolveLeetCodeAuth(cfg);
     if (!resolved) {
       throw new UserError(
         "leetcode import needs your session cookie. Set it with:\n" +
@@ -1382,7 +1387,8 @@ async function cmdImport(p: Parsed): Promise<void> {
     auth = resolved;
   } else if (!source) {
     throw new UserError(
-      `usage: leet import <path|owner/repo|url> [--adapter <${adapterNames().join("|")}>] [--ref <ref>] [--dry-run]`,
+      `usage: leet import <path|owner/repo|url> [--adapter <${adapterNames().join("|")}>] [--ref <ref>] [--dry-run]\n` +
+        `  or set one: leet config neetcodeRepo <owner/repo>  (then just \`leet import\`)`,
     );
   }
 

@@ -211,6 +211,7 @@ environment variable, then a built-in default:
 | `recommend`        | —                    | ★ Recommended list  | `popularity` (or `acceptance`) |
 | `recommendExclude` | —                    | ★ Recommended list  | none — every list counts |
 | `syncRepo`         | `$LEET_SYNC_REPO`    | `sync` / `pull-solutions` / `mark-solved` | unset |
+| `neetcodeRepo`     | `$LEET_NEETCODE_REPO`| `import` (neetcode adapter) | unset — your auto-generated NeetCode.io GitHub sync repo, distinct from `syncRepo` |
 
 ```sh
 leet config                              # show all settings
@@ -534,21 +535,29 @@ leet sync                  # package the bundled problems (desc + stub + tests) 
   Folders for problems not in any bundled list are reported and skipped (local
   completion is keyed to bundled-list problems).
 
-The TUI **Sync** menu (Tab → Sync) has the full set:
+The TUI **Sync** menu (Tab → Sync) has the full set — every action below is
+distinct and independently invoked; none silently chains into another:
 
-1. **Authenticate** — grab your LeetCode session from a browser.
+1. **Authenticate (Firefox)** / **Authenticate (Chrome)** — grab your LeetCode
+   session from that specific browser's cookie store (no silent fallback
+   between them; pick the one you're actually logged into).
 2. **Pull solved from LeetCode** — mark done what you've solved on your account.
-3. **Mark solved from sync repo** — mark done from the folders in your sync repo.
-4. **Pull my solutions → repo** — fetch LeetCode-solved problems missing from
+3. **Mark solved from sync repo** — mark done from the folders in your own
+   `syncRepo` (a repo you own — see `leet sync-repo`).
+4. **Import solved from NeetCode repo** — mark done from the folders in your
+   auto-generated NeetCode.io GitHub sync (`neetcodeRepo` in Config — distinct
+   from `syncRepo`).
+5. **Pull my solutions → repo** — fetch LeetCode-solved problems missing from
    your sync repo and push them (suspends the TUI, shows live progress, returns
    on any key).
-5. **Commit + push solutions dir** — git add/commit/push your local `./solutions`
+6. **Commit + push solutions dir** — git add/commit/push your local `./solutions`
    files to the repo they live in.
-6. **Push solutions to LeetCode** — submit NeetCode solutions to mark Accepted
+7. **Push solutions to LeetCode** — submit NeetCode solutions to mark Accepted
    (with an in-panel confirm before any real submission).
-7. **Sync everything** — runs steps 2–5 back to back, then plans step 6 (still
-   gated behind its own confirm before submitting). One confirm at the start
-   covers the whole chain.
+8. **Pull all three sources** — the one aggregate action: runs steps 2–4 back
+   to back (LeetCode account, sync repo, NeetCode repo). Pull-only — it marks
+   problems done locally and never pushes or writes anywhere. One confirm at
+   the start covers the chain.
 
 ## Live data
 
