@@ -161,6 +161,55 @@ export function solutionCodeForSubmit(cpp: string): string {
   return withoutStruct;
 }
 
+/**
+ * Extract the user's actual class body (`class Solution { ... };` or, for
+ * multi-method problems, `class Codec { ... };`) out of a scaffolded `.cpp` —
+ * everything between the class's opening `{` and its matching closing `};` —
+ * so a harness refresh can drop it into a freshly generated scaffold without
+ * touching the code the user actually wrote. Brace-counts rather than
+ * regexing so nested braces in the solution body don't truncate it early.
+ * Returns null if no `class <Name> {` is found above the harness marker (a
+ * malformed or hand-edited file).
+ */
+export function extractSolutionClass(cpp: string): { className: string; body: string } | null {
+  const upTo = cpp.indexOf(HARNESS_MARKER);
+  const scope = upTo >= 0 ? cpp.slice(0, upTo) : cpp;
+  const m = /class\s+(\w+)\s*\{/.exec(scope);
+  if (!m) return null;
+  const className = m[1]!;
+  let depth = 0;
+  let start = -1;
+  for (let i = m.index; i < scope.length; i++) {
+    const c = scope[i];
+    if (c === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === "}") {
+      depth--;
+      if (depth === 0) return { className, body: scope.slice(start, i + 1) };
+    }
+  }
+  return null; // unbalanced braces — malformed file
+}
+
+/**
+ * Re-scaffold a problem from fresh LeetCode data (current harness code, current
+ * statement) while preserving the user's actual solution class verbatim —
+ * for healing files scaffolded before a harness fix (missing entirely, e.g. a
+ * signature only recently gained support, or just stale, e.g. pre-dating the
+ * args-printing harness). Returns null if the existing file has no recognizable
+ * class body to preserve (extractSolutionClass failed) — the caller should
+ * leave such a file untouched rather than risk discarding real code.
+ */
+export function refreshHarness(existingCpp: string, input: ScaffoldInput): string | null {
+  const existing = extractSolutionClass(existingCpp);
+  if (existing === null) return null;
+  const fresh = scaffoldContent(input);
+  const freshClass = extractSolutionClass(fresh);
+  if (freshClass === null || freshClass.className !== existing.className) return fresh;
+  return fresh.replace(freshClass.body, existing.body);
+}
+
 /** Render example cases as a comment block (fallback when no harness is generated). */
 function casesComment(cases: ExampleCase[]): string {
   if (cases.length === 0) return "";

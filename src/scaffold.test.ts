@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   cppSnippet,
+  extractSolutionClass,
+  refreshHarness,
   scaffoldContent,
   scaffoldFilename,
   solutionCodeForSubmit,
   HARNESS_MARKER,
+  type ScaffoldInput,
 } from "./scaffold.ts";
 import type { CodeSnippet } from "./leetcode.ts";
 
@@ -916,5 +919,171 @@ describe("solutionCodeForSubmit", () => {
       expect(submit).not.toContain("int main()");
       expect(submit).toContain("twoSum");
     }
+  });
+});
+
+describe("extractSolutionClass", () => {
+  test("extracts a simple class Solution body, braces included", () => {
+    const cpp = [
+      "// 1. Two Sum [Easy]",
+      "class Solution {",
+      "public:",
+      "    vector<int> twoSum(vector<int>& nums, int target) {",
+      "        return {};",
+      "    }",
+      "};",
+      "",
+      HARNESS_MARKER,
+      "int main() { return 0; }",
+    ].join("\n");
+    const r = extractSolutionClass(cpp);
+    expect(r?.className).toBe("Solution");
+    expect(r?.body).toContain("vector<int> twoSum");
+    expect(r?.body.startsWith("{")).toBe(true);
+    expect(r?.body.endsWith("}")).toBe(true);
+  });
+
+  test("doesn't get confused by nested braces in the solution body", () => {
+    const cpp = [
+      "class Solution {",
+      "public:",
+      "    int f(vector<int>& nums) {",
+      "        for (int x : nums) { if (x > 0) { return x; } }",
+      "        return 0;",
+      "    }",
+      "};",
+    ].join("\n");
+    const r = extractSolutionClass(cpp);
+    expect(r?.body).toContain("for (int x : nums)");
+    expect(r?.body).toContain("return 0;");
+  });
+
+  test("only scans above the harness marker, ignoring braces in the harness itself", () => {
+    const cpp = [
+      "class Solution {",
+      "public:",
+      "    int f() { return 1; }",
+      "};",
+      "",
+      HARNESS_MARKER,
+      "int main() { { { return 0; } } }",
+    ].join("\n");
+    const r = extractSolutionClass(cpp);
+    expect(r?.body).toBe("{\npublic:\n    int f() { return 1; }\n}");
+  });
+
+  test("returns null when no class is found", () => {
+    expect(extractSolutionClass("int main() { return 0; }")).toBeNull();
+  });
+
+  test("returns null on unbalanced braces (malformed file)", () => {
+    expect(extractSolutionClass("class Solution {\npublic:\n  int f() {\n};")).toBeNull();
+  });
+});
+
+describe("refreshHarness", () => {
+  const TWO_SUM_INPUT: ScaffoldInput = {
+    id: 1,
+    title: "Two Sum",
+    slug: "two-sum",
+    difficulty: "Easy",
+    url: "https://leetcode.com/problems/two-sum/",
+    snippets: [
+      {
+        lang: "C++",
+        langSlug: "cpp",
+        code: "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        \n    }\n};",
+      },
+    ],
+    metaData: JSON.stringify({
+      name: "twoSum",
+      params: [
+        { name: "nums", type: "integer[]" },
+        { name: "target", type: "integer" },
+      ],
+      return: { type: "integer[]" },
+    }),
+    exampleTestcases: "[2,7,11,15]\n9",
+    contentHtml: "<strong>Output:</strong> [0,1]\n",
+  };
+
+  test("regenerates the harness while preserving the user's real solution code", () => {
+    // A hand-written, already-solved file — no harness marker at all (as if
+    // scaffolded by very old code, or hand-written from scratch).
+    const existing = [
+      "class Solution {",
+      "public:",
+      "    vector<int> twoSum(vector<int>& nums, int target) {",
+      "        unordered_map<int,int> seen;",
+      "        for (int i = 0; i < (int)nums.size(); i++) {",
+      "            if (seen.count(target - nums[i])) return {seen[target - nums[i]], i};",
+      "            seen[nums[i]] = i;",
+      "        }",
+      "        return {};",
+      "    }",
+      "};",
+    ].join("\n");
+    const fresh = refreshHarness(existing, TWO_SUM_INPUT);
+    expect(fresh).not.toBeNull();
+    // The user's real algorithm survives verbatim.
+    expect(fresh).toContain("unordered_map<int,int> seen;");
+    expect(fresh).toContain("return {seen[target - nums[i]], i};");
+    // A fresh, current harness is generated (marker + args-printing line).
+    expect(fresh).toContain(HARNESS_MARKER);
+    expect(fresh).toContain("int main()");
+    expect(fresh).toContain("args:");
+  });
+
+  test("is idempotent: refreshing an already-fresh file changes nothing", () => {
+    const fresh1 = refreshHarness(
+      "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        return {};\n    }\n};",
+      TWO_SUM_INPUT,
+    )!;
+    const fresh2 = refreshHarness(fresh1, TWO_SUM_INPUT);
+    expect(fresh2).toBe(fresh1);
+  });
+
+  test("returns null (leave file untouched) when no class body can be extracted", () => {
+    expect(refreshHarness("// just a comment, no code at all", TWO_SUM_INPUT)).toBeNull();
+  });
+
+  test("adds a harness for a signature that previously had none (e.g. newly-supported type)", () => {
+    // Simulates a file scaffolded before 2D-char-array support existed: the
+    // solution is real and complete, but the old scaffold had no harness —
+    // just a "// No test harness: ..." comment instead of int main().
+    const solutionBody = [
+      "class Solution {",
+      "public:",
+      "    int rowUsed[9]{};",
+      "    void solveSudoku(vector<vector<char>>& board) {",
+      "        // (a real, working implementation)",
+      "    }",
+      "};",
+    ].join("\n");
+    const existing = [
+      "// 37. Sudoku Solver [Hard]",
+      solutionBody,
+      "",
+      "// No test harness: unsupported type(s): return:void.",
+    ].join("\n");
+    const input: ScaffoldInput = {
+      id: 37,
+      title: "Sudoku Solver",
+      slug: "sudoku-solver",
+      difficulty: "Hard",
+      url: "https://leetcode.com/problems/sudoku-solver/",
+      snippets: [{ lang: "C++", langSlug: "cpp", code: solutionBody }],
+      metaData: JSON.stringify({
+        name: "solveSudoku",
+        params: [{ name: "board", type: "character[][]" }],
+        return: { type: "void" },
+      }),
+      exampleTestcases: '[["5","3","."]]',
+      contentHtml: '<strong>Output:</strong> [["5","3","4"]]\n',
+    };
+    const fresh = refreshHarness(existing, input);
+    expect(fresh).toContain("int main()");
+    expect(fresh).toContain("rowUsed[9]{}");
+    expect(fresh).toContain("// (a real, working implementation)");
   });
 });
