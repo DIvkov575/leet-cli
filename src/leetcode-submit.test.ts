@@ -50,6 +50,39 @@ describe("submitSolution", () => {
     expect(v.passed).toBe(3);
   });
 
+  test("Wrong Answer reports the failing case's input/expected/actual output", async () => {
+    stubSubmit([
+      {
+        state: "SUCCESS",
+        status_msg: "Wrong Answer",
+        total_correct: 3,
+        total_testcases: 10,
+        input_formatted: "nums = [2,7,11,15], target = 9",
+        expected_output: "[0,1]",
+        code_output: "[1,0]",
+        std_output: "debug: checking pair (1,0)",
+      },
+    ]);
+    const v = await submitSolution(auth, "two-sum", "code", { sleep: noSleep });
+    expect(v.failingInput).toBe("nums = [2,7,11,15], target = 9");
+    expect(v.expectedOutput).toBe("[0,1]");
+    expect(v.actualOutput).toBe("[1,0]");
+    expect(v.stdOutput).toBe("debug: checking pair (1,0)");
+  });
+
+  test("Runtime Error prefers full_runtime_error over the truncated field", async () => {
+    stubSubmit([
+      {
+        state: "SUCCESS",
+        status_msg: "Runtime Error",
+        runtime_error: "line 12: seg…",
+        full_runtime_error: "line 12: segmentation fault (core dumped)\n#0 at solution.cpp:12",
+      },
+    ]);
+    const v = await submitSolution(auth, "two-sum", "code", { sleep: noSleep });
+    expect(v.detail).toBe("line 12: segmentation fault (core dumped)\n#0 at solution.cpp:12");
+  });
+
   test("requires a CSRF token", async () => {
     await expect(submitSolution({ session: "s" }, "two-sum", "code", { sleep: noSleep })).rejects.toThrow(
       /CSRF/i,

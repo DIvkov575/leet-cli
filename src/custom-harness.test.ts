@@ -45,6 +45,15 @@ describe("generateCustomHarness — linked-list-cycle", () => {
     expect(r!.code).toContain("ListNode* __a0 = __buildListWithCycle({1}, -1);");
     expect(r!.code).toContain("bool __exp = false;");
   });
+
+  test("prints each case's raw args before building the cyclic list", () => {
+    const r = generateCustomHarness(
+      "linked-list-cycle",
+      "[3,2,0,-4]\n1",
+      "<strong>Output:</strong> true\n",
+    );
+    expect(r!.code).toContain('cout << "case 1: args: [3,2,0,-4], 1" << "\\n";');
+  });
 });
 
 describe("generateCustomHarness — linked-list-cycle-ii", () => {

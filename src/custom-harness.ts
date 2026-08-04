@@ -14,6 +14,17 @@ function harness(helpers: string, mainBody: string): HarnessResult {
   return { supported: true, code: `${helpers.trim()}\n\nint main() {\n${mainBody}\n}` };
 }
 
+/**
+ * A `cout` line printing case `n`'s raw JSON args, e.g. `case 1: args: [1,2,3], 5`.
+ * Prints the original JSON text rather than re-serializing the rebuilt C++
+ * object (list/tree/custom Node) — no extra __show overload needed, and it's
+ * exactly what the problem statement showed as input.
+ */
+function argsLogLine(n: number, args: string[]): string {
+  const escaped = args.map((a) => a.replace(/\\/g, "\\\\").replace(/"/g, '\\"'));
+  return `    cout << "case ${n}: args: ${escaped.join(", ")}" << "\\n";`;
+}
+
 const SHOW_STR_HELPERS = `
 template <typename T>
 static void __show(ostream& os, const T& v) { os << v; }
@@ -264,6 +275,7 @@ function serializeDeserializeBinaryTree(cases: ExampleCase[]): HarnessResult {
     }
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!]));
     lines.push(`    TreeNode* __root = ${rootExpr};`);
     lines.push(`    Codec __ser, __deser;`);
     lines.push(`    TreeNode* __got = __deser.deserialize(__ser.serialize(__root));`);
@@ -312,6 +324,7 @@ function linkedListCycle(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!, c.args[1]!]));
     lines.push(`    ListNode* __a0 = __buildListWithCycle(${list}, ${pos});`);
     lines.push(`    bool __got = Solution().hasCycle(__a0);`);
     lines.push(`    bool __exp = ${expected};`);
@@ -352,6 +365,7 @@ function linkedListCycleII(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!, c.args[1]!]));
     lines.push(`    vector<int> __v0 = ${list};`);
     lines.push(`    ListNode* __a0 = __buildListWithCycle(__v0, ${pos});`);
     lines.push(`    ListNode* __expNode = nullptr;`);
@@ -402,6 +416,7 @@ function deleteNodeInALinkedList(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!, c.args[1]!]));
     lines.push(`    ListNode* __a0 = __buildList(${list});`);
     lines.push(`    ListNode* __target = __findListNodeByVal(__a0, ${nodeVal});`);
     lines.push(`    Solution().deleteNode(__target);`);
@@ -451,6 +466,7 @@ function allNodesDistanceKInBinaryTree(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!, c.args[1]!, c.args[2]!]));
     lines.push(`    TreeNode* __a0 = ${tree};`);
     lines.push(`    TreeNode* __target = __findTreeNodeByVal(__a0, ${targetVal});`);
     lines.push(`    vector<int> __got = Solution().distanceK(__a0, __target, ${k});`);
@@ -495,6 +511,7 @@ function lowestCommonAncestorOfABST(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!, c.args[1]!, c.args[2]!]));
     lines.push(`    TreeNode* __a0 = ${tree};`);
     lines.push(`    TreeNode* __p = __findTreeNodeByVal(__a0, ${pVal});`);
     lines.push(`    TreeNode* __q = __findTreeNodeByVal(__a0, ${qVal});`);
@@ -550,6 +567,7 @@ function copyListWithRandomPointer(cases: ExampleCase[]): HarnessResult {
     const expRandIdx = `{${expParsed.map(([, r]) => (r === null ? -1 : r)).join(",")}}`;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!]));
     lines.push(`    vector<int> __vals0 = ${vals}, __rand0 = ${randIdx};`);
     lines.push(`    Node* __a0 = __buildRandomList(__vals0, __rand0);`);
     lines.push(`    Node* __got = Solution().copyRandomList(__a0);`);
@@ -596,6 +614,7 @@ function populatingNextRightPointersII(cases: ExampleCase[]): HarnessResult {
     const n = idx + 1;
     lines.push(`  {`);
     lines.push(`    ++__total;`);
+    lines.push(argsLogLine(n, [c.args[0]!]));
     lines.push(`    Node* __a0 = __buildNextPointerTree(${treeVals});`);
     lines.push(`    Node* __got = Solution().connect(__a0);`);
     // The connect() call is expected to wire next-pointers correctly; the

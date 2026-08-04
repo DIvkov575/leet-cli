@@ -19,6 +19,7 @@ import {
   resolveCxx,
   resolveLeetCodeAuth,
   resolveSyncRepo,
+  resolveNeetcodeRepo,
 } from "../config.ts";
 import { setConfigOffline } from "../net.ts";
 import { prefetchProblems } from "../prefetch.ts";
@@ -33,7 +34,6 @@ import { fetchNeetcodeCpp } from "../neetcode.ts";
 import { pushPathsToRepo } from "../git-push.ts";
 import { pushToNeetRepo } from "../sync-clone.ts";
 import { mkdir } from "node:fs/promises";
-import { wrapText } from "./layout.ts";
 import { SUGGESTED_SETUP_LIST } from "./render.ts";
 import {
   recompute,
@@ -64,12 +64,7 @@ export interface Actions {
   syncPushRun: () => Promise<void>;
   syncPullSolutions: () => Promise<void>;
   syncPushDir: () => Promise<void>;
-  syncAll: () => Promise<void>;
-}
-
-/** Rough width the Logs panel gets; used to pre-wrap captured output. */
-function logsWidthForCols(cols: number): number {
-  return Math.max(20, cols >= 110 ? Math.floor(cols * 0.3) : cols);
+  syncPullAll: () => Promise<void>;
 }
 
 export function createActions(ctx: TuiContext): Actions {
@@ -304,16 +299,14 @@ export function createActions(ctx: TuiContext): Actions {
       return;
     }
 
-    const w = Math.max(10, logsWidthForCols(ctx.out.columns ?? 80));
     const result = await compileAndRun(path, resolveCxx(config));
-    const wrapped = result.log.split("\n").flatMap((l) => (l ? wrapText(l, w) : [""]));
     const summary = !result.compiled
       ? "compile error"
       : result.ok
         ? "PASS"
         : `FAIL (exit ${result.exitCode})`;
     if (state.logs.slug === p.slug) {
-      logsAppendRun(state, p.slug, "test", wrapped, summary, result.ok);
+      logsAppendRun(state, p.slug, "test", result.log.split("\n"), summary, result.ok);
       render();
     }
   };
@@ -355,11 +348,9 @@ export function createActions(ctx: TuiContext): Actions {
       code = solutionCodeForSubmit(await Bun.file(scaffolded).text());
     }
 
-    const w = Math.max(10, logsWidthForCols(ctx.out.columns ?? 80));
     const log = (lines: string[], summary: string, ok: boolean): void => {
       if (state.logs.slug !== p.slug) return;
-      const wrapped = lines.flatMap((l) => (l ? wrapText(l, w) : [""]));
-      logsAppendRun(state, p.slug, "submit", wrapped, summary, ok);
+      logsAppendRun(state, p.slug, "submit", lines, summary, ok);
       render();
     };
 
@@ -382,6 +373,14 @@ export function createActions(ctx: TuiContext): Actions {
         lines.push("");
         lines.push(...v.detail.split("\n"));
       }
+      // Wrong Answer: show the failing case so the user doesn't have to open
+      // the browser to see what input/output disagreed with the judge.
+      if (v.failingInput) {
+        lines.push("", "Failing case:", ...v.failingInput.split("\n"));
+      }
+      if (v.actualOutput) lines.push("", "Your output:", ...v.actualOutput.split("\n"));
+      if (v.expectedOutput) lines.push("", "Expected:", ...v.expectedOutput.split("\n"));
+      if (v.stdOutput) lines.push("", "stdout:", ...v.stdOutput.split("\n"));
       lines.push("");
       lines.push(`View: https://leetcode.com/problems/${p.slug}/`);
       // Accepted → mark done locally so the UI reflects it immediately.
@@ -521,13 +520,15 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
-  const syncAuth = async (): Promise<void> => {
+  // Distinct per-browser actions (no silent Firefox->Chrome fallback) — the
+  // user picks which browser to read the session cookie from explicitly.
+  const syncAuth = async (source: "firefox" | "chrome"): Promise<void> => {
     if (!state.sync) return;
     state.sync.busy = true;
-    state.sync.lines = ["Looking for a LeetCode session in your browsers…"];
+    state.sync.lines = [`Looking for a LeetCode session in ${source === "firefox" ? "Firefox" : "Chrome"}…`];
     render();
     try {
-      const { username, from } = await authFromBrowser();
+      const { username, from } = await authFromBrowser([source]);
       syncLog(`Signed in as ${username} (from ${from}). Session saved.`);
     } catch (err) {
       for (const l of (err instanceof Error ? err.message : String(err)).split("\n")) syncLog(l);
@@ -563,7 +564,8 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
-  // Mark problems done from the folders present in the configured sync repo.
+  // Mark problems done from the folders present in the configured sync repo
+  // (your own solutions repo — distinct from the NeetCode repo below).
   const syncMarkRepo = async (): Promise<void> => {
     if (!state.sync) return;
     const repo = resolveSyncRepo(undefined, await loadConfig());
@@ -586,6 +588,35 @@ export function createActions(ctx: TuiContext): Actions {
       );
     } catch (err) {
       syncLog(`mark-solved failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    state.sync.busy = false;
+    render();
+  };
+
+  // Mark problems done from the configured NeetCode.io GitHub sync repo — a
+  // separate, auto-generated repo distinct from `syncRepo` above.
+  const syncImportNeetcode = async (): Promise<void> => {
+    if (!state.sync) return;
+    const repo = resolveNeetcodeRepo(undefined, await loadConfig());
+    if (!repo) {
+      syncLog("No NeetCode repo configured — set `neetcodeRepo` in Config (e.g. you/neetcode-submissions-xxxx).");
+      return;
+    }
+    state.sync.busy = true;
+    state.sync.lines = [`Reading solved problems from ${repo}…`];
+    render();
+    try {
+      const result = await importSource(repo, { adapter: "neetcode" });
+      const before = state.completed.size;
+      for (const id of result.matchedIds) state.completed.add(id);
+      const added = state.completed.size - before;
+      await saveCompleted(state.completed);
+      recompute(state);
+      syncLog(
+        `${result.matched.length} of ${result.totalSolved} folders matched bundled problems; marked ${added} new.`,
+      );
+    } catch (err) {
+      syncLog(`import from NeetCode repo failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     state.sync.busy = false;
     render();
@@ -755,15 +786,18 @@ export function createActions(ctx: TuiContext): Actions {
     render();
   };
 
-  // Runs the local/repo steps back to back, then hands off to the normal
-  // push-plan confirm gate for the LeetCode-submitting step. Each step writes
-  // its own output into `state.sync.lines`, so between steps we point it at a
-  // fresh scratch array (never `history` itself — self-referential spreading
-  // into `history.push` would duplicate the early-return branches, e.g.
-  // "No session"), then fold that scratch into `history` once the step ends.
-  const syncAll = async (): Promise<void> => {
+  // The one deliberate aggregate: marks done locally from all three "what have
+  // I solved" sources back to back (LeetCode account, your sync repo's
+  // folders, your NeetCode repo's folders). Pull-only — never pushes/writes
+  // anywhere, unlike pullSolutions/pushDir/push below, which stay distinct,
+  // separately-invoked actions. Each step writes its own output into
+  // `state.sync.lines`, so between steps we point it at a fresh scratch array
+  // (never `history` itself — self-referential spreading into `history.push`
+  // would duplicate early-return branches, e.g. "No session"), then fold that
+  // scratch into `history` once the step ends.
+  const syncPullAll = async (): Promise<void> => {
     if (!state.sync) return;
-    const history: string[] = ["Sync everything: pull → mark-repo → pull-solutions → push-dir → push…"];
+    const history: string[] = ["Pull all three sources: LeetCode account → sync repo → NeetCode repo…"];
     state.sync.lines = history;
     render();
     const runStep = async (label: string, step: () => Promise<void>): Promise<void> => {
@@ -777,20 +811,16 @@ export function createActions(ctx: TuiContext): Actions {
     };
     await runStep("pull solved from LeetCode", syncPull);
     await runStep("mark solved from sync repo", syncMarkRepo);
-    await runStep("pull my solutions → repo", syncPullSolutions);
-    await runStep("commit + push solutions dir", syncPushDir);
-    if (!state.sync) return;
-    history.push("── planning the LeetCode push (final step) ──");
-    state.sync.lines = history;
-    render();
-    await syncPushPlan();
+    await runStep("import solved from NeetCode repo", syncImportNeetcode);
   };
 
   const runSyncAction = (action: SyncAction): void => {
     if (!state.sync || state.sync.busy) return;
-    if (action === "auth") void syncAuth();
+    if (action === "authFirefox") void syncAuth("firefox");
+    else if (action === "authChrome") void syncAuth("chrome");
     else if (action === "pull") void syncPull();
     else if (action === "markRepo") void syncMarkRepo();
+    else if (action === "importNeetcode") void syncImportNeetcode();
     else if (action === "pullSolutions") {
       state.sync.confirm = {
         action: "pullSolutions",
@@ -804,10 +834,10 @@ export function createActions(ctx: TuiContext): Actions {
       };
       render();
     } else if (action === "push") void syncPushPlan();
-    else if (action === "all") {
+    else if (action === "pullAll") {
       state.sync.confirm = {
-        action: "all",
-        prompt: "sync everything (pull, mark, push repo + dir, then plan a push)?",
+        action: "pullAll",
+        prompt: "pull all three sources — mark done only, no pushing?",
       };
       render();
     }
@@ -831,6 +861,6 @@ export function createActions(ctx: TuiContext): Actions {
     syncPushRun,
     syncPullSolutions,
     syncPushDir,
-    syncAll,
+    syncPullAll,
   };
 }

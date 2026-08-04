@@ -58,15 +58,26 @@ export interface ConfigState {
   suggestIndex: number;
 }
 
-/** The Sync overlay's actions, in menu order. */
+/**
+ * The Sync overlay's actions, in menu order. Each is a distinct, independently
+ * invoked action — none of these silently chain into another, except the one
+ * deliberate aggregate ("Pull all three sources"), which only ever pulls
+ * (marks done locally); it never writes anywhere.
+ */
 export const SYNC_ACTIONS = [
-  { key: "auth", label: "Authenticate", hint: "grab your LeetCode session from a browser" },
+  { key: "authFirefox", label: "Authenticate (Firefox)", hint: "grab your LeetCode session from Firefox's cookie store" },
+  { key: "authChrome", label: "Authenticate (Chrome)", hint: "grab your LeetCode session from Chrome's cookie store" },
   { key: "pull", label: "Pull solved from LeetCode", hint: "mark done what you've solved on your account" },
   { key: "markRepo", label: "Mark solved from sync repo", hint: "mark done from the folders in your sync repo" },
+  { key: "importNeetcode", label: "Import solved from NeetCode repo", hint: "mark done from your NeetCode.io GitHub sync" },
   { key: "pullSolutions", label: "Pull my solutions → repo", hint: "add LeetCode-solved problems missing from your sync repo" },
   { key: "pushDir", label: "Commit + push solutions dir", hint: "git add/commit/push your ./solutions files to the sync repo" },
   { key: "push", label: "Push solutions to LeetCode", hint: "submit NeetCode solutions to mark Accepted" },
-  { key: "all", label: "Sync everything", hint: "pull → mark-repo → pull-solutions → push-dir, then plan a LeetCode push" },
+  {
+    key: "pullAll",
+    label: "Pull all three sources",
+    hint: "LeetCode + sync repo + NeetCode repo — marks done locally, never pushes",
+  },
 ] as const;
 export type SyncAction = (typeof SYNC_ACTIONS)[number]["key"];
 
@@ -84,10 +95,10 @@ export interface SyncState {
   confirmPush: number | null;
   /**
    * A generic pending confirmation for the git actions (pull-solutions / push
-   * dir), gated behind y/n like `confirmPush`. `prompt` is the footer question;
-   * `action` picks which runner fires on `y`.
+   * dir) and the pull-all aggregate, gated behind y/n like `confirmPush`.
+   * `prompt` is the footer question; `action` picks which runner fires on `y`.
    */
-  confirm: { action: "pullSolutions" | "pushDir" | "all"; prompt: string } | null;
+  confirm: { action: "pullSolutions" | "pushDir" | "pullAll"; prompt: string } | null;
 }
 
 /**

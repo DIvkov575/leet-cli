@@ -17,14 +17,24 @@ export interface RunResult {
 }
 
 /**
- * Compile `<path>` with `cxx` (C++17, -O2) into a sibling `.out`, then run it.
- * Captures compiler diagnostics and the harness's own output into `log`.
+ * Compiled with ASan+UBSan (see `compileAndRun`): at -O2 with no debug info,
+ * undefined behavior (e.g. a missing `return`, an out-of-bounds access) often
+ * crashes with a bare SIGTRAP/SIGABRT and no message — nothing for us to
+ * capture. These flags trade a bit of compile/run time for an actual
+ * file:line diagnostic when that happens.
+ */
+export const SANITIZE_FLAGS = ["-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"];
+
+/**
+ * Compile `<path>` with `cxx` (C++17, -O2, ASan+UBSan) into a sibling `.out`,
+ * then run it. Captures compiler diagnostics and the harness's own output
+ * into `log`.
  */
 export async function compileAndRun(path: string, cxx: string): Promise<RunResult> {
   const bin = `${path.replace(/\.cpp$/, "")}.out`;
   let log = "";
 
-  const compile = Bun.spawn([cxx, "-std=c++17", "-O2", path, "-o", bin], {
+  const compile = Bun.spawn([cxx, "-std=c++17", "-O2", ...SANITIZE_FLAGS, path, "-o", bin], {
     stdout: "pipe",
     stderr: "pipe",
   });

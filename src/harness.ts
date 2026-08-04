@@ -332,6 +332,13 @@ export function generateHarness(meta: ProblemMeta, cases: ExampleCase[]): Harnes
       lines.push(`    ${paramTypes[i]} ${name} = ${expr};`);
       return name;
     });
+    // Print the args before calling, since void-observable problems mutate
+    // their first param in place — printing after the call would show the
+    // post-call value instead of what was actually passed in.
+    const argsPieces = argNames.map(
+      (name, i) => `"${meta.params[i]!.name}=" << __str(${name})`,
+    );
+    lines.push(`    cout << "case ${n}: args: " << ${argsPieces.join(' << ", " << ')} << "\\n";`);
     const call = `Solution().${meta.name}(${argNames.join(", ")})`;
     const gotExpr = voidObservable ? argNames[0]! : "__got";
     if (voidObservable) {

@@ -440,6 +440,30 @@ describe("renderFrame three-panel layout", () => {
     expect(joined).toContain("Press t to test");
   });
 
+  test("Logs panel word-wraps long lines at the real panel width instead of truncating them", () => {
+    // Regression: `runTest`/`submitCurrent` used to pre-wrap captured output to
+    // a guessed width, which `logsPanel` then re-truncated (with "…") to the
+    // real, narrower panel width — chopping compiler diagnostics off mid-word.
+    // Storing raw lines and wrapping once at render time (logsBody) fixes it.
+    const longLine = "error: no viable overloaded operator for this expression, see candidates below";
+    const s = makeState({
+      focus: "logs",
+      logs: { slug: "easy-one", status: "done", lines: [longLine], scroll: 0, summary: "compile error", ok: false },
+    });
+    const f = renderFrame(s, 16, 80); // narrow enough that the line must wrap
+    // Logs is the last (rightmost) column — take the text after the last "│"
+    // on each row, since joining whole rows would interleave the Preview
+    // column's text with the Logs column's.
+    const logsColumn = strip(f.join("\n"))
+      .split("\n")
+      .map((line) => line.split("│").pop() ?? "")
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(logsColumn).not.toContain("…");
+    expect(logsColumn).toContain(longLine);
+  });
+
   test("Lists panel shows done/left/total counts for each list", () => {
     const s = makeState({
       listNames: ["demo", "other"],
@@ -660,12 +684,15 @@ describe("renderFrame sync overlay", () => {
     for (const line of f) expect(strip(line).length).toBe(80);
     const joined = strip(f.join("\n"));
     expect(joined).toContain("LeetCode Sync");
-    expect(joined).toContain("Authenticate");
+    expect(joined).toContain("Authenticate (Firefox)");
+    expect(joined).toContain("Authenticate (Chrome)");
     expect(joined).toContain("Pull solved from LeetCode");
+    expect(joined).toContain("Mark solved from sync repo");
+    expect(joined).toContain("Import solved from NeetCode repo");
     expect(joined).toContain("Pull my solutions → repo");
     expect(joined).toContain("Commit + push solutions dir");
     expect(joined).toContain("Push solutions to LeetCode");
-    expect(joined).toContain("Sync everything");
+    expect(joined).toContain("Pull all three sources");
     expect(joined).toContain("Signed in as tester.");
   });
 
@@ -693,18 +720,21 @@ describe("renderFrame sync overlay", () => {
     expect(joined).toContain("y = yes");
   });
 
-  test("Sync everything's confirm gate shows its prompt", () => {
+  test("Pull all three sources' confirm gate shows its prompt", () => {
     const s = makeState({
       sync: {
-        index: 6,
+        index: 8,
         busy: false,
         lines: [],
         confirmPush: null,
-        confirm: { action: "all", prompt: "sync everything (pull, mark, push repo + dir, then plan a push)?" },
+        confirm: {
+          action: "pullAll",
+          prompt: "pull all three sources — mark done only, no pushing?",
+        },
       },
     });
     const joined = strip(renderFrame(s, 20, 80).join("\n"));
-    expect(joined).toContain("sync everything (pull, mark, push repo + dir, then plan a push)?");
+    expect(joined).toContain("pull all three sources — mark done only, no pushing?");
     expect(joined).toContain("y = yes");
   });
 });

@@ -255,6 +255,77 @@ describe("input handler — overlays", () => {
     }
   });
 
+  test("u, on Wrong Answer, shows the failing case's input/expected/actual output in Logs", async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const solutionsDir = mkdtempSync(join(tmpdir(), "leet-submit-wa-solutions-"));
+    // problem-1 in the harness has id 1, slug "problem-1" — pre-write its
+    // solution file so submitCurrent never falls back to scaffoldToDisk
+    // (which would hit the live LeetCode API this test doesn't stub).
+    writeFileSync(join(solutionsDir, "1-problem-1.cpp"), "class Solution {};\n");
+
+    const prevDataDir = process.env.LEET_DATA_DIR;
+    const prevSession = process.env.LEETCODE_SESSION;
+    const prevCsrf = process.env.LEETCODE_CSRF;
+    const dataDir = mkdtempSync(join(tmpdir(), "leet-submit-wa-data-"));
+    process.env.LEET_DATA_DIR = dataDir;
+    process.env.LEETCODE_SESSION = "s";
+    process.env.LEETCODE_CSRF = "c";
+    writeFileSync(
+      join(dataDir, "config.json"),
+      JSON.stringify({ solutionsDir, leetcodeSession: "s", leetcodeCsrf: "c" }),
+    );
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url.endsWith("/graphql")) {
+        return new Response(JSON.stringify({ data: { question: { questionId: "1" } } }), { status: 200 });
+      }
+      if (url.endsWith("/submit/")) {
+        return new Response(JSON.stringify({ submission_id: 1 }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          state: "SUCCESS",
+          status_msg: "Wrong Answer",
+          total_correct: 3,
+          total_testcases: 10,
+          input_formatted: "nums = [2,7,11,15], target = 9",
+          expected_output: "[0,1]",
+          code_output: "[1,0]",
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      const h = harness();
+      h.key("u");
+      const deadline = Date.now() + 15_000;
+      while (h.state.logs.status !== "done" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(h.state.logs.status).toBe("done");
+      expect(h.state.logs.ok).toBe(false);
+      const joined = h.state.logs.lines.join(" ");
+      expect(joined).toContain("nums = [2,7,11,15], target = 9");
+      expect(joined).toContain("[0,1]");
+      expect(joined).toContain("[1,0]");
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
+      else process.env.LEET_DATA_DIR = prevDataDir;
+      if (prevSession === undefined) delete process.env.LEETCODE_SESSION;
+      else process.env.LEETCODE_SESSION = prevSession;
+      if (prevCsrf === undefined) delete process.env.LEETCODE_CSRF;
+      else process.env.LEETCODE_CSRF = prevCsrf;
+      rmSync(solutionsDir, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   test("u, once Accepted, commits + pushes the solution file to the repo it lives in", async () => {
     const { mkdtempSync, rmSync, mkdirSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
@@ -460,30 +531,32 @@ describe("input handler — overlays", () => {
     expect(h.state.sync?.index).toBe(0);
   });
 
-  test("Sync everything chains pull/mark/pull-solutions/push-dir, then plans a push", async () => {
-    // Isolate LEET_DATA_DIR so loadConfig()/resolveSyncRepo() see an empty
-    // config — every step should then just log "not configured" and move on,
-    // ending at the push-plan step (which needs auth it also won't have).
+  test("Pull all three sources chains pull/mark-repo/import-neetcode, no pushing", async () => {
+    // Isolate LEET_DATA_DIR so loadConfig()/resolveSyncRepo()/resolveNeetcodeRepo()
+    // see an empty config — every step should then just log "not configured" and
+    // move on; there's no push step to reach, unlike the old "Sync everything".
     const prevDataDir = process.env.LEET_DATA_DIR;
     const prevSession = process.env.LEETCODE_SESSION;
     const prevSyncRepo = process.env.LEET_SYNC_REPO;
+    const prevNeetcodeRepo = process.env.LEET_NEETCODE_REPO;
     process.env.LEET_DATA_DIR = "/tmp/leet-sync-all-" + Math.floor(performance.now());
     delete process.env.LEETCODE_SESSION;
     delete process.env.LEET_SYNC_REPO;
+    delete process.env.LEET_NEETCODE_REPO;
     try {
       const h = harness();
       h.key("y");
       expect(h.state.sync).not.toBeNull();
-      // Move the menu cursor down to "Sync everything" (last entry).
-      for (let i = 0; i < 6; i++) h.key("j");
+      // Move the menu cursor down to "Pull all three sources" (last entry).
+      for (let i = 0; i < 8; i++) h.key("j");
       h.key("\r");
-      expect(h.state.sync?.confirm?.action).toBe("all");
+      expect(h.state.sync?.confirm?.action).toBe("pullAll");
       h.key("y");
       // Every step here hits an early "not configured"/"no session" return, so
       // `sync.busy` never flips true — poll for the final marker line instead.
       const deadline = Date.now() + 5_000;
       while (
-        !(h.state.sync?.lines.join(" ") ?? "").match(/planning the leetcode push/i) &&
+        !(h.state.sync?.lines.join(" ") ?? "").match(/import solved from neetcode repo/i) &&
         Date.now() < deadline
       ) {
         await new Promise((r) => setTimeout(r, 25));
@@ -491,10 +564,8 @@ describe("input handler — overlays", () => {
       const joined = h.state.sync?.lines.join(" ") ?? "";
       expect(joined).toMatch(/pull solved from leetcode/i);
       expect(joined).toMatch(/mark solved from sync repo/i);
-      expect(joined).toMatch(/pull my solutions/i);
-      expect(joined).toMatch(/commit \+ push solutions dir/i);
-      expect(joined).toMatch(/planning the leetcode push/i);
-      expect(joined).toMatch(/no session/i); // final push-plan step, no auth configured
+      expect(joined).toMatch(/import solved from neetcode repo/i);
+      expect(joined).not.toMatch(/push/i); // pull-only — never reaches a push step
     } finally {
       if (prevDataDir === undefined) delete process.env.LEET_DATA_DIR;
       else process.env.LEET_DATA_DIR = prevDataDir;
@@ -502,6 +573,8 @@ describe("input handler — overlays", () => {
       else process.env.LEETCODE_SESSION = prevSession;
       if (prevSyncRepo === undefined) delete process.env.LEET_SYNC_REPO;
       else process.env.LEET_SYNC_REPO = prevSyncRepo;
+      if (prevNeetcodeRepo === undefined) delete process.env.LEET_NEETCODE_REPO;
+      else process.env.LEET_NEETCODE_REPO = prevNeetcodeRepo;
     }
   });
 });
