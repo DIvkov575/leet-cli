@@ -606,7 +606,7 @@ scripts/
   gen-formula.ts      render the Homebrew formula from a release's checksums
   setup.ts            postinstall / `bun run setup` pre-cache entry point
 .github/workflows/
-  release.yml         build + attach cross-platform binaries on v* tags
+  release.yml         build release binaries, then update the Homebrew tap
 data/
   raw/*.txt           source lists in the raw pasted format
   *.json              generated, bundled problem data
@@ -617,6 +617,25 @@ Regenerate the bundled JSON (and the embedded copy) after editing `data/raw/*.tx
 ```sh
 bun run build:data      # parse raw → json, then re-embed
 ```
+
+## Releases
+
+`.github/workflows/release.yml` is the release source of truth. A `v*` tag
+creates the GitHub release, builds and uploads all four platform binaries and
+their checksums, then regenerates `Formula/leet.rb` and pushes it to
+[`DIvkov575/homebrew-leet`](https://github.com/DIvkov575/homebrew-leet). The tap
+is updated only after every platform build succeeds.
+
+The cross-repository push uses a repository-scoped deploy key:
+
+1. Add an SSH deploy key to `DIvkov575/homebrew-leet` with **Allow write
+   access** enabled.
+2. Add its private key to the `leet-cli` repository as an Actions secret named
+   `HOMEBREW_TAP_DEPLOY_KEY`.
+
+Push a tag matching `package.json` to release normally. To repair or repeat an
+existing release, run the `release` workflow manually and provide its tag; the
+formula update is idempotent and skips its commit when the tap already matches.
 
 ## Tests
 

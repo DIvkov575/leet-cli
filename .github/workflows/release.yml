@@ -49,6 +49,8 @@ jobs:
             asset: leet-linux-arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -75,3 +77,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release upload "$TAG" ${{ matrix.asset }} ${{ matrix.asset }}.sha256 --clobber
+
+  update-homebrew:
+    name: Update Homebrew tap
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    steps:
+      - name: Check out leet-cli
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: DIvkov575/homebrew-leet
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: homebrew-leet
+
+      - name: Generate formula from release checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run scripts/gen-formula.ts "$TAG" > homebrew-leet/Formula/leet.rb
+
+      - name: Validate formula
+        run: ruby -c homebrew-leet/Formula/leet.rb
+
+      - name: Commit and push formula
+        working-directory: homebrew-leet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/leet.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew formula already matches $TAG"
+            exit 0
+          fi
+          git commit -m "leet ${TAG#v}"
+          git push
