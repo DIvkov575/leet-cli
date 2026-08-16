@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compileAndRun } from "./runner.ts";
+import { compileAndRun, resolveCompileFlags, SANITIZE_FLAGS } from "./runner.ts";
 
 // These exercise a real c++ compiler; skip gracefully if none is installed.
 const cxx = Bun.which("c++") ?? Bun.which("g++") ?? Bun.which("clang++");
@@ -48,17 +48,25 @@ maybe("compileAndRun", () => {
 
   // Regression: at -O2 with no debug info, undefined behavior (like falling
   // off the end of a value-returning function) used to crash with a bare
-  // SIGTRAP/SIGABRT and empty stderr — nothing to show the user. ASan+UBSan
-  // (added to the compile flags) turn that into a real file:line diagnostic.
-  test("undefined behavior at runtime → sanitizer reports file:line, not a silent crash", async () => {
+  // SIGTRAP/SIGABRT and empty stderr. ASan+UBSan turn that into a real
+  // file:line diagnostic when the local compiler/runtime can execute sanitizer
+  // binaries; on platforms where the sanitizer runtime itself aborts, the
+  // runner falls back to plain C++17/-O2 so normal harnesses still run.
+  test("undefined behavior uses sanitizers when available and never reports sanitizer bootstrap crashes", async () => {
     const path = setup(
       `int f() { for (int i = 0; i < 0; i++) return i; }\nint main(){ return f(); }\n`,
     );
     const r = await compileAndRun(path, cxx!);
+    const flags = await resolveCompileFlags(cxx!);
+    const hasSanitizers = SANITIZE_FLAGS.every((flag) => flags.includes(flag));
     rmSync(dir, { recursive: true, force: true });
     expect(r.compiled).toBe(true);
-    expect(r.ok).toBe(false);
-    expect(r.log).toContain("runtime error");
-    expect(r.log).toMatch(/:\d+:\d+/); // file:line:col of the actual UB site
+    if (hasSanitizers) {
+      expect(r.ok).toBe(false);
+      expect(r.log).toContain("runtime error");
+      expect(r.log).toMatch(/:\d+:\d+/); // file:line:col of the actual UB site
+    } else {
+      expect(r.log).not.toContain("AddressSanitizer: CHECK failed");
+    }
   });
 });
