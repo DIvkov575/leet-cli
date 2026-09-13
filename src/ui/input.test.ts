@@ -37,6 +37,7 @@ function harness() {
     doneFilter: "all",
     diff: undefined,
     tagFilter: new Set<string>(),
+    subsetFilter: null,
     tagPicker: null,
     filterPanel: null,
     palette: null,
@@ -179,6 +180,66 @@ describe("input handler — overlays", () => {
     expect(h.state.roadmap).toBeNull();
     expect(h.state.focus).toBe("problems");
     expect(h.state.tagFilter.size).toBe(1);
+  });
+
+  test("Enter on a roadmap box scopes the Problems list to the box's subset", () => {
+    const h = harness();
+    // A subset-mixed set of Arrays & Hashing problems (cursor 0 in the chart).
+    const probs = [
+      { id: 1, title: "A", slug: "a", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["blind75", "neetcode150", "neetcode250"] },
+      { id: 2, title: "B", slug: "b", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["neetcode150", "neetcode250"] },
+      { id: 3, title: "C", slug: "c", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["neetcode250"] },
+    ] as unknown as Problem[];
+    h.state.list = { name: "demo", title: "Demo", problems: probs };
+    h.state.allProblems = probs;
+
+    h.key("m"); // open roadmap; cursor 0 = Arrays & Hashing
+    h.state.roadmap!.subset = "neetcode150"; // scope the box to nc150
+    h.key("\r"); // drill in
+
+    expect(h.state.tagFilter.has("Arrays & Hashing")).toBe(true);
+    expect(h.state.subsetFilter).toBe("neetcode150");
+    // Only the two neetcode150 members — not the neetcode250-only #3.
+    expect(h.state.filtered.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  test('Enter with subset "all" applies no subset scope', () => {
+    const h = harness();
+    const probs = [
+      { id: 1, title: "A", slug: "a", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["blind75"] },
+      { id: 2, title: "B", slug: "b", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [] },
+    ] as unknown as Problem[];
+    h.state.list = { name: "demo", title: "Demo", problems: probs };
+    h.state.allProblems = probs;
+
+    h.key("m");
+    h.state.roadmap!.subset = "all";
+    h.key("\r");
+
+    expect(h.state.subsetFilter).toBeNull();
+    // No subset scope → both A&H problems, including the one with no subsets.
+    expect(h.state.filtered.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  test("x clears the subset scope along with the other filters", () => {
+    const h = harness();
+    const probs = [
+      { id: 1, title: "A", slug: "a", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [], subsets: ["neetcode150"] },
+      { id: 2, title: "B", slug: "b", url: "u", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", topics: [] },
+    ] as unknown as Problem[];
+    h.state.list = { name: "demo", title: "Demo", problems: probs };
+    h.state.allProblems = probs;
+
+    h.key("m");
+    h.state.roadmap!.subset = "neetcode150";
+    h.key("\r");
+    expect(h.state.subsetFilter).toBe("neetcode150");
+
+    h.key("f"); // open the filter overlay
+    h.key("x"); // clear all filters
+    expect(h.state.subsetFilter).toBeNull();
+    expect(h.state.tagFilter.size).toBe(0);
+    expect(h.state.filtered.map((p) => p.id)).toEqual([1, 2]);
   });
 
   test("? toggles help", () => {

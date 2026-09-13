@@ -151,6 +151,14 @@ export interface State {
   diff: Difficulty | undefined;
   /** Active NeetCode-pattern filter; empty = no tag filter. */
   tagFilter: Set<string>;
+  /**
+   * Active curated-subset scope (blind75 / neetcode150 / neetcode250), or null
+   * for no scope. Set by drilling into a roadmap box (Enter) so the Problems
+   * list matches the subset-scoped count shown on that box, and cleared with the
+   * other filters. Independent of `tagFilter`: subset is a membership axis,
+   * pattern is a category axis. "all" is never stored here — it means "no scope".
+   */
+  subsetFilter: Exclude<RoadmapSubset, "all"> | null;
   /** Tag-picker overlay (checklist of patterns), or null. */
   tagPicker: { index: number } | null;
   /**
@@ -237,6 +245,7 @@ export function recompute(s: State): void {
     difficulty: s.diff,
     completed: s.completed,
     patterns: s.tagFilter.size > 0 ? [...s.tagFilter] : undefined,
+    subset: s.subsetFilter ?? undefined,
     done,
   });
   // Search is fuzzy (title + pattern + topics + company) and defines the order

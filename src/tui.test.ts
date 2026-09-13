@@ -250,6 +250,7 @@ function makeState(overrides: Partial<Record<string, unknown>> = {}): any {
     doneFilter: "all",
     diff: undefined,
     tagFilter: new Set<string>(),
+    subsetFilter: null,
     tagPicker: null,
     filterPanel: null,
     palette: null,
