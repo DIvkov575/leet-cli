@@ -47,6 +47,13 @@ export interface FilterOptions {
    * disables the filter. A problem with no `pattern` is excluded when set.
    */
   patterns?: string[];
+  /**
+   * Keep only problems that belong to this NeetCode curated subset (one of
+   * "blind75" | "neetcode150" | "neetcode250"). Undefined disables the filter;
+   * a problem whose `subsets` doesn't include it is excluded when set. This is
+   * an axis independent of `patterns` (subset = curated tier, pattern = topic).
+   */
+  subset?: string;
 }
 
 export type SortKey = "id" | "acc" | "difficulty" | "title";
@@ -132,6 +139,7 @@ export function filterProblems(problems: Problem[], opts: FilterOptions = {}): P
   const patternSet = opts.patterns && opts.patterns.length > 0 ? new Set(opts.patterns) : null;
   return problems.filter((p) => {
     if (patternSet && !(p.pattern && patternSet.has(p.pattern))) return false;
+    if (opts.subset && !(p.subsets ?? []).includes(opts.subset)) return false;
     if (opts.difficulty && p.difficulty !== opts.difficulty) return false;
     if (opts.minAcceptance !== undefined) {
       if (p.acceptance === null || p.acceptance < opts.minAcceptance) return false;

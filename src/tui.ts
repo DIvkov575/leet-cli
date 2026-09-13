@@ -125,6 +125,7 @@ export async function runTui(list?: ProblemList): Promise<void> {
     doneFilter: "all",
     diff: undefined,
     tagFilter: new Set<string>(),
+    subsetFilter: null,
     tagPicker: null,
     roadmap: null,
     search: "",

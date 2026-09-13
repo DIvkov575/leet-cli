@@ -322,6 +322,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
             state.doneFilter = "all";
             state.diff = undefined;
             state.tagFilter.clear();
+            state.subsetFilter = null;
             recompute(state);
           }
           break;
@@ -329,6 +330,7 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
           state.doneFilter = "all";
           state.diff = undefined;
           state.tagFilter.clear();
+          state.subsetFilter = null;
           recompute(state);
           break;
         default:
@@ -457,6 +459,9 @@ export function createInputHandler(ctx: TuiContext, actions: Actions): (buf: Buf
           const node = flat[rm.cursor];
           if (node) {
             state.tagFilter = new Set([node.pattern]);
+            // Carry the roadmap's subset scope into the Problems list so the
+            // drilled-in list matches the box's subset-scoped count ("all" = none).
+            state.subsetFilter = rm.subset === "all" ? null : rm.subset;
             state.roadmap = null;
             state.focus = "problems";
             state.lastPanel = "problems";

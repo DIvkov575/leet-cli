@@ -114,6 +114,30 @@ describe("filterProblems", () => {
   test("a problem with no pattern is excluded when patterns are set", () => {
     expect(filterProblems(tagged, { patterns: ["Arrays & Hashing"] }).map((p) => p.id)).toEqual([1]);
   });
+
+  const tiered: Problem[] = [
+    { id: 1, title: "A", slug: "a", url: "", acceptance: 50, difficulty: "Easy", pattern: "Arrays & Hashing", subsets: ["blind75", "neetcode150", "neetcode250"] },
+    { id: 2, title: "B", slug: "b", url: "", acceptance: 50, difficulty: "Medium", pattern: "Arrays & Hashing", subsets: ["neetcode150", "neetcode250"] },
+    { id: 3, title: "C", slug: "c", url: "", acceptance: 50, difficulty: "Medium", pattern: "Arrays & Hashing", subsets: ["neetcode250"] },
+    { id: 4, title: "D", slug: "d", url: "", acceptance: 50, difficulty: "Easy", pattern: "Stack" }, // no subsets
+  ];
+  test("by subset keeps only members of that tier", () => {
+    expect(filterProblems(tiered, { subset: "blind75" }).map((p) => p.id)).toEqual([1]);
+    expect(filterProblems(tiered, { subset: "neetcode150" }).map((p) => p.id)).toEqual([1, 2]);
+    expect(filterProblems(tiered, { subset: "neetcode250" }).map((p) => p.id)).toEqual([1, 2, 3]);
+  });
+  test("undefined subset ignores the filter", () => {
+    expect(filterProblems(tiered, {}).map((p) => p.id)).toEqual([1, 2, 3, 4]);
+  });
+  test("subset composes with pattern (independent axes)", () => {
+    // neetcode150 ∩ Arrays & Hashing — excludes the neetcode250-only #3 and the Stack #4.
+    expect(
+      filterProblems(tiered, { subset: "neetcode150", patterns: ["Arrays & Hashing"] }).map((p) => p.id),
+    ).toEqual([1, 2]);
+  });
+  test("a problem with no subsets is excluded when a subset is set", () => {
+    expect(filterProblems(tiered, { subset: "neetcode250" }).map((p) => p.id)).not.toContain(4);
+  });
 });
 
 describe("sortProblems", () => {

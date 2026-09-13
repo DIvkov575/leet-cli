@@ -207,7 +207,8 @@ function problemsPanel(s: State, width: number, height: number, focused: boolean
       : s.tagFilter.size === 1
         ? `#${[...s.tagFilter][0]}`
         : `#${s.tagFilter.size} tags`;
-  const settings = [`${s.doneFilter}`, s.diff ?? "any", tagLabel, `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`]
+  const subsetLabel = s.subsetFilter ? `@${s.subsetFilter}` : "";
+  const settings = [`${s.doneFilter}`, s.diff ?? "any", tagLabel, subsetLabel, `${s.sortKey}${s.sortDesc ? "↓" : "↑"}`]
     .filter(Boolean)
     .join(" · ");
   const total = s.showingRecommended ? s.recommended.length : s.list.problems.length;
