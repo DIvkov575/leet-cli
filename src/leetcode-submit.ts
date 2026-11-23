@@ -65,6 +65,44 @@ async function questionId(auth: LeetCodeAuth, slug: string): Promise<string> {
   return id;
 }
 
+/**
+ * Final status code LeetCode stored for a submission (10 = Accepted), or null
+ * if it can't be read. The `/check/` poll reports "Accepted" as soon as the
+ * test cases pass, BEFORE post-judge checks such as a problem's "Restrictions"
+ * (e.g. "use only stacks"), so a check-Accepted submission can still end up
+ * "Restrictions Failed" (code 50) and not count as solved.
+ */
+async function finalStatusCode(auth: LeetCodeAuth, slug: string, id: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${BASE}/graphql`, {
+      method: "POST",
+      headers: authHeaders(auth, slug),
+      body: JSON.stringify({
+        query: "query d($id: Int!) { submissionDetails(submissionId: $id) { statusCode } }",
+        variables: { id: Number(id) },
+      }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { submissionDetails?: { statusCode?: number } | null } };
+    const code = json.data?.submissionDetails?.statusCode;
+    return typeof code === "number" ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** LeetCode submission status codes beyond what `/check/` reports. */
+const STATUS_NAMES: Record<number, string> = {
+  10: "Accepted",
+  11: "Wrong Answer",
+  12: "Memory Limit Exceeded",
+  13: "Output Limit Exceeded",
+  14: "Time Limit Exceeded",
+  15: "Runtime Error",
+  20: "Compile Error",
+  50: "Restrictions Failed",
+};
+
 export interface SubmitOptions {
   lang?: string; // LeetCode lang slug, e.g. "cpp"
   /** Poll timeout in ms (default 30s). */
@@ -184,7 +222,11 @@ export async function submitSolution(
       continue; // transient non-JSON (throttle page); keep polling
     }
     if (d && d.state === "SUCCESS") {
-      const statusMsg = d.status_msg ?? "Unknown";
+      let statusMsg = d.status_msg ?? "Unknown";
+      if (statusMsg === "Accepted") {
+        const code = await finalStatusCode(auth, slug, submissionId);
+        if (code !== null && code !== 10) statusMsg = STATUS_NAMES[code] ?? `Not Accepted (status ${code})`;
+      }
       return {
         statusMsg,
         accepted: statusMsg === "Accepted",

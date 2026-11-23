@@ -183,6 +183,7 @@ leet undone <id|slug ...>        # unmark problems as done
 leet import <path|owner/repo>    # mark done from NeetCode (or --adapter leetcode)
 leet auth                        # grab your LeetCode session from a local browser
 leet push [--source …] [--yes]   # submit solutions to LeetCode to mark them Accepted
+leet push --source repo [--yes]  # sync your own NeetCode submissions to LeetCode
 leet sync [owner/repo] [list...] # package problems into a GitHub repo (default: your sync repo)
 leet sync-repo [create|adopt …]  # form/register your solution-sync repo (saved in config)
 leet pull-solutions [owner/repo] # add solved problems missing from your sync repo
@@ -482,6 +483,29 @@ leet push --yes              # submit every problem not yet Accepted on LeetCode
 leet push --source dir --yes # submit your own solution files
 leet push --yes --delay 20   # go slower (20s between submissions)
 ```
+
+### Syncing your NeetCode progress (`--source repo`)
+
+The default source submits NeetCode's *reference* solutions, not yours. To
+mirror problems **you** solved on neetcode.io, point `push` at your NeetCode
+GitHub sync (`neetcode-submissions-*`):
+
+```sh
+leet push --source repo                       # dry run, uses config neetcodeRepo / syncRepo
+leet push --source repo owner/neetcode-submissions-xxxx --yes
+leet push --source repo ./local-checkout --yes --fallback
+```
+
+For each problem folder it maps the NeetCode slug to LeetCode's, skips
+Premium-only problems and ones already Accepted, and submits your newest
+`submission-N` file in its own language (C++, Python, Java, JS/TS, Go, Rust, …).
+`--fallback` retries older submissions when the newest isn't accepted. Repo
+resolution: positional arg > `$LEET_NEETCODE_REPO` > config `neetcodeRepo` >
+config `syncRepo`.
+
+A verdict counts as Accepted only if LeetCode's final status agrees: the judge
+can report "Accepted" on test cases and then fail a problem's restrictions
+(e.g. "use only stacks"), which leaves it unsolved.
 
 It skips problems **already Accepted on your LeetCode account** (checked live,
 not from local tracking — so problems you only marked done via `import` are still
