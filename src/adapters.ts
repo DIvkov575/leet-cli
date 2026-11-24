@@ -114,6 +114,10 @@ const NEETCODE_ALIASES: Record<string, string> = {
   "set-zeroes-in-matrix": "set-matrix-zeroes",
   "task-scheduling": "task-scheduler",
   "three-integer-sum": "3sum",
+  "cheapest-flight-path": "cheapest-flights-within-k-stops",
+  "buy-and-sell-crypto-with-cooldown": "best-time-to-buy-and-sell-stock-with-cooldown",
+  "count-subsequences": "distinct-subsequences",
+  "longest-increasing-path-in-matrix": "longest-increasing-path-in-a-matrix",
 };
 
 /** Slug of the immediate parent directory of any `submission*` file. */

@@ -10,9 +10,13 @@ const auth = { session: "s", csrf: "c" };
 const noSleep = async () => {};
 
 /** Stub the graphql questionId lookup, the submit POST, and N check polls. */
-function stubSubmit(checkStates: object[]) {
+function stubSubmit(checkStates: object[], finalStatusCode?: number) {
   let poll = 0;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/graphql") && String(init?.body).includes("submissionDetails")) {
+      const details = finalStatusCode === undefined ? null : { statusCode: finalStatusCode };
+      return new Response(JSON.stringify({ data: { submissionDetails: details } }), { status: 200 });
+    }
     if (url.endsWith("/graphql")) {
       return new Response(JSON.stringify({ data: { question: { questionId: "42" } } }), { status: 200 });
     }
@@ -38,6 +42,19 @@ describe("submitSolution", () => {
     expect(v.accepted).toBe(true);
     expect(v.statusMsg).toBe("Accepted");
     expect(v.passed).toBe(354);
+  });
+
+  test("check-Accepted but Restrictions Failed afterwards is not accepted", async () => {
+    stubSubmit([{ state: "SUCCESS", status_msg: "Accepted", total_correct: 23, total_testcases: 23 }], 50);
+    const v = await submitSolution(auth, "implement-queue-using-stacks", "code", { sleep: noSleep });
+    expect(v.accepted).toBe(false);
+    expect(v.statusMsg).toBe("Restrictions Failed");
+  });
+
+  test("check-Accepted confirmed by final status 10 stays accepted", async () => {
+    stubSubmit([{ state: "SUCCESS", status_msg: "Accepted" }], 10);
+    const v = await submitSolution(auth, "two-sum", "code", { sleep: noSleep });
+    expect(v.accepted).toBe(true);
   });
 
   test("reports a non-accepted verdict with detail", async () => {

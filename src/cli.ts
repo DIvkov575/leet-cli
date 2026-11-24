@@ -51,6 +51,7 @@ import {
   NEETCODE_TOPIC_DIR,
 } from "./pull-solutions.ts";
 import { fetchNeetcodeCpp } from "./neetcode.ts";
+import { checkoutRepoSource, collectRepoProblems } from "./push-repo.ts";
 import { authFromBrowser } from "./auth.ts";
 import { runTui } from "./tui.ts";
 import { resolveCompileFlags } from "./runner.ts";
@@ -68,7 +69,8 @@ Usage:
   leet solve <id|slug> [-o]        Scaffold a runnable C++ file (cache-first); -o opens it ($VISUAL/$EDITOR, else nvim/vim/vi)
   leet test <id|slug>              Compile the scaffolded solution and run its test harness
   leet fix-harness [id|slug]       Regenerate a stale/missing test harness, keeping your solution code (omit id to fix every file in --dir)
-  leet push [--source neetcode|dir] Submit solutions to LeetCode to mark them Accepted (--yes to apply)
+  leet push --source repo [repo]   Submit YOUR NeetCode sync submissions to LeetCode (--yes to apply, --fallback)
+  leet push [--source neetcode|dir] Submit NeetCode reference / local solutions to LeetCode (--yes to apply)
   leet sync [owner/repo] [list...] Package all problems (desc + stub + tests) into a GitHub repo (default: sync repo)
   leet sync-repo [create|adopt …]  Form/register your solution-sync repo (saved in config)
   leet pull-solutions [owner/repo] Add LeetCode-solved problems missing from your sync repo
@@ -840,6 +842,10 @@ async function cmdPush(p: Parsed): Promise<void> {
   }
 
   const sourceKind = (p.values.source as string | undefined) ?? "neetcode";
+  if (sourceKind === "repo") return cmdPushRepo(p, auth);
+  if (sourceKind !== "neetcode" && sourceKind !== "dir") {
+    throw new UserError(`unknown --source "${sourceKind}" (use repo, neetcode, or dir).`);
+  }
   const dryRun = Boolean(p.values["dry-run"]) || !p.values.yes;
   const limit = p.values.limit ? Math.max(1, Number(p.values.limit)) : Infinity;
   const config = await loadConfig();
@@ -953,6 +959,144 @@ async function cmdPush(p: Parsed): Promise<void> {
     if (i < work.length - 1) await new Promise((r) => setTimeout(r, delayMs));
   }
   console.error(`\ndone: ${accepted} accepted, ${failed} not accepted. ${completed.size} done total.`);
+}
+
+/**
+ * `leet push --source repo [owner/repo|path]` — submit your own solutions from
+ * a NeetCode.io GitHub sync to LeetCode. Repo: positional > $LEET_NEETCODE_REPO
+ * > config `neetcodeRepo` > config `syncRepo`. For every problem not yet
+ * Accepted on LeetCode (and not Premium), submits the newest submission in its
+ * own language; `--fallback` then tries older submissions until one passes.
+ * Dry run unless --yes.
+ */
+async function cmdPushRepo(
+  p: Parsed,
+  auth: NonNullable<ReturnType<typeof resolveLeetCodeAuth>>,
+): Promise<void> {
+  const config = await loadConfig();
+  const source = p.positionals[0] ?? resolveNeetcodeRepo(undefined, config) ?? config.syncRepo;
+  if (!source) {
+    throw new UserError(
+      "no NeetCode sync repo given or configured.\n" +
+        "  usage: leet push --source repo <owner/repo|path> [--yes]\n" +
+        "  or set one: leet config neetcodeRepo <owner/repo>",
+    );
+  }
+  const dryRun = Boolean(p.values["dry-run"]) || !p.values.yes;
+  const limit = p.values.limit ? Math.max(1, Number(p.values.limit)) : Infinity;
+  const fallback = Boolean(p.values.fallback);
+  const delayMs = p.values.delay ? Math.max(0, Number(p.values.delay) * 1000) : 12_000;
+
+  console.error(`reading your submissions from ${source}…`);
+  const { dir, cleanup } = await checkoutRepoSource(source);
+  try {
+    const problems = await collectRepoProblems(dir);
+    console.error(`${problems.length} problem folder(s) with submittable solutions.`);
+
+    let remoteSolved = new Set<string>();
+    if (!p.values.all) {
+      console.error("checking which problems you've already solved on LeetCode…");
+      remoteSolved = new Set(await fetchSolvedSlugs(auth));
+    }
+
+    const bundledIds = new Map<string, number>();
+    for (const name of await availableLists()) {
+      for (const pr of (await loadList(name)).problems) bundledIds.set(pr.slug, pr.id);
+    }
+
+    const work: typeof problems = [];
+    const premium: string[] = [];
+    const missing: string[] = [];
+    let alreadySolved = 0;
+    for (const pr of problems) {
+      if (remoteSolved.has(pr.slug)) {
+        alreadySolved++;
+        continue;
+      }
+      // Keep counting already-solved past the cap; just stop queueing work.
+      if (work.length >= limit) continue;
+      try {
+        const meta = await fetchProblem(pr.slug);
+        if (meta.isPaidOnly) {
+          premium.push(pr.slug);
+          continue;
+        }
+      } catch {
+        missing.push(pr.neetcodeSlug === pr.slug ? pr.slug : `${pr.neetcodeSlug} (${pr.slug})`);
+        continue;
+      }
+      work.push(pr);
+    }
+
+    console.log(`${alreadySolved} already Accepted on LeetCode.`);
+    if (premium.length) console.log(`skipping ${premium.length} Premium-only: ${premium.join(", ")}`);
+    if (missing.length) {
+      console.log(`skipping ${missing.length} with no matching LeetCode problem: ${missing.join(", ")}`);
+    }
+    if (work.length === 0) {
+      console.log("nothing to submit — LeetCode is in sync with your NeetCode submissions.");
+      return;
+    }
+    console.log(`${work.length} problem(s) to submit:`);
+    for (const pr of work) {
+      const s = pr.submissions[0]!;
+      console.log(`  ${pr.slug}  (submission-${s.n}, ${s.lang})`);
+    }
+    if (dryRun) {
+      console.error(
+        `\n(dry run — nothing submitted. --yes makes ${work.length}${fallback ? "+" : ""} real ` +
+          `submission(s) to your LeetCode account.)`,
+      );
+      return;
+    }
+
+    const completed = await loadCompleted();
+    const failedSlugs: string[] = [];
+    let accepted = 0;
+    let first = true;
+    for (let i = 0; i < work.length; i++) {
+      const pr = work[i]!;
+      const attempts = fallback ? pr.submissions : pr.submissions.slice(0, 1);
+      let ok = false;
+      for (const s of attempts) {
+        if (!first) await new Promise((r) => setTimeout(r, delayMs));
+        first = false;
+        process.stderr.write(`[${i + 1}/${work.length}] ${pr.slug} submission-${s.n} (${s.lang})… `);
+        try {
+          const code = await Bun.file(s.path).text();
+          const v = await submitSolution(auth, pr.slug, code, {
+            lang: s.lang,
+            onRetry: (attempt, waitMs) =>
+              process.stderr.write(`(rate-limited; backing off ${Math.round(waitMs / 1000)}s, retry ${attempt})… `),
+          });
+          if (v.accepted) {
+            console.error("Accepted");
+            ok = true;
+            break;
+          }
+          console.error(`${v.statusMsg}${v.detail ? ` — ${v.detail.split("\n")[0]}` : ""}`);
+        } catch (err) {
+          console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (ok) {
+        accepted++;
+        const id = bundledIds.get(pr.slug);
+        if (id !== undefined) {
+          completed.add(id);
+          await saveCompleted(completed);
+        }
+      } else {
+        failedSlugs.push(pr.slug);
+      }
+    }
+    console.error(`\ndone: ${accepted}/${work.length} accepted.`);
+    if (failedSlugs.length) {
+      console.error(`not accepted: ${failedSlugs.join(", ")}${fallback ? "" : " (try --fallback for older submissions)"}`);
+    }
+  } finally {
+    await cleanup();
+  }
 }
 
 /** Run a command, throwing with stderr on non-zero exit. */
@@ -1545,7 +1689,8 @@ async function main(): Promise<number> {
     case "push":
       await cmdPush(
         parse(rest, {
-          source: { type: "string" }, // "neetcode" (default) or "dir"
+          source: { type: "string" }, // "neetcode" (default), "dir", or "repo"
+          fallback: { type: "boolean" }, // --source repo: try older submissions on failure
           dir: { type: "string" },
           "dry-run": { type: "boolean" },
           yes: { type: "boolean", short: "y" },
