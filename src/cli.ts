@@ -1013,7 +1013,8 @@ async function cmdPushRepo(
         alreadySolved++;
         continue;
       }
-      if (work.length >= limit) break;
+      // Keep counting already-solved past the cap; just stop queueing work.
+      if (work.length >= limit) continue;
       try {
         const meta = await fetchProblem(pr.slug);
         if (meta.isPaidOnly) {

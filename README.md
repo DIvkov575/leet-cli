@@ -503,6 +503,9 @@ Premium-only problems and ones already Accepted, and submits your newest
 resolution: positional arg > `$LEET_NEETCODE_REPO` > config `neetcodeRepo` >
 config `syncRepo`.
 
+The same sync is also published as a standalone tool, no install needed:
+`bunx github:DIvkov575/neet2leet` (see [neet2leet](https://github.com/DIvkov575/neet2leet)).
+
 A verdict counts as Accepted only if LeetCode's final status agrees: the judge
 can report "Accepted" on test cases and then fail a problem's restrictions
 (e.g. "use only stacks"), which leaves it unsolved.
